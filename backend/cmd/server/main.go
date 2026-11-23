@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -29,21 +30,33 @@ const (
 	keepFor = 24 * time.Hour
 	// ?refresh=1 within this delay of the last sync is served from the cache (ADR-20).
 	minRefresh = 10 * time.Second
-	// Shutdown lets the running requests finish; a long sync is cut short past this.
-	shutdownTimeout = 20 * time.Second
 )
 
+// Shutdown lets the running requests finish; a long sync is cut short past this. A variable
+// for the tests.
+var shutdownTimeout = 20 * time.Second
+
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	slog.SetDefault(logger)
-	if err := run(logger); err != nil {
-		logger.Error("server stopped", "err", err)
-		os.Exit(1)
-	}
+	os.Exit(serve(os.Getenv, os.Stderr))
 }
 
-func run(logger *slog.Logger) error {
-	cfg, err := config.Load(os.Getenv)
+// serve logs to out and serves until SIGINT or SIGTERM; it returns the process exit code.
+func serve(getenv func(string) string, out io.Writer) int {
+	logger := slog.New(slog.NewTextHandler(out, nil))
+	slog.SetDefault(logger)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	context.AfterFunc(ctx, stop) // a second signal kills the process at once
+	if err := run(ctx, getenv, logger); err != nil {
+		logger.Error("server stopped", "err", err)
+		return 1
+	}
+	return 0
+}
+
+// run serves until ctx is done, then shuts down gracefully.
+func run(ctx context.Context, getenv func(string) string, logger *slog.Logger) error {
+	cfg, err := config.Load(getenv)
 	if err != nil {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
@@ -72,9 +85,6 @@ func run(logger *slog.Logger) error {
 		ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelWarn),
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
 	// Warm the cache, so the first visitor doesn't wait for GitLab.
 	srv.Prefetch()
 
@@ -89,7 +99,6 @@ func run(logger *slog.Logger) error {
 		return err
 	case <-ctx.Done():
 	}
-	stop() // a second signal kills the process at once
 	logger.Info("shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
