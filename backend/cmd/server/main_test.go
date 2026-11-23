@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"gleipnir/internal/board"
 	"gleipnir/internal/config"
 	"gleipnir/internal/gitlab"
 )
@@ -38,6 +39,21 @@ func TestDemoSourceFetch(t *testing.T) {
 	}
 	if raw == nil || len(raw.Iterations) == 0 || len(raw.Items) == 0 {
 		t.Fatalf("the demo dataset is empty: %+v", raw)
+	}
+}
+
+func TestDemoSourceFetchItems(t *testing.T) {
+	items, err := demoSource{}.FetchItems(context.Background(), []string{"plateforme/atlas/api"})
+	if err != nil || len(items) == 0 {
+		t.Fatalf("FetchItems = %d items, %v", len(items), err)
+	}
+	for _, it := range items {
+		if g := board.ItemGroup(it); g != "plateforme/atlas/api" {
+			t.Errorf("item %s of group %s is outside the scope", it.ID, g)
+		}
+	}
+	if items, _ := (demoSource{}).FetchItems(context.Background(), nil); len(items) != 0 {
+		t.Errorf("an empty scope gave %d items", len(items))
 	}
 }
 

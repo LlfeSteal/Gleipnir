@@ -9,7 +9,7 @@ Ce fichier consigne les choix qui structurent Gleipnir, sous forme de courts ADR
 |---|---|---|
 | 1 | Backend Go sans dépendance externe | 2026-11-23 |
 | 2 | GraphQL GitLab écrit à la main | 2026-11-23 |
-| 3 | Cache mémoire « stale-while-revalidate » | 2026-11-23 |
+| 3 | Cache mémoire « stale-while-revalidate » (remplacé par ADR-24) | 2026-11-23 |
 | 4 | Le backend normalise, le frontend met en page | 2026-11-23 |
 | 5 | Couloirs stockés dans le navigateur | 2026-11-23 |
 | 6 | Une seule cadence par board | 2026-11-23 |
@@ -29,6 +29,8 @@ Ce fichier consigne les choix qui structurent Gleipnir, sous forme de courts ADR
 | 20 | Synchros forcées limitées | 2026-11-23 |
 | 21 | Écarts assumés par rapport à `style.md` | 2026-11-23 |
 | 22 | Outillage de développement dans le devcontainer | 2026-11-23 |
+| 23 | Couverture de tests : 90 % de lignes et de fonctions | 2026-11-23 |
+| 24 | Synchro complète périodique et rafraîchissement ciblé | 2026-11-23 |
 
 ---
 
@@ -79,7 +81,7 @@ Les erreurs sont typées : `ErrUnauthorized`, `ErrGroupNotFound`, `ErrPremiumReq
 
 ## ADR-3 — Cache mémoire « stale-while-revalidate »
 
-*2026-11-23 · Accepté*
+*2026-11-23 · Remplacé par ADR-24*
 
 **Contexte.** Une synchro complète d'un groupe parcourt plusieurs pages GitLab. Plusieurs utilisateurs ouvrent le board en même temps. Nornir a un cache qui répond à ce besoin (`internal/cache/cache.go`).
 
@@ -446,7 +448,7 @@ Les erreurs sont typées : `ErrUnauthorized`, `ErrGroupNotFound`, `ErrPremiumReq
 
 ## ADR-20 — Synchros forcées limitées
 
-*2026-11-23 · Accepté*
+*2026-11-23 · Accepté, amendé par ADR-24 (l'intervalle s'applique par groupe)*
 
 **Contexte.** `?refresh=1` attend une synchro complète, qui parcourt toutes les pages GitLab. Un client qui le répète en boucle ferait travailler l'instance et consommerait la limite de débit de GitLab, alors qu'aucune authentification ne protège l'API. De même, quand GitLab échoue, chaque requête sur un board périmé relançait aussitôt une synchro.
 
@@ -513,3 +515,39 @@ Une synchro en cours reste partagée par toutes les requêtes. Sans données en 
   - `shutdownTimeout` est une variable, pour tester la fermeture forcée des connexions.
 
 **Conséquences.** Les tests de `cmd/server` démarrent un vrai serveur sur un port libre et s'envoient SIGTERM. Ils ne le font qu'une fois `serve` à l'écoute du signal, sinon le binaire de test serait tué. Seul `main` reste non couvert côté Go.
+
+---
+
+## ADR-24 — Synchro complète périodique et rafraîchissement ciblé
+
+*2026-11-23 · Accepté · Remplace ADR-3, amende ADR-20*
+
+**Contexte.** Une synchro complète parcourt toutes les pages `workItems` du groupe, l'une après l'autre (3 à 8 s par page). Le bouton Synchroniser en lançait une et l'attendait : c'était très lent. La synchro de fond, elle, ne partait qu'à la première requête après `CACHE_TTL`. Or l'utilisateur ne regarde souvent que quelques couloirs.
+
+**Décision.**
+
+- **Synchro complète périodique** (`cache.Store.Run`) : au démarrage, puis `CACHE_TTL` après la fin de chaque synchro, pour qu'elles ne se chevauchent pas. Le board en cache reste servi pendant la synchro (`X-Cache: HIT`). Une requête ne lance une synchro complète que s'il n'y a encore aucune donnée.
+- **Rafraîchissement ciblé** : `GET /api/board?refresh=1&groups=a,b`.
+  - Le frontend envoie les groupes des couloirs actifs, sans ceux dont un ancêtre est déjà listé (`refreshScope`).
+  - Le backend relit **seulement** les work items du sous-arbre de chaque groupe (`group(fullPath)` + `includeDescendants`), jusqu'à 4 en parallèle. Il ne relit ni les groupes, ni la cadence, ni les itérations.
+  - Le sous-arbre est toujours lu en entier, même pour un couloir sans sous-groupes : les issues vivent dans les projets, sous le groupe.
+  - Les groupes inconnus sont ignorés. Sans groupe connu : HTTP 400 `invalid_scope`. Il n'y a plus de synchro complète depuis l'interface.
+- **Fusion** (`board.MergeScope`, règles métier testées table par table) :
+  - les éléments du sous-arbre sont remplacés, ainsi que tout élément qui porte l'ID d'un élément relu (déplacé dans le sous-arbre) ;
+  - le côté relu fait foi pour les liens qui le touchent : les liens des autres éléments qui pointent dans le sous-arbre sont retirés. Sinon, un lien supprimé dans GitLab survivrait par l'autre côté, puisque `Build` réunit les deux sens ;
+  - le board entier est ensuite reconstruit avec `board.Build`, puis réencodé.
+- **Date de lecture par groupe** :
+  - chaque groupe garde l'heure de **début** de la lecture dont viennent ses éléments ;
+  - `groups[].syncedAt` la sert au frontend ;
+  - « Mis à jour il y a… » montre la plus ancienne des groupes affichés par les couloirs actifs ;
+  - `X-Fetched-At` donne la plus ancienne de tout le board.
+- **Lectures concurrentes** : une synchro complète et un rafraîchissement ciblé peuvent se croiser. Pour chaque groupe, on garde la lecture **commencée le plus tard** : ni l'un ni l'autre n'écrase des données plus récentes. La fusion et l'encodage se font sous un seul verrou, dans l'ordre d'application.
+- **Intervalle minimal** (ADR-20) : il s'applique désormais **par groupe**, compté depuis la **fin** de la lecture. Un rafraîchissement dont tous les groupes ont été relus depuis moins de 10 s est servi depuis le cache. Deux rafraîchissements de la même portée partagent une seule lecture.
+- **Plus de purge après 24 h** : un board ancien, dont l'âge est affiché honnêtement, vaut mieux qu'une erreur.
+
+**Conséquences.**
+
+- Le bouton est d'autant plus rapide que les couloirs actifs sont peu nombreux. Avec tous les couloirs par défaut, la portée couvre presque tout le groupe. Le gain vient alors seulement du parallélisme et des requêtes évitées.
+- Le board peut mêler des groupes d'âges différents, au plus `CACHE_TTL` plus la durée d'une synchro.
+- Un élément déplacé **hors** du sous-arbre relu disparaît jusqu'à la synchro complète suivante, ou jusqu'au rafraîchissement de son nouveau groupe.
+- La date de chaque groupe est servie dans le board : le frontend recalcule l'âge à chaque changement de couloir, sans nouvelle requête.

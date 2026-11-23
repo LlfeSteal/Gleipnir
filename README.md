@@ -53,7 +53,9 @@ Après une modification de `.env` :
 docker compose up -d --force-recreate backend && docker compose up -d
 ```
 
-La première synchronisation d'un grand groupe peut prendre du temps. Les suivantes sont servies depuis le cache.
+La première synchronisation d'un grand groupe peut prendre du temps. Ensuite, le backend relit tout le groupe en arrière-plan toutes les `CACHE_TTL`, et sert le board en cache en attendant.
+
+Le bouton **Synchroniser** ne relit que les groupes des **couloirs actifs**, avec leurs sous-groupes : désactivez les couloirs inutiles pour une synchro plus rapide. Les autres groupes gardent leurs données jusqu'à la prochaine synchro complète. « Mis à jour il y a… » indique l'âge du plus ancien groupe affiché.
 
 ### En mode démo, sans GitLab
 
@@ -94,7 +96,7 @@ Toutes les variables sont lues par le backend. Avec Docker, elles viennent de `.
 | `GITLAB_TOKEN` | — | Jeton `read_api`. Il reste côté serveur et n'est jamais journalisé. |
 | `GITLAB_GROUP` | — | Chemin complet du groupe racine. **Obligatoire**, sauf en mode démo. |
 | `GITLAB_CADENCE` | la cadence de l'itération en cours | Cadence d'itérations affichée, par titre ou par id. |
-| `CACHE_TTL` | `5m` | Durée Go pendant laquelle les données sont fraîches. Au-delà, elles sont servies telles quelles pendant qu'une synchro les rafraîchit, puis jetées après 24 h. |
+| `CACHE_TTL` | `5m` | Durée Go entre la fin d'une synchro complète et le début de la suivante. Le board en cache reste servi pendant la synchro. |
 | `TZ` | `Europe/Paris` (compose) | Fuseau horaire. Il décide de l'itération en cours. |
 | `GLEIPNIR_DEMO` | vide | `1` ou `true` : sert le jeu de démonstration au lieu de GitLab. |
 | `PORT` | `8080` | Port du backend. Ne pas le changer avec Docker : nginx proxifie vers `backend:8080`. |
@@ -145,7 +147,7 @@ backend/                 API Go (module gleipnir, bibliothèque standard uniquem
   internal/config/       variables d'environnement
   internal/gitlab/       client GraphQL GitLab (lecture seule)
   internal/board/        modèle JSON, règles métier, jeu de démonstration
-  internal/cache/        cache mémoire « stale-while-revalidate »
+  internal/cache/        board en mémoire : synchro complète périodique, rafraîchissement ciblé
   internal/api/          handlers HTTP
 frontend/                application React + Vite + TypeScript
   src/api/               client HTTP et types de l'API

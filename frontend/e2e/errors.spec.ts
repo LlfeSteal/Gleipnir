@@ -69,21 +69,30 @@ for (const { name, failure, title, message } of CASES) {
     await expect(banner).toContainText(message);
     await expect(boardItem(page, '&18')).toHaveCount(0);
 
-    // GitLab is back: "Réessayer" loads the board, asking the backend to sync again.
+    // GitLab is back: "Réessayer" loads the board. Nothing is shown yet, so no lane to scope a
+    // refresh to: the backend answers from its cache, or syncs everything when it has none.
     state.failing = false;
     const retry = page.waitForRequest((r) => isBoard(new URL(r.url())));
     await banner.getByRole('button', { name: 'Réessayer' }).click();
-    expect(new URL((await retry).url()).searchParams.get('refresh')).toBe('1');
+    expect(new URL((await retry).url()).searchParams.get('refresh')).toBeNull();
     await expect(boardItem(page, '&18')).toBeVisible();
     await expect(page.getByRole('alert')).toHaveCount(0);
   });
 }
 
-test('"Synchroniser" asks the backend to sync again (refresh=1)', async ({ page }) => {
+test('"Synchroniser" asks the backend to read the groups of the active lanes again', async ({ page }) => {
   await openBoard(page);
   const request = page.waitForRequest((r) => isBoard(new URL(r.url())));
   await page.getByRole('button', { name: 'Synchroniser' }).click();
-  expect(new URL((await request).url()).searchParams.get('refresh')).toBe('1');
+  const url = new URL((await request).url());
+  expect(url.searchParams.get('refresh')).toBe('1');
+  // The default lanes: one per subgroup of the demo's root group.
+  expect(url.searchParams.get('groups')?.split(',')).toEqual([
+    'plateforme/atlas/api',
+    'plateforme/atlas/data',
+    'plateforme/atlas/experience',
+    'plateforme/atlas/identite',
+  ]);
   await expect(page.getByRole('button', { name: 'Synchroniser' })).toBeEnabled();
   await expect(boardItem(page, '&18')).toBeVisible();
 });
@@ -104,4 +113,26 @@ test('a failed refresh keeps the board and shows the banner', async ({ page }) =
   await page.getByRole('alert').getByRole('button', { name: 'Réessayer' }).click();
   await expect(page.getByRole('alert')).toHaveCount(0);
   await expect(boardItem(page, '&18')).toBeVisible();
+});
+
+test('"Synchroniser" only reads the lanes left active, and is off without any', async ({ page }) => {
+  await openBoard(page);
+  const sidebar = page.getByRole('complementary', { name: 'Filtres' });
+  for (const name of ['Data', 'Expérience produit', 'Identité & sécurité']) {
+    await sidebar.getByRole('checkbox', { name }).uncheck();
+  }
+  const sync = page.getByRole('button', { name: 'Synchroniser' });
+  const response = page.waitForResponse((r) => isBoard(new URL(r.url())) && r.request().url().includes('refresh=1'));
+  await sync.click();
+  const answer = await response;
+  expect(new URL(answer.url()).searchParams.get('groups')).toBe('plateforme/atlas/api');
+  expect(answer.status()).toBe(200);
+  expect(['HIT', 'MISS']).toContain(answer.headers()['x-cache']);
+  // The toolbar tells how old the groups on screen are.
+  await expect(page.locator('.toolbar-updated')).toHaveText(/Mis à jour (à l'instant|il y a \d+ min)/);
+  await expect(sync).toBeEnabled();
+
+  await sidebar.getByRole('checkbox', { name: 'API & intégrations' }).uncheck();
+  await expect(sync).toBeDisabled();
+  await expect(sync).toHaveAttribute('title', 'Aucun couloir actif à synchroniser');
 });

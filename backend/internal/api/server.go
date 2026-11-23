@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"gleipnir/internal/board"
@@ -16,21 +17,14 @@ import (
 )
 
 // Source hands the raw board data to the server: the GitLab client, or the demo dataset.
-type Source interface {
-	Fetch(ctx context.Context) (*board.Raw, error)
-}
-
-// SourceFunc adapts a function to Source.
-type SourceFunc func(ctx context.Context) (*board.Raw, error)
-
-func (f SourceFunc) Fetch(ctx context.Context) (*board.Raw, error) { return f(ctx) }
+type Source = cache.Source
 
 // Options configures a Server. Only Source is required.
 type Options struct {
 	Source Source
 	Build  func(*board.Raw, time.Time) *board.Board // default board.Build
 	Now    func() time.Time                         // default time.Now
-	// Cache: Fresh is CACHE_TTL; Now and Logger default to the server's.
+	// Cache: Interval is CACHE_TTL; Now and Logger default to the server's.
 	Cache     cache.Options
 	Demo      bool
 	GitLabURL string
@@ -41,13 +35,12 @@ type Options struct {
 }
 
 // Server answers the API requests. Every visitor sees the same board, read with the one
-// server-wide token, so there is a single cache key.
+// server-wide token.
 type Server struct {
-	source Source
-	build  func(*board.Raw, time.Time) *board.Board
-	now    func() time.Time
-	cache  *cache.Store
-	log    *slog.Logger
+	build func(*board.Raw, time.Time) *board.Board
+	now   func() time.Time
+	cache *cache.Store
+	log   *slog.Logger
 
 	demo      bool
 	gitlabURL string
@@ -55,11 +48,8 @@ type Server struct {
 	token     string
 }
 
-const boardKey = "board"
-
 func NewServer(opts Options) *Server {
 	s := &Server{
-		source:    opts.Source,
 		build:     opts.Build,
 		now:       opts.Now,
 		log:       opts.Logger,
@@ -84,7 +74,7 @@ func NewServer(opts Options) *Server {
 	if cacheOpts.Logger == nil {
 		cacheOpts.Logger = s.log
 	}
-	s.cache = cache.New(cacheOpts)
+	s.cache = cache.New(sourceErrors{opts.Source}, s.encodeBoard, cacheOpts)
 	return s
 }
 
@@ -97,9 +87,10 @@ func (s *Server) Handler() http.Handler {
 	return secureHeaders(s.logRequests(s.recoverPanics(mux)))
 }
 
-// Prefetch starts syncing the board in the background, so the first visitor doesn't wait.
-func (s *Server) Prefetch() {
-	s.cache.Prefetch(boardKey, s.fetchBoard)
+// Run syncs the board now, so the first visitor doesn't wait, then every CACHE_TTL, until
+// ctx is done (see cache.Store.Run).
+func (s *Server) Run(ctx context.Context) {
+	s.cache.Run(ctx)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -111,28 +102,36 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleBoard serves the cached board (see cache.Store.Get). ?refresh=1 waits for a full
-// sync. X-Cache says how it was served, X-Fetched-At when the data was fetched.
+// handleBoard serves the cached board. ?refresh=1&groups=a,b first reads the subtrees of
+// those groups again (Synchroniser): never the whole group, which only the periodic sync
+// reads. X-Cache says how it was served, X-Fetched-At when its oldest group was read.
 func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
-	refresh := r.URL.Query().Get("refresh")
-	entry, state, err := s.cache.Get(r.Context(), boardKey, refresh == "1" || refresh == "true", s.fetchBoard)
+	q := r.URL.Query()
+	var (
+		snap  cache.Snapshot
+		state cache.State
+		err   error
+	)
+	if refresh := q.Get("refresh"); refresh == "1" || refresh == "true" {
+		// GitLab paths can't hold a comma.
+		snap, state, err = s.cache.Refresh(r.Context(), strings.Split(q.Get("groups"), ","))
+	} else {
+		snap, state, err = s.cache.Get(r.Context())
+	}
 	if err != nil {
 		if r.Context().Err() != nil {
-			return // the client is gone; the fetch goes on and fills the cache
+			return // the client is gone; the read goes on and fills the cache
 		}
 		s.writeError(w, err)
 		return
 	}
 	h := w.Header()
-	for name, value := range entry.Header {
-		h.Set(name, value)
-	}
 	h.Set("Content-Type", "application/json; charset=utf-8")
 	h.Set("Cache-Control", "no-store")
 	h.Set("X-Cache", string(state))
-	h.Set("X-Fetched-At", entry.FetchedAt.UTC().Format(time.RFC3339))
+	h.Set("X-Fetched-At", snap.FetchedAt.UTC().Format(time.RFC3339))
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(entry.Body)
+	_, _ = w.Write(snap.Body)
 }
 
 // handleNotFound answers every other path; a known path with another method gets a 405.
@@ -149,30 +148,47 @@ func (s *Server) handleNotFound(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusNotFound, errorBody{Error: "no route for " + r.URL.Path, Code: "not_found"})
 }
 
-// fetchBoard reads the source, builds the board and encodes it once for every request served
-// from the cache. It runs detached from the request (see cache.FetchFunc).
-func (s *Server) fetchBoard(ctx context.Context) (cache.Data, error) {
-	started := time.Now()
-	raw, err := s.source.Fetch(ctx)
-	if err != nil {
-		return cache.Data{}, &sourceError{err: err}
-	}
-	if raw == nil {
-		return cache.Data{}, errors.New("the source returned no data")
-	}
+// encodeBoard builds the board and encodes it once for every request served from the
+// cache. Each group carries the time its items were read.
+func (s *Server) encodeBoard(raw *board.Raw, synced map[string]time.Time) ([]byte, error) {
 	b, err := s.safeBuild(raw)
 	if err != nil {
-		return cache.Data{}, err
+		return nil, err
+	}
+	for i := range b.Groups {
+		if at, ok := synced[b.Groups[i].Path]; ok {
+			at := at.UTC()
+			b.Groups[i].SyncedAt = &at
+		}
 	}
 	body, err := json.Marshal(b)
 	if err != nil {
-		return cache.Data{}, fmt.Errorf("encoding the board: %w", err)
+		return nil, fmt.Errorf("encoding the board: %w", err)
 	}
-	s.log.Info("board synced",
+	s.log.Info("board built",
 		"iterations", len(b.Iterations), "epics", len(b.Epics), "issues", len(b.Issues),
-		"links", len(b.Links), "ignoredIssues", b.IgnoredIssues,
-		"kb", len(body)/1024, "duration", time.Since(started).Round(time.Millisecond))
-	return cache.Data{Body: body}, nil
+		"links", len(b.Links), "ignoredIssues", b.IgnoredIssues, "kb", len(body)/1024)
+	return body, nil
+}
+
+// sourceErrors marks the errors of the source (GitLab) as such: those are 502, unlike our
+// own bugs.
+type sourceErrors struct{ src Source }
+
+func (s sourceErrors) Fetch(ctx context.Context) (*board.Raw, error) {
+	raw, err := s.src.Fetch(ctx)
+	if err != nil {
+		return nil, &sourceError{err: err}
+	}
+	return raw, nil
+}
+
+func (s sourceErrors) FetchItems(ctx context.Context, groups []string) ([]board.RawItem, error) {
+	items, err := s.src.FetchItems(ctx, groups)
+	if err != nil {
+		return nil, &sourceError{err: err}
+	}
+	return items, nil
 }
 
 // safeBuild runs Build and turns a panic into an error: a bug in the business rules must

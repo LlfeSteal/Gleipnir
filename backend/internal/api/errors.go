@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"gleipnir/internal/cache"
 	"gleipnir/internal/gitlab"
 )
 
@@ -18,6 +19,7 @@ const (
 	CodePremiumRequired   = "premium_required"
 	CodeCadenceNotFound   = "cadence_not_found"
 	CodeGitLabUnreachable = "gitlab_unreachable"
+	CodeInvalidScope      = "invalid_scope"
 	CodeInternal          = "internal"
 )
 
@@ -37,6 +39,8 @@ func classify(err error) (int, string) {
 	var srcErr *sourceError
 	var netErr net.Error
 	switch {
+	case errors.Is(err, cache.ErrInvalidScope):
+		return http.StatusBadRequest, CodeInvalidScope
 	case errors.Is(err, gitlab.ErrUnauthorized):
 		return http.StatusUnauthorized, CodeUnauthorized
 	case errors.Is(err, gitlab.ErrGroupNotFound):

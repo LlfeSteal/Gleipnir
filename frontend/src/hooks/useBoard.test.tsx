@@ -44,9 +44,12 @@ describe('useBoard', () => {
 
     let pending: Promise<void> = Promise.resolve();
     act(() => {
-      pending = result.current.reload(true);
+      pending = result.current.reload(['plateforme/atlas/api', 'plateforme/atlas/data']);
     });
-    expect(fetchMock).toHaveBeenLastCalledWith('/api/board?refresh=1', expect.anything());
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      '/api/board?refresh=1&groups=plateforme/atlas/api,plateforme/atlas/data',
+      expect.anything(),
+    );
     expect(result.current.refreshing).toBe(true);
     expect(result.current.data).toBe(first);
     await act(async () => {
@@ -56,7 +59,7 @@ describe('useBoard', () => {
     expect(result.current.refreshing).toBe(false);
     expect(result.current.fetchedAt).toBe('2026-11-23T11:00:00Z');
 
-    await act(() => result.current.reload(false));
+    await act(() => result.current.reload(null));
     expect(result.current.error).toMatchObject({ code: 'unauthorized' });
     expect(result.current.data).not.toBeNull();
   });
@@ -107,7 +110,7 @@ describe('useBoard', () => {
     const { result } = renderHook(() => useBoard());
     let second: Promise<void> = Promise.resolve();
     act(() => {
-      second = result.current.reload(true);
+      second = result.current.reload(['g']);
     });
     expect(signals[0].aborted).toBe(true);
     expect(signals[1].aborted).toBe(false);
@@ -131,7 +134,7 @@ describe('useBoard', () => {
     );
     const { result } = renderHook(() => useBoard());
     act(() => {
-      void result.current.reload(false);
+      void result.current.reload(null);
     });
     await act(async () => rejecters[0](new DOMException('aborted', 'AbortError')));
     expect(result.current.error).toBeNull();
@@ -183,7 +186,7 @@ describe('useBoard background refresh', () => {
     const { result, fetchMock } = await mounted();
     fetchMock.mockImplementationOnce(() => new Promise<Response>(() => {}));
     act(() => {
-      void result.current.reload(true);
+      void result.current.reload(['g']);
     });
     act(() => vi.advanceTimersByTime(5 * MINUTE));
     expect(fetchMock).toHaveBeenCalledTimes(2);

@@ -8,6 +8,9 @@ export type LinkType = 'blocks' | 'relates' | 'parent';
 export interface Group {
   path: string;
   name: string;
+  /** When the group's items were read from GitLab (RFC 3339). Synchroniser refreshes some
+   * groups only, so it differs from one group to the next. */
+  syncedAt?: string;
 }
 
 export interface Cadence {
@@ -106,6 +109,7 @@ export type ApiErrorCode =
   | 'premium_required' // epics / iterations / blocking links unavailable on this instance
   | 'cadence_not_found' // GITLAB_CADENCE matches no cadence, or the group has none
   | 'gitlab_unreachable' // network error / GitLab 5xx (502)
+  | 'invalid_scope' // ?refresh=1 named no group known to the backend (400)
   | 'internal';
 
 export interface ApiErrorBody {

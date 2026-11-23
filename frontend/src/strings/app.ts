@@ -18,7 +18,8 @@ export const APP = {
     updated: (relative: string) => `Mis à jour ${relative}`,
     syncing: 'Synchronisation…',
     sync: 'Synchroniser',
-    syncHelp: 'Recharger depuis GitLab',
+    syncHelp: 'Recharger depuis GitLab les groupes des couloirs actifs',
+    syncNothing: 'Aucun couloir actif à synchroniser',
   },
 
   window: {
@@ -177,6 +178,10 @@ export const APP = {
     cadence_not_found: {
       title: 'Cadence introuvable',
       message: 'Aucune cadence d’itérations ne correspond à GITLAB_CADENCE, ou le groupe n’en a aucune.',
+    },
+    invalid_scope: {
+      title: 'Rien à synchroniser',
+      message: 'Les couloirs actifs ne contiennent aucun groupe connu du serveur. Vérifiez leurs groupes.',
     },
     gitlab_unreachable: {
       title: 'GitLab injoignable',

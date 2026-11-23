@@ -30,6 +30,10 @@ type Board struct {
 type Group struct {
 	Path string `json:"path"`
 	Name string `json:"name"`
+	// SyncedAt is when the group's items were read from GitLab. Groups are refreshed one
+	// subtree at a time (Synchroniser), so it differs from one group to the next. Set by the
+	// cache when it encodes the board; nil (omitted) in Build's output.
+	SyncedAt *time.Time `json:"syncedAt,omitempty"`
 }
 
 type Cadence struct {

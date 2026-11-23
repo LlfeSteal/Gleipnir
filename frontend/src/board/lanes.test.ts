@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { G, idOf, mockupBoard } from './fixtures';
-import { defaultLanes, laneSummary, matchLane, newLane } from './lanes';
+import { defaultLanes, laneSummary, matchLane, newLane, refreshScope, scopeSyncedAt } from './lanes';
 import type { Lane } from './types';
 
 const lane = (patch: Partial<Lane> = {}): Lane => ({
@@ -108,5 +108,59 @@ describe('laneSummary', () => {
     expect(laneSummary(lane({ groups: ['x/unknown'], showEpics: false, showIssues: false }), data.groups)).toBe(
       'unknown · aucun type · tous les labels',
     );
+  });
+});
+
+describe('refreshScope', () => {
+  it('lists the groups of the active lanes, sorted, an ancestor covering its descendants', () => {
+    const lanes = [
+      lane({ groups: [G.xp, G.api] }),
+      lane({ groups: [`${G.api}/sub`, G.api] }),
+      lane({ groups: [G.data], active: false }),
+      lane({ groups: [] }),
+    ];
+    expect(refreshScope(lanes)).toEqual([G.api, G.xp]);
+  });
+
+  it('keeps a sibling sharing a prefix, and the root covers everything', () => {
+    expect(refreshScope([lane({ groups: [`${G.api}x`, G.api] })])).toEqual([G.api, `${G.api}x`]);
+    expect(refreshScope([lane({ groups: [G.api] }), lane({ groups: [data.rootGroup.path] })])).toEqual([
+      data.rootGroup.path,
+    ]);
+  });
+
+  it('is empty without an active lane with groups', () => {
+    expect(refreshScope([])).toEqual([]);
+    expect(refreshScope([lane({ active: false }), lane({ groups: [] })])).toEqual([]);
+  });
+});
+
+describe('scopeSyncedAt', () => {
+  const stamped = {
+    ...data,
+    groups: data.groups.map((g) => ({
+      ...g,
+      syncedAt: g.path === G.api ? '2026-11-23T10:00:00Z' : g.path === G.data ? '2026-11-23T08:00:00Z' : '2026-11-23T09:00:00Z',
+    })),
+  };
+
+  it('is the oldest read of the groups the active lanes show', () => {
+    expect(scopeSyncedAt(stamped, [lane({ groups: [G.api] })])).toBe('2026-11-23T10:00:00Z');
+    expect(scopeSyncedAt(stamped, [lane({ groups: [G.api] }), lane({ groups: [G.xp] })])).toBe('2026-11-23T09:00:00Z');
+    expect(scopeSyncedAt(stamped, [lane({ groups: [G.api] }), lane({ groups: [G.data], active: false })])).toBe(
+      '2026-11-23T10:00:00Z',
+    );
+  });
+
+  it('follows the subgroups only when the lane includes them', () => {
+    const root = data.rootGroup.path;
+    expect(scopeSyncedAt(stamped, [lane({ groups: [root], includeSubgroups: true })])).toBe('2026-11-23T08:00:00Z');
+    expect(scopeSyncedAt(stamped, [lane({ groups: [root], includeSubgroups: false })])).toBe('2026-11-23T09:00:00Z');
+  });
+
+  it('is null without a stamped group in the scope', () => {
+    expect(scopeSyncedAt(data, [lane({ groups: [G.api] })])).toBeNull();
+    expect(scopeSyncedAt(stamped, [lane({ active: false })])).toBeNull();
+    expect(scopeSyncedAt(stamped, [])).toBeNull();
   });
 });

@@ -26,9 +26,7 @@ const (
 	// The fetch gets its own timeout and the write timeout leaves room to answer after it.
 	fetchTimeout = 5 * time.Minute
 	writeTimeout = fetchTimeout + 30*time.Second
-	// Data older than the TTL is served stale while it refreshes; dropped after this.
-	keepFor = 24 * time.Hour
-	// ?refresh=1 within this delay of the last sync is served from the cache (ADR-20).
+	// ?refresh=1 on groups read within this delay is served from the cache (ADR-20).
 	minRefresh = 10 * time.Second
 )
 
@@ -67,7 +65,7 @@ func run(ctx context.Context, getenv func(string) string, logger *slog.Logger) e
 
 	srv := api.NewServer(api.Options{
 		Source:    newSource(cfg),
-		Cache:     cache.Options{Fresh: cfg.CacheTTL, Keep: keepFor, FetchTimeout: fetchTimeout, MinRefresh: minRefresh},
+		Cache:     cache.Options{Interval: cfg.CacheTTL, FetchTimeout: fetchTimeout, MinRefresh: minRefresh},
 		Demo:      cfg.Demo,
 		GitLabURL: cfg.GitLabURL,
 		Group:     cfg.Group,
@@ -85,8 +83,8 @@ func run(ctx context.Context, getenv func(string) string, logger *slog.Logger) e
 		ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelWarn),
 	}
 
-	// Warm the cache, so the first visitor doesn't wait for GitLab.
-	srv.Prefetch()
+	// Read everything now, so the first visitor doesn't wait for GitLab, then every CACHE_TTL.
+	go srv.Run(ctx)
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -127,4 +125,14 @@ type demoSource struct{}
 
 func (demoSource) Fetch(context.Context) (*board.Raw, error) {
 	return board.DemoRaw(time.Now()), nil
+}
+
+func (demoSource) FetchItems(_ context.Context, groups []string) ([]board.RawItem, error) {
+	items := []board.RawItem{}
+	for _, it := range board.DemoRaw(time.Now()).Items {
+		if board.InScope(board.ItemGroup(it), groups) {
+			items = append(items, it)
+		}
+	}
+	return items, nil
 }

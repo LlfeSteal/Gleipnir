@@ -19,7 +19,8 @@ interface Props {
   searchRef: Ref<HTMLInputElement>;
   fetchedAt: string | null;
   refreshing: boolean;
-  onRefresh: () => void;
+  /** Reads the groups of the active lanes again; null when there are none. */
+  onRefresh: (() => void) | null;
   appearance: Appearance;
   onAppearanceChange: (appearance: Appearance) => void;
   sidebarOpen: boolean;
@@ -186,9 +187,15 @@ export function Toolbar({
               type="button"
               className="button icon"
               aria-label={APP.toolbar.sync}
-              title={updated ? `${APP.toolbar.syncHelp} · ${updated}` : APP.toolbar.syncHelp}
-              disabled={refreshing}
-              onClick={onRefresh}
+              title={
+                !onRefresh
+                  ? APP.toolbar.syncNothing
+                  : updated
+                    ? `${APP.toolbar.syncHelp} · ${updated}`
+                    : APP.toolbar.syncHelp
+              }
+              disabled={refreshing || !onRefresh}
+              onClick={onRefresh ?? undefined}
             >
               <RefreshIcon size={15} className={refreshing ? 'spin' : undefined} />
             </button>

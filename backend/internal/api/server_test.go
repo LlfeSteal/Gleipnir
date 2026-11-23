@@ -40,11 +40,16 @@ func (c *fakeClock) Add(d time.Duration) {
 }
 
 // fakeSource counts its calls; it waits for release (when set) and answers err (when set).
+// A full read holds one epic per group, "<group>#v<n>"; a scoped read one per scope group,
+// "<group>#s<n>".
 type fakeSource struct {
-	calls   int32
-	release chan struct{}
-	mu      sync.Mutex
-	err     error
+	calls     int32 // full reads
+	itemCalls int32 // scoped reads
+	release   chan struct{}
+	nilRaw    bool
+	mu        sync.Mutex
+	err       error
+	scopes    [][]string
 }
 
 func (f *fakeSource) Fetch(ctx context.Context) (*board.Raw, error) {
@@ -55,10 +60,36 @@ func (f *fakeSource) Fetch(ctx context.Context) (*board.Raw, error) {
 	f.mu.Lock()
 	err := f.err
 	f.mu.Unlock()
+	if err != nil || f.nilRaw {
+		return nil, err
+	}
+	v := fmt.Sprintf("v%d", n)
+	return &board.Raw{
+		GitLabURL: "https://gitlab.test",
+		RootGroup: board.Group{Path: "org", Name: v},
+		Groups:    []board.Group{{Path: "org/a", Name: "A"}},
+		Items:     []board.RawItem{testEpic("org", v), testEpic("org/a", v)},
+	}, nil
+}
+
+func (f *fakeSource) FetchItems(ctx context.Context, groups []string) ([]board.RawItem, error) {
+	n := atomic.AddInt32(&f.itemCalls, 1)
+	f.mu.Lock()
+	err := f.err
+	f.scopes = append(f.scopes, groups)
+	f.mu.Unlock()
 	if err != nil {
 		return nil, err
 	}
-	return &board.Raw{GitLabURL: "https://gitlab.test", RootGroup: board.Group{Path: "org", Name: fmt.Sprintf("v%d", n)}}, nil
+	var items []board.RawItem
+	for _, g := range groups {
+		items = append(items, testEpic(g, fmt.Sprintf("s%d", n)))
+	}
+	return items, nil
+}
+
+func testEpic(group, version string) board.RawItem {
+	return board.RawItem{ID: group + "#" + version, Kind: board.KindEpic, NamespacePath: group}
 }
 
 func (f *fakeSource) setErr(err error) {
@@ -69,7 +100,12 @@ func (f *fakeSource) setErr(err error) {
 
 // fakeBuild turns the raw data into a minimal board, keeping the root group name as a version.
 func fakeBuild(raw *board.Raw, now time.Time) *board.Board {
-	return &board.Board{SyncedAt: now, GitLabURL: raw.GitLabURL, RootGroup: raw.RootGroup, Current: -1}
+	b := &board.Board{SyncedAt: now, GitLabURL: raw.GitLabURL, RootGroup: raw.RootGroup, Current: -1,
+		Groups: append([]board.Group{raw.RootGroup}, raw.Groups...)}
+	for _, it := range raw.Items {
+		b.Epics = append(b.Epics, board.Epic{ID: it.ID})
+	}
+	return b
 }
 
 var t0 = time.Date(2026, 11, 23, 9, 30, 0, 0, time.FixedZone("CET", 3600))
@@ -81,7 +117,7 @@ func newTestServer(t *testing.T, src Source, build func(*board.Raw, time.Time) *
 		Source:    src,
 		Build:     build,
 		Now:       clock.Now,
-		Cache:     cache.Options{Fresh: 5 * time.Minute, Keep: 24 * time.Hour, FetchTimeout: time.Minute},
+		Cache:     cache.Options{Interval: 5 * time.Minute, FetchTimeout: time.Minute},
 		GitLabURL: "https://gitlab.test",
 		Group:     "org",
 		Token:     "glpat-secret",
@@ -99,6 +135,11 @@ func get(h http.Handler, target string) *httptest.ResponseRecorder {
 // boardVersion decodes a board response and returns its version (the root group name).
 func boardVersion(t *testing.T, rec *httptest.ResponseRecorder) string {
 	t.Helper()
+	return decodeBoard(t, rec).RootGroup.Name
+}
+
+func decodeBoard(t *testing.T, rec *httptest.ResponseRecorder) board.Board {
+	t.Helper()
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body)
 	}
@@ -106,7 +147,15 @@ func boardVersion(t *testing.T, rec *httptest.ResponseRecorder) string {
 	if err := json.Unmarshal(rec.Body.Bytes(), &b); err != nil {
 		t.Fatalf("decoding %s: %v", rec.Body, err)
 	}
-	return b.RootGroup.Name
+	return b
+}
+
+func epicIDs(b board.Board) string {
+	var ids []string
+	for _, e := range b.Epics {
+		ids = append(ids, e.ID)
+	}
+	return strings.Join(ids, " ")
 }
 
 func decodeError(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
@@ -154,7 +203,7 @@ func TestHealth(t *testing.T) {
 	}
 }
 
-func TestBoardMissHitStale(t *testing.T) {
+func TestBoardMissThenHit(t *testing.T) {
 	src := &fakeSource{}
 	_, h, clock := newTestServer(t, src, fakeBuild)
 
@@ -174,53 +223,96 @@ func TestBoardMissHitStale(t *testing.T) {
 	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
 		t.Fatalf("Cache-Control %q", got)
 	}
-	var b board.Board
-	_ = json.Unmarshal(rec.Body.Bytes(), &b)
+	b := decodeBoard(t, rec)
 	if !b.SyncedAt.Equal(t0) {
 		t.Fatalf("Build got now=%v, want the injected clock %v", b.SyncedAt, t0)
 	}
+	for _, g := range b.Groups {
+		if g.SyncedAt == nil || !g.SyncedAt.Equal(t0) || g.SyncedAt.Location() != time.UTC {
+			t.Errorf("group %s syncedAt = %v, want %v in UTC", g.Path, g.SyncedAt, t0)
+		}
+	}
 
-	clock.Add(4 * time.Minute)
+	// Requests never start a sync once there is data: the periodic sync does (Run).
+	clock.Add(time.Hour)
 	rec = get(h, "/api/board")
 	if v := boardVersion(t, rec); v != "v1" || rec.Header().Get("X-Cache") != "HIT" {
-		t.Fatalf("fresh: %s %s", v, rec.Header().Get("X-Cache"))
+		t.Fatalf("an hour later: %s %s", v, rec.Header().Get("X-Cache"))
 	}
 	if got := rec.Header().Get("X-Fetched-At"); got != "2026-11-23T08:30:00Z" {
 		t.Fatalf("X-Fetched-At %q must not move on a HIT", got)
 	}
-
-	// Older than the TTL: the old board at once, a sync behind.
-	clock.Add(2 * time.Minute)
-	rec = get(h, "/api/board")
-	if v := boardVersion(t, rec); v != "v1" || rec.Header().Get("X-Cache") != "STALE" {
-		t.Fatalf("stale: %s %s", v, rec.Header().Get("X-Cache"))
-	}
-	waitFor(t, func() bool {
-		rec := get(h, "/api/board")
-		return rec.Header().Get("X-Cache") == "HIT" && boardVersion(t, rec) == "v2"
-	})
-	if n := atomic.LoadInt32(&src.calls); n != 2 {
-		t.Fatalf("source fetched %d times, want 2", n)
+	if n := atomic.LoadInt32(&src.calls); n != 1 {
+		t.Fatalf("source fetched %d times, want 1", n)
 	}
 }
 
-func TestRefreshForcesASync(t *testing.T) {
+func TestRefreshReadsTheScope(t *testing.T) {
 	src := &fakeSource{}
 	_, h, clock := newTestServer(t, src, fakeBuild)
 	boardVersion(t, get(h, "/api/board"))
 	// Right after a sync, refresh is ignored: spamming it must not walk GitLab.
-	rec := get(h, "/api/board?refresh=1")
-	if v := boardVersion(t, rec); v != "v1" || rec.Header().Get("X-Cache") != "HIT" {
-		t.Fatalf("throttled refresh: %s %s", v, rec.Header().Get("X-Cache"))
+	rec := get(h, "/api/board?refresh=1&groups=org/a")
+	if ids := epicIDs(decodeBoard(t, rec)); ids != "org#v1 org/a#v1" || rec.Header().Get("X-Cache") != "HIT" {
+		t.Fatalf("throttled refresh: %s %s", ids, rec.Header().Get("X-Cache"))
 	}
 	clock.Add(10 * time.Second)
-	rec = get(h, "/api/board?refresh=1")
-	if v := boardVersion(t, rec); v != "v2" || rec.Header().Get("X-Cache") != "MISS" {
-		t.Fatalf("refresh: %s %s", v, rec.Header().Get("X-Cache"))
+	rec = get(h, "/api/board?refresh=1&groups=org/a,nope")
+	b := decodeBoard(t, rec)
+	if ids := epicIDs(b); ids != "org#v1 org/a#s1" || rec.Header().Get("X-Cache") != "MISS" {
+		t.Fatalf("refresh: %s %s", ids, rec.Header().Get("X-Cache"))
+	}
+	if fmt.Sprint(src.scopes) != "[[org/a]]" {
+		t.Errorf("scopes read = %v", src.scopes)
+	}
+	// The root group was not read again: the board is as old as it.
+	if got := rec.Header().Get("X-Fetched-At"); got != "2026-11-23T08:30:00Z" {
+		t.Errorf("X-Fetched-At %q, want the oldest group's", got)
+	}
+	if g := b.Groups[1]; g.Path != "org/a" || !g.SyncedAt.Equal(t0.Add(10*time.Second)) {
+		t.Errorf("org/a = %+v", g)
+	}
+	if n := atomic.LoadInt32(&src.calls); n != 1 {
+		t.Errorf("%d full reads, want 1", n)
 	}
 	rec = get(h, "/api/board")
-	if v := boardVersion(t, rec); v != "v2" || rec.Header().Get("X-Cache") != "HIT" {
-		t.Fatalf("after refresh: %s %s", v, rec.Header().Get("X-Cache"))
+	if ids := epicIDs(decodeBoard(t, rec)); ids != "org#v1 org/a#s1" || rec.Header().Get("X-Cache") != "HIT" {
+		t.Fatalf("after refresh: %s %s", ids, rec.Header().Get("X-Cache"))
+	}
+}
+
+func TestRefreshNeedsAKnownGroup(t *testing.T) {
+	src := &fakeSource{}
+	_, h, _ := newTestServer(t, src, fakeBuild)
+	boardVersion(t, get(h, "/api/board"))
+	for _, target := range []string{"/api/board?refresh=1", "/api/board?refresh=1&groups=", "/api/board?refresh=1&groups=nope,"} {
+		rec := get(h, target)
+		if rec.Code != http.StatusBadRequest || decodeError(t, rec)["code"] != CodeInvalidScope {
+			t.Errorf("%s: status %d: %s", target, rec.Code, rec.Body)
+		}
+	}
+	if n := atomic.LoadInt32(&src.itemCalls) + atomic.LoadInt32(&src.calls); n != 1 {
+		t.Errorf("%d reads, want only the first full one", n)
+	}
+}
+
+func TestScopedRefreshErrorIsMapped(t *testing.T) {
+	src := &fakeSource{}
+	_, h, clock := newTestServer(t, src, fakeBuild)
+	boardVersion(t, get(h, "/api/board"))
+	clock.Add(time.Minute)
+	src.setErr(gitlab.ErrUnauthorized)
+	rec := get(h, "/api/board?refresh=1&groups=org/a")
+	if rec.Code != http.StatusUnauthorized || decodeError(t, rec)["code"] != CodeUnauthorized {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body)
+	}
+	src.setErr(errors.New("gitlab answered 500"))
+	if rec := get(h, "/api/board?refresh=1&groups=org/a"); rec.Code != http.StatusBadGateway {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body)
+	}
+	// The board in place is still served.
+	if v := boardVersion(t, get(h, "/api/board")); v != "v1" {
+		t.Fatalf("board %s", v)
 	}
 }
 
@@ -236,7 +328,7 @@ func TestConcurrentRequestsShareOneFetch(t *testing.T) {
 			defer wg.Done()
 			target := "/api/board"
 			if i%2 == 0 {
-				target += "?refresh=1"
+				target += "?refresh=1&groups=org/a" // no data yet: waits for the full sync
 			}
 			recs[i] = get(h, target)
 		}(i)
@@ -249,6 +341,9 @@ func TestConcurrentRequestsShareOneFetch(t *testing.T) {
 	if n := atomic.LoadInt32(&src.calls); n != 1 {
 		t.Fatalf("source fetched %d times, want 1", n)
 	}
+	if n := atomic.LoadInt32(&src.itemCalls); n != 0 {
+		t.Fatalf("%d scoped reads, want none", n)
+	}
 	for _, rec := range recs {
 		if v := boardVersion(t, rec); v != "v1" {
 			t.Fatalf("got %s, want v1", v)
@@ -256,10 +351,13 @@ func TestConcurrentRequestsShareOneFetch(t *testing.T) {
 	}
 }
 
-func TestPrefetchWarmsTheCache(t *testing.T) {
+func TestRunWarmsTheCache(t *testing.T) {
 	src := &fakeSource{}
 	s, h, _ := newTestServer(t, src, fakeBuild)
-	s.Prefetch()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go s.Run(ctx)
+	waitFor(t, func() bool { return atomic.LoadInt32(&src.calls) == 1 })
 	waitFor(t, func() bool { return get(h, "/api/board").Header().Get("X-Cache") == "HIT" })
 	if n := atomic.LoadInt32(&src.calls); n != 1 {
 		t.Fatalf("source fetched %d times, want 1", n)

@@ -69,7 +69,57 @@ describe('App', () => {
     await user.click(within(alert).getByRole('button', { name: 'Réessayer' }));
     expect(await screen.findByRole('checkbox', { name: LANES[0] })).toBeInTheDocument();
     expect(screen.queryByRole('alert')).toBeNull();
-    expect(fetchMock).toHaveBeenLastCalledWith('/api/board?refresh=1', expect.anything());
+    // No board yet: the backend's cache (or its first sync) answers.
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/board', expect.anything());
+  });
+
+  it('Synchroniser reads the groups of the active lanes again, and is off without any', async () => {
+    const fetchMock = stubFetch();
+    const { user, sidebar } = await renderApp();
+    const sync = screen.getByRole('button', { name: 'Synchroniser' });
+    await user.click(within(sidebar).getByRole('checkbox', { name: LANES[1] }));
+    await user.click(sync);
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenLastCalledWith(
+        '/api/board?refresh=1&groups=plateforme/atlas/api,plateforme/atlas/experience,plateforme/atlas/identite',
+        expect.anything(),
+      ),
+    );
+    await waitFor(() => expect(sync).toBeEnabled());
+
+    for (const name of [LANES[0], LANES[2], LANES[3]]) {
+      await user.click(within(sidebar).getByRole('checkbox', { name }));
+    }
+    expect(sync).toBeDisabled();
+    expect(sync).toHaveAttribute('title', 'Aucun couloir actif à synchroniser');
+  });
+
+  it('shows how old the groups of the active lanes are', async () => {
+    const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString();
+    const data = mockupBoard();
+    data.groups = data.groups.map((g) => ({
+      ...g,
+      syncedAt: g.path === 'plateforme/atlas/data' ? minutesAgo(30) : minutesAgo(2),
+    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify(data), { status: 200, headers: { 'X-Fetched-At': minutesAgo(30) } })),
+    );
+    const { user, sidebar } = await renderApp();
+    const updated = document.querySelector('.toolbar-updated')!;
+    expect(updated.textContent).toMatch(/30 min/);
+    await user.click(within(sidebar).getByRole('checkbox', { name: LANES[1] })); // Data off
+    expect(updated.textContent).toMatch(/2 min/);
+  });
+
+  it('Réessayer after a failed refresh reads the same groups again', async () => {
+    const fetchMock = stubFetch(ok, () => new Response('Bad Gateway', { status: 502 }));
+    const { user } = await renderApp();
+    await user.click(screen.getByRole('button', { name: 'Synchroniser' }));
+    const alert = await screen.findByRole('alert');
+    await user.click(within(alert).getByRole('button', { name: 'Réessayer' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(fetchMock.mock.calls.at(-1)?.[0]).toMatch(/^\/api\/board\?refresh=1&groups=/);
   });
 
   it('keeps the board when a refresh fails', async () => {

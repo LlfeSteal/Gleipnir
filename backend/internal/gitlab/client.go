@@ -34,6 +34,9 @@ const (
 	defaultMaxBody = 64 << 20
 	// defaultMaxPages caps a walk (100 nodes a page): a cursor that never ends must not loop forever.
 	defaultMaxPages = 1000
+	// defaultMaxWalks caps the subtrees FetchItems walks at once: each walk is sequential
+	// (cursors), so a few in parallel cut the wait without hammering the instance.
+	defaultMaxWalks = 4
 )
 
 // Client fetches one root group.
@@ -47,6 +50,7 @@ type Client struct {
 	now      func() time.Time // picks the default cadence; injectable for tests
 	maxBody  int
 	maxPages int
+	maxWalks int // concurrent subtree walks of FetchItems
 }
 
 // New returns a client for the group rootGroup of the instance baseURL. cadence picks the
@@ -64,6 +68,7 @@ func New(baseURL, token, rootGroup, cadence string) *Client {
 		now:      time.Now,
 		maxBody:  defaultMaxBody,
 		maxPages: defaultMaxPages,
+		maxWalks: defaultMaxWalks,
 	}
 }
 
@@ -81,7 +86,7 @@ func (c *Client) Fetch(ctx context.Context) (*board.Raw, error) {
 			return err
 		},
 		func(ctx context.Context) (err error) {
-			raw.Items, err = c.fetchItems(ctx)
+			raw.Items, err = c.fetchItems(ctx, c.group)
 			return err
 		},
 	)
@@ -94,7 +99,7 @@ func (c *Client) Fetch(ctx context.Context) (*board.Raw, error) {
 func (c *Client) fetchGroups(ctx context.Context) (board.Group, []board.Group, error) {
 	var root board.Group
 	var groups []board.Group
-	err := c.paginate(ctx, "Groups", groupsQuery, nil, func(g *groupData) pageInfo {
+	err := c.paginate(ctx, "Groups", groupsQuery, c.group, nil, func(g *groupData) pageInfo {
 		root = board.Group{Path: g.FullPath, Name: g.Name}
 		for _, n := range g.DescendantGroups.Nodes {
 			groups = append(groups, board.Group{Path: n.FullPath, Name: n.Name})
@@ -110,7 +115,7 @@ func (c *Client) fetchCadence(ctx context.Context) (board.Cadence, []board.RawIt
 	var cadences []cadenceNode
 	var current []string // cadence IDs having an iteration that contains today
 	fetchCadences := func(ctx context.Context) error {
-		return c.paginate(ctx, "Cadences", cadencesQuery, nil, func(g *groupData) pageInfo {
+		return c.paginate(ctx, "Cadences", cadencesQuery, c.group, nil, func(g *groupData) pageInfo {
 			cadences = append(cadences, g.IterationCadences.Nodes...)
 			return g.IterationCadences.PageInfo
 		})
@@ -120,7 +125,7 @@ func (c *Client) fetchCadence(ctx context.Context) (board.Cadence, []board.RawIt
 			return nil
 		}
 		vars := map[string]any{"today": c.now().Format("2006-01-02")}
-		return c.paginate(ctx, "CurrentIterations", currentIterationsQuery, vars, func(g *groupData) pageInfo {
+		return c.paginate(ctx, "CurrentIterations", currentIterationsQuery, c.group, vars, func(g *groupData) pageInfo {
 			for _, it := range g.Iterations.Nodes {
 				if it.IterationCadence != nil {
 					current = append(current, it.IterationCadence.ID)
@@ -140,7 +145,7 @@ func (c *Client) fetchCadence(ctx context.Context) (board.Cadence, []board.RawIt
 
 	var iterations []board.RawIteration
 	vars := map[string]any{"cadenceId": chosen.ID}
-	err = c.paginate(ctx, "Iterations", iterationsQuery, vars, func(g *groupData) pageInfo {
+	err = c.paginate(ctx, "Iterations", iterationsQuery, c.group, vars, func(g *groupData) pageInfo {
 		for _, n := range g.Iterations.Nodes {
 			// Defensive: the filter already keeps the cadence's iterations only.
 			if n.IterationCadence == nil || n.IterationCadence.ID == chosen.ID {
@@ -155,9 +160,45 @@ func (c *Client) fetchCadence(ctx context.Context) (board.Cadence, []board.RawIt
 	return board.Cadence{ID: chosen.ID, Title: strings.TrimSpace(chosen.Title)}, iterations, nil
 }
 
-func (c *Client) fetchItems(ctx context.Context) ([]board.RawItem, error) {
+// FetchItems reads the epics and issues of the subtrees of groups (each group with its
+// descendants and their projects), walking up to maxWalks subtrees at once. The groups should
+// not overlap (see board.NormalizeScope); an item met twice is kept once anyway.
+func (c *Client) FetchItems(ctx context.Context, groups []string) ([]board.RawItem, error) {
+	results := make([][]board.RawItem, len(groups))
+	slots := make(chan struct{}, max(c.maxWalks, 1))
+	fns := make([]func(context.Context) error, len(groups))
+	for i, group := range groups {
+		fns[i] = func(ctx context.Context) (err error) {
+			select {
+			case slots <- struct{}{}:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+			defer func() { <-slots }()
+			results[i], err = c.fetchItems(ctx, group)
+			return err
+		}
+	}
+	if err := runAll(ctx, fns...); err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	items := []board.RawItem{}
+	for _, part := range results {
+		for _, it := range part {
+			if !seen[it.ID] {
+				seen[it.ID] = true
+				items = append(items, it)
+			}
+		}
+	}
+	return items, nil
+}
+
+// fetchItems reads the epics and issues of group and its descendants.
+func (c *Client) fetchItems(ctx context.Context, group string) ([]board.RawItem, error) {
 	var items []board.RawItem
-	err := c.paginate(ctx, "WorkItems", workItemsQuery, nil, func(g *groupData) pageInfo {
+	err := c.paginate(ctx, "WorkItems", workItemsQuery, group, nil, func(g *groupData) pageInfo {
 		for _, n := range g.WorkItems.Nodes {
 			if item, ok := convertItem(n); ok {
 				items = append(items, item)
@@ -170,12 +211,12 @@ func (c *Client) fetchItems(ctx context.Context) ([]board.RawItem, error) {
 
 // paginate runs query page by page with vars plus $fullPath and $after (null on the first
 // page); collect accumulates the nodes and returns the connection's pageInfo.
-func (c *Client) paginate(ctx context.Context, name, query string, vars map[string]any, collect func(*groupData) pageInfo) error {
+func (c *Client) paginate(ctx context.Context, name, query, fullPath string, vars map[string]any, collect func(*groupData) pageInfo) error {
 	variables := make(map[string]any, len(vars)+2)
 	for k, v := range vars {
 		variables[k] = v
 	}
-	variables["fullPath"] = c.group
+	variables["fullPath"] = fullPath
 	var cursor *string // nil → JSON null: "" is rejected as a cursor
 
 	for page := 1; ; page++ {

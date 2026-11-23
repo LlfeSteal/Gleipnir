@@ -31,15 +31,7 @@ export function defaultLanes(data: BoardData): Lane[] {
  * matches nothing. */
 export function matchLane(lane: Lane, item: Epic | Issue, kind: ItemKind): boolean {
   if (kind === 'epic' ? !lane.showEpics : !lane.showIssues) return false;
-  const path = item.groupPath;
-  let inGroup = false;
-  for (const g of lane.groups) {
-    if (path === g || (lane.includeSubgroups && path.startsWith(`${g}/`))) {
-      inGroup = true;
-      break;
-    }
-  }
-  if (!inGroup) return false;
+  if (!laneCoversGroup(lane, item.groupPath)) return false;
   if (lane.labels.length === 0) return true;
   return lane.labelMode === 'all'
     ? lane.labels.every((l) => item.labels.includes(l))
@@ -83,4 +75,40 @@ export function laneSummary(lane: Lane, groups: Group[]): string {
       : BOARD.labelsAny(lane.labels)
     : BOARD.allLabels;
   return `${g} · ${types || BOARD.noType} · ${labels}`;
+}
+
+/** Whether a lane shows the items of the group at path (its groups, and their subgroups when
+ * it includes them). */
+function laneCoversGroup(lane: Lane, path: string): boolean {
+  return lane.groups.some((g) => path === g || (lane.includeSubgroups && path.startsWith(`${g}/`)));
+}
+
+/** The groups Synchroniser reads again: those of the active lanes, sorted, without a group
+ * whose ancestor is listed (the backend reads each one with its whole subtree: the issues live
+ * in projects, below the group, even for a lane without subgroups). */
+export function refreshScope(lanes: Lane[]): string[] {
+  const paths = [...new Set(lanes.filter((lane) => lane.active).flatMap((lane) => lane.groups))].sort();
+  const scope: string[] = [];
+  for (const path of paths) {
+    // Sorted: an ancestor comes before its descendants.
+    if (!scope.some((s) => path === s || path.startsWith(`${s}/`))) scope.push(path);
+  }
+  return scope;
+}
+
+/** When the oldest group shown by the active lanes was read from GitLab, null when unknown.
+ * Groups are refreshed separately, so this is how old the board in front of the user is. */
+export function scopeSyncedAt(data: BoardData, lanes: Lane[]): string | null {
+  const active = lanes.filter((lane) => lane.active);
+  let oldest: string | null = null;
+  let oldestTime = Infinity;
+  for (const group of data.groups) {
+    if (!group.syncedAt || !active.some((lane) => laneCoversGroup(lane, group.path))) continue;
+    const time = Date.parse(group.syncedAt);
+    if (time < oldestTime) {
+      oldestTime = time;
+      oldest = group.syncedAt;
+    }
+  }
+  return oldest;
 }

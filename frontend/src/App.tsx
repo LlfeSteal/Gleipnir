@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import type { BoardData } from './api/types';
 import type { BoardWindow, DisplayOptions, Lane } from './board/types';
 import { DEFAULT_OPTIONS, LANE_COLORS } from './board/types';
-import { defaultLanes, matchLane } from './board/lanes';
+import { defaultLanes, matchLane, refreshScope, scopeSyncedAt } from './board/lanes';
 import { clampWindow, defaultWindow, focusWindow, isInWindow, itemSpan, presetWindow } from './board/window';
 import { shortIterationLabel } from './board/format';
 import { findItem, isUnplanned } from './board/items';
@@ -228,6 +228,11 @@ export default function App() {
   const toggleSidebar = () => (compact ? setOverlayOpen((open) => !open) : setSidebarCollapsed(!sidebarCollapsed));
 
   const activeLanes = lanes.filter((lane) => lane.active).length;
+  // Synchroniser only reads the groups the user looks at: the whole group is read in the
+  // background by the backend, every CACHE_TTL.
+  const scope = useMemo(() => refreshScope(lanes), [lanes]);
+  const refresh = scope.length > 0 ? () => void reload(scope) : null;
+  const shownSyncedAt = useMemo(() => (data ? scopeSyncedAt(data, lanes) : null), [data, lanes]);
   const nothingShown = !!view && view.lanes.length > 0 && view.lanes.every((block) => block.empty);
   const selected = selectedId && data && boardWindow ? selectedId : null;
   const failure = error ? errorMessage(error) : null;
@@ -304,9 +309,9 @@ export default function App() {
         query={query}
         onQueryChange={setQuery}
         searchRef={searchRef}
-        fetchedAt={fetchedAt}
+        fetchedAt={shownSyncedAt ?? fetchedAt}
         refreshing={refreshing}
-        onRefresh={() => void reload(true)}
+        onRefresh={refresh}
         appearance={appearance}
         onAppearanceChange={setAppearance}
         sidebarOpen={sidebarOpen}
@@ -345,7 +350,11 @@ export default function App() {
         )}
         <main className="app-main" aria-busy={loading || undefined}>
           {failure && (
-            <ErrorBanner title={failure.title} message={failure.message} onRetry={() => void reload(true)} />
+            <ErrorBanner
+              title={failure.title}
+              message={failure.message}
+              onRetry={() => void reload(data && scope.length > 0 ? scope : null)}
+            />
           )}
           {loading && <Skeleton />}
           {data && view && activeLanes > 0 && <SummaryLine stats={view.stats} />}

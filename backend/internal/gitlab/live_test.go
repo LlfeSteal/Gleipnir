@@ -7,6 +7,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"gleipnir/internal/board"
 )
 
 // TestLiveFetch runs every query against a real GitLab:
@@ -51,5 +53,22 @@ func TestLiveFetch(t *testing.T) {
 		len(raw.Iterations), kinds, links, iterated, parented, labelled, assigned)
 	if raw.RootGroup.Path == "" || raw.Cadence.ID == "" || len(raw.Iterations) == 0 {
 		t.Errorf("incomplete data: %+v", raw.RootGroup)
+	}
+
+	// Scoped refresh (Synchroniser): the same query on a subgroup, or on the root when it has none.
+	scope := raw.RootGroup.Path
+	if len(raw.Groups) > 0 {
+		scope = raw.Groups[0].Path
+	}
+	start = time.Now()
+	items, err := c.FetchItems(ctx, []string{scope})
+	if err != nil {
+		t.Fatalf("FetchItems(%s): %v", scope, err)
+	}
+	t.Logf("FetchItems(%s) in %s: %d items", scope, time.Since(start).Round(time.Millisecond), len(items))
+	for _, it := range items {
+		if g := board.ItemGroup(it); !board.InScope(g, []string{scope}) {
+			t.Errorf("item %s of group %q is outside the scope %q", it.ID, g, scope)
+		}
 	}
 }

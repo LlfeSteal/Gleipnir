@@ -19,7 +19,7 @@ Ce document sert de référence à tout agent ou développeur qui travaille dans
 - **Backend** : Go 1.22, **bibliothèque standard uniquement** (module `gleipnir`, `go.mod` sans dépendance).
   - Le backend lit l'API GraphQL de GitLab avec un jeton serveur `read_api`.
   - Il applique les règles métier dans `internal/board`.
-  - Il garde le board encodé dans un cache mémoire « stale-while-revalidate ».
+  - Il garde le board encodé en mémoire : une synchro complète au démarrage puis toutes les `CACHE_TTL`, et des rafraîchissements ciblés sur les groupes des couloirs actifs (ADR-24).
 - **Frontend** : React 19, TypeScript 6 et Vite 8, **sans autre dépendance d'exécution** que `react` et `react-dom`.
   - Le board est dessiné en HTML/CSS.
   - Les liens sont dans un seul SVG.
@@ -44,9 +44,10 @@ backend/
   internal/board/model.go     modèle JSON servi par GET /api/board (contrat avec le frontend)
   internal/board/raw.go       entrée de board.Build : les données telles que GitLab les donne
   internal/board/build.go     raw → Board : groupes, rattachement aux itérations, liens, issues affichées, non planifiés
+  internal/board/merge.go     fusion d'un sous-arbre relu dans les données (MergeScope), portée (NormalizeScope)
   internal/board/analysis.go  conflits et chemin critique
   internal/board/demo.go      jeu de démonstration de la maquette (mode démo, tests)
-  internal/cache/cache.go     cache mémoire, une synchro à la fois (adapté de Nornir)
+  internal/cache/cache.go     board en mémoire : synchro complète périodique (Run), rafraîchissement ciblé (Refresh)
   internal/api/               handlers GET /api/health et GET /api/board
 frontend/
   index.html                  script de thème inline (avant le premier rendu) — son hash est dans la CSP
@@ -111,7 +112,7 @@ Toutes les variables sont lues par le backend, via `internal/config`.
 | `GITLAB_GROUP` | Chemin complet du groupe racine. **Obligatoire hors mode démo** : sans lui, le backend refuse de démarrer. |
 | `GITLAB_CADENCE` | Cadence d'itérations, par titre ou par id. Défaut : celle qui contient l'itération en cours. |
 | `PORT` | Port du backend, 8080 par défaut. À ne pas changer sous compose : nginx proxifie vers `backend:8080` et le healthcheck vise 8080. |
-| `CACHE_TTL` | Durée Go, `5m` par défaut. |
+| `CACHE_TTL` | Durée Go, `5m` par défaut : délai entre la fin d'une synchro complète et le début de la suivante. |
 | `GLEIPNIR_DEMO` | `1` / `true` : sert `board.DemoRaw` au lieu de GitLab. Vide, `0` ou `false` : désactivé. |
 | `TZ` | Fuseau horaire. Il décide de l'itération en cours. Compose le règle par défaut à `Europe/Paris` et l'image embarque `tzdata`. |
 | `GLEIPNIR_PORT` | Compose uniquement : port de l'hôte qui publie le frontend, 80 par défaut. |
@@ -127,10 +128,14 @@ Toutes les variables sont lues par le backend, via `internal/config`.
 
 - `GET /api/health` → `{"status":"ok","demo":bool,"gitlabUrl":"…","group":"…"}`. Jamais de jeton. Le healthcheck Docker s'en sert.
 - `GET /api/board` → le `Board` de `internal/board/model.go`, déjà normalisé. Le frontend ne fait que la mise en page.
-  - **Paramètre** : `?refresh=1` attend une synchro complète au lieu de servir le cache. Moins de 10 s après la dernière synchro réussie, il est ignoré (ADR-20).
+  - **Paramètres** : `?refresh=1&groups=a/b,a/c` relit les work items des sous-arbres de ces groupes, les fusionne dans le board, puis le sert (ADR-24).
+    - Les groupes inconnus sont ignorés ; sans groupe connu, la réponse est 400 `invalid_scope`.
+    - Si tous ces groupes ont été relus depuis moins de 10 s, le cache répond (ADR-20).
+    - Aucune requête ne lance de synchro complète, sauf quand le backend n'a encore aucune donnée.
+  - **Données par groupe** : `groups[].syncedAt` (RFC 3339) dit quand les éléments du groupe ont été lus. Le « Mis à jour il y a… » de la barre d'outils est la plus ancienne de ces dates parmi les groupes des couloirs actifs (`scopeSyncedAt`).
   - **En-têtes** :
-    - `X-Fetched-At` (RFC 3339) : quand les données ont été lues dans GitLab. C'est le « Mis à jour il y a… » de la barre d'outils.
-    - `X-Cache` : `HIT` (frais), `STALE` (servi tel quel pendant un rafraîchissement en arrière-plan) ou `MISS` (lu pour cette requête).
+    - `X-Fetched-At` (RFC 3339) : la lecture la plus ancienne parmi les groupes du board.
+    - `X-Cache` : `HIT` (servi depuis le cache) ou `MISS` (lu pour cette requête).
 - **Erreurs** : corps `{"error": "message", "code": "…"}`. Le frontend choisit son message à partir de `code`, jamais de `error`.
 
   | `code` | HTTP | Cause |
@@ -139,16 +144,20 @@ Toutes les variables sont lues par le backend, via `internal/config`.
   | `group_not_found` | 404 | Groupe absent ou invisible pour le jeton |
   | `premium_required` | 502 | Epics, itérations ou liens « bloque » indisponibles : édition Free |
   | `cadence_not_found` | 502 | `GITLAB_CADENCE` introuvable, ou aucune cadence |
+  | `invalid_scope` | 400 | `?refresh=1` sans groupe connu dans `groups` |
   | `gitlab_unreachable` | 502 | GitLab ne répond pas, ou répond une erreur inattendue |
   | `internal` | 500 | Bug |
 
-- **Cache** (`internal/cache`) :
-  - les réponses sont gardées **encodées** ;
-  - elles sont fraîches pendant `CACHE_TTL`, puis servies `STALE` pendant leur rafraîchissement, et jetées après 24 h ;
-  - **une seule synchro à la fois** : les requêtes simultanées la partagent ;
-  - la synchro tourne sur son propre contexte, avec un délai maximal, et non sur celui de la requête : un onglet fermé ne la gaspille pas ;
+- **Cache** (`internal/cache`, ADR-24) :
+  - il garde les données brutes (`board.Raw`), le board **encodé** et, par groupe, l'heure de début de la lecture dont viennent ses éléments ;
+  - **synchro complète** (`Run`) : au démarrage, puis `CACHE_TTL` après la fin de la précédente. Le board en cache reste servi pendant ce temps. En cas d'échec, l'ancien board reste servi ;
+  - **rafraîchissement ciblé** (`Refresh`) : il relit les sous-arbres demandés, jusqu'à 4 en parallèle (`gitlab.FetchItems`), les fusionne (`board.MergeScope`), puis reconstruit et réencode le board entier ;
+  - une synchro complète et un rafraîchissement peuvent se croiser : pour chaque groupe, la lecture **commencée le plus tard** l'emporte. La fusion et l'encodage se font sous le verrou ;
+  - une seule synchro complète à la fois ; les rafraîchissements de même portée partagent leur lecture ;
+  - les lectures tournent sur leur propre contexte, avec un délai maximal, et non sur celui de la requête : un onglet fermé ne les gaspille pas ;
   - les erreurs ne sont pas mises en cache ;
-  - **intervalle minimal de 10 s** (`MinRefresh`, ADR-20) : un `?refresh=1` sur des données plus jeunes est servi depuis le cache, et un board périmé dont le rafraîchissement vient d'échouer est servi sans nouvel essai.
+  - **intervalle minimal de 10 s par groupe** (`MinRefresh`, ADR-20), compté depuis la fin de la lecture ;
+  - plus de purge après 24 h : l'âge de chaque groupe est affiché.
 - **Client GitLab** : une réponse est limitée à 64 Mo et un parcours à 1 000 pages ; au-delà, la synchro échoue (`gitlab_unreachable`).
 - **En-têtes** : toutes les réponses de l'API portent `X-Content-Type-Options: nosniff` et `Cache-Control: no-store`.
 - **nginx** :
@@ -248,6 +257,11 @@ Ils sont dans `internal/board`. Tous sont couverts par des tests table par table
     
     **Ne jamais itérer sur une map pour produire une sortie** : la même donnée GitLab doit donner le même JSON.
 11. **Une seule cadence** : les itérations d'autres cadences sont ignorées. Une issue dans une autre cadence est traitée comme sans itération.
+12. **Fusion d'un rafraîchissement ciblé** (`MergeScope`, ADR-24) :
+    - les éléments dont le groupe (invariant 3) est dans la portée sont remplacés par les éléments relus ; un élément relu remplace aussi sa copie hors portée (élément déplacé) ;
+    - les liens des éléments hors portée qui pointent dans la portée sont retirés : le côté relu fait foi ;
+    - un élément sorti de la portée disparaît jusqu'à la lecture de son nouveau groupe ;
+    - `prev` n'est jamais modifié.
 
 ## Frontend
 
@@ -412,7 +426,8 @@ Ils sont dans `internal/board`. Tous sont couverts par des tests table par table
 
 - **Une seule cadence** par board, choisie par `GITLAB_CADENCE` ou celle de l'itération en cours. Les éléments planifiés dans une autre cadence apparaissent sans itération.
 - **Un seul jeton serveur**, sans OAuth : tout le monde voit ce que le jeton voit. Les permissions GitLab individuelles ne sont pas appliquées.
-- **Pas de synchro incrémentale** (`updatedAfter`) : chaque synchro relit tout. C'est raisonnable jusqu'à ~1 300 éléments ; au-delà, à revoir.
+- **Pas de synchro incrémentale** (`updatedAfter`) : la synchro de fond relit tout. Le bouton Synchroniser ne relit que les sous-arbres des couloirs actifs, mais avec tous les couloirs actifs, il relit presque tout.
+- **Données d'âges différents** : après un rafraîchissement ciblé, les autres groupes gardent leurs données jusqu'à la synchro complète suivante. Un élément déplacé hors du sous-arbre relu disparaît jusque-là.
 - **Liens** : plus de 100 par élément et par sens sont coupés (`linkedItems(first: 100)`).
 - **Pas de chart Helm** en v1 : uniquement Docker et compose. Le cache est en mémoire, donc une instance par backend.
 - **Couloirs, fenêtre et panneau latéral** sont mémorisés **par navigateur** (`localStorage`) : pas de vues partagées ni de préférences côté serveur.

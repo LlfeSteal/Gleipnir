@@ -15,8 +15,9 @@ export interface BoardState {
   refreshing: boolean;
   /** When the backend fetched the data from GitLab (RFC 3339), from X-Fetched-At. */
   fetchedAt: string | null;
-  /** refresh: the backend syncs with GitLab again instead of answering from its cache. */
-  reload: (refresh: boolean) => Promise<void>;
+  /** With groups, the backend reads their subtrees from GitLab again before answering (the
+   * groups of the active lanes); with null, it answers from its cache. */
+  reload: (refresh: readonly string[] | null) => Promise<void>;
 }
 
 type Mode = 'user' | 'silent';
@@ -32,7 +33,7 @@ export function useBoard(): BoardState {
   const current = useRef<AbortController | null>(null);
   const loadedAt = useRef(0);
 
-  const load = useCallback(async (refresh: boolean, mode: Mode) => {
+  const load = useCallback(async (refresh: readonly string[] | null, mode: Mode) => {
     current.current?.abort();
     const controller = new AbortController();
     current.current = controller;
@@ -57,12 +58,12 @@ export function useBoard(): BoardState {
     }
   }, []);
 
-  const reload = useCallback((refresh: boolean) => load(refresh, 'user'), [load]);
+  const reload = useCallback((refresh: readonly string[] | null) => load(refresh, 'user'), [load]);
 
   useEffect(() => {
-    void load(false, 'user');
+    void load(null, 'user');
     const refreshSilently = () => {
-      if (!current.current) void load(false, 'silent');
+      if (!current.current) void load(null, 'silent');
     };
     const refreshIfStale = () => {
       if (Date.now() - loadedAt.current >= STALE_MS) refreshSilently();

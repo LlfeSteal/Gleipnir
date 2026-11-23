@@ -16,20 +16,19 @@ import (
 	"gleipnir/internal/board"
 )
 
-func TestSourceFuncAdaptsAFunction(t *testing.T) {
-	want := &board.Raw{GitLabURL: "https://gitlab.test"}
-	var src Source = SourceFunc(func(context.Context) (*board.Raw, error) { return want, nil })
-	if got, err := src.Fetch(context.Background()); got != want || err != nil {
-		t.Fatalf("Fetch = %v, %v", got, err)
-	}
+// demoSource serves the demo dataset.
+type demoSource struct{}
+
+func (demoSource) Fetch(context.Context) (*board.Raw, error) { return board.DemoRaw(time.Now()), nil }
+func (demoSource) FetchItems(context.Context, []string) ([]board.RawItem, error) {
+	return nil, nil
 }
 
 // Without Build, Now and Logger, the server uses board.Build, time.Now and slog.Default.
 func TestNewServerDefaults(t *testing.T) {
 	defer func(l *slog.Logger) { slog.SetDefault(l) }(slog.Default())
 	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
-	src := SourceFunc(func(context.Context) (*board.Raw, error) { return board.DemoRaw(time.Now()), nil })
-	rec := get(NewServer(Options{Source: src}).Handler(), "/api/board")
+	rec := get(NewServer(Options{Source: demoSource{}}).Handler(), "/api/board")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body)
 	}
@@ -42,16 +41,20 @@ func TestNewServerDefaults(t *testing.T) {
 	}
 }
 
-func TestRefreshTrueForcesASync(t *testing.T) {
+func TestRefreshTrueRefreshes(t *testing.T) {
 	src := &fakeSource{}
 	_, h, clock := newTestServer(t, src, fakeBuild)
 	get(h, "/api/board")
-	clock.Add(time.Minute) // past MinRefresh, still fresh
-	if v := boardVersion(t, get(h, "/api/board?refresh=true")); v != "v2" {
-		t.Fatalf("refresh=true served %s, want a new sync", v)
+	clock.Add(time.Minute) // past MinRefresh
+	if rec := get(h, "/api/board?refresh=true&groups=org/a"); rec.Header().Get("X-Cache") != "MISS" {
+		t.Fatalf("refresh=true served %s, want a new read", rec.Header().Get("X-Cache"))
 	}
-	if v := boardVersion(t, get(h, "/api/board?refresh=yes")); v != "v2" {
-		t.Fatalf("refresh=yes is not a refresh: got %s", v)
+	clock.Add(time.Minute)
+	if rec := get(h, "/api/board?refresh=yes&groups=org/a"); rec.Header().Get("X-Cache") != "HIT" {
+		t.Fatalf("refresh=yes is not a refresh: got %s", rec.Header().Get("X-Cache"))
+	}
+	if n := atomic.LoadInt32(&src.itemCalls); n != 1 {
+		t.Fatalf("%d scoped reads, want 1", n)
 	}
 }
 
@@ -77,8 +80,7 @@ func TestClientGoneDuringASyncWritesNothing(t *testing.T) {
 }
 
 func TestNilRawIs500(t *testing.T) {
-	src := SourceFunc(func(context.Context) (*board.Raw, error) { return nil, nil })
-	_, h, _ := newTestServer(t, src, fakeBuild)
+	_, h, _ := newTestServer(t, &fakeSource{nilRaw: true}, fakeBuild)
 	rec := get(h, "/api/board")
 	if rec.Code != http.StatusInternalServerError || decodeError(t, rec)["code"] != CodeInternal {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body)

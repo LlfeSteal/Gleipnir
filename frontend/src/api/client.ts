@@ -9,6 +9,7 @@ const API_CODES: readonly ApiErrorCode[] = [
   'premium_required',
   'cadence_not_found',
   'gitlab_unreachable',
+  'invalid_scope',
   'internal',
 ];
 
@@ -30,15 +31,23 @@ function isApiCode(value: unknown): value is ApiErrorCode {
   return typeof value === 'string' && (API_CODES as readonly string[]).includes(value);
 }
 
+/** The board URL: the cached board, or, with refresh, after the backend has read the subtrees
+ * of those groups again from GitLab. Paths keep their slashes; a comma separates them. */
+export function boardUrl(refresh: readonly string[] | null): string {
+  if (!refresh) return '/api/board';
+  const groups = refresh.map((path) => encodeURIComponent(path).replace(/%2F/gi, '/')).join(',');
+  return `/api/board?refresh=1&groups=${groups}`;
+}
+
 /** The board, and when the backend fetched it from GitLab (X-Fetched-At: it may answer from
- * its cache). With refresh, the backend syncs again with GitLab before answering. */
+ * its cache). With refresh, the backend first reads those groups again from GitLab. */
 export async function fetchBoard(
-  refresh: boolean,
+  refresh: readonly string[] | null,
   signal?: AbortSignal,
 ): Promise<{ data: BoardData; fetchedAt: string | null }> {
   let response: Response;
   try {
-    response = await fetch(refresh ? '/api/board?refresh=1' : '/api/board', {
+    response = await fetch(boardUrl(refresh), {
       signal,
       headers: { Accept: 'application/json' },
     });
