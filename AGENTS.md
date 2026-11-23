@@ -36,7 +36,7 @@ Ce document sert de référence à tout agent ou développeur qui travaille dans
 
 ```
 backend/
-  cmd/server/main.go          configuration (getenv injectable), routes, slog, arrêt propre
+  cmd/server/main.go          serve (signaux, slog, code de sortie) → run(ctx, getenv, logger) : config, serveur, arrêt propre
   internal/config/            lecture et validation des variables d'environnement
   internal/gitlab/client.go   doGraphQL + paginate (repris de Nornir), erreurs typées (401 / 404 / Premium / cadence)
   internal/gitlab/queries.go  descendantGroups, iterationCadences, iterations, workItems
@@ -76,12 +76,14 @@ CLAUDE.md                     importe ce fichier
 ```bash
 # Backend
 cd backend && gofmt -l . && go vet ./... && go test -race ./...
+cd backend && go test -coverprofile=cover.out ./... && go tool cover -func=cover.out | tail -1   # couverture (≥ 90 %)
 cd backend && GLEIPNIR_DEMO=1 go run ./cmd/server                  # mode démo, http://localhost:8080
 cd backend && (set -a; . ../.env; set +a; go run ./cmd/server)     # vrai GitLab : le backend ne lit pas .env lui-même
 
 # Frontend
 cd frontend && npm run build          # tsc -b + vite build
 cd frontend && npm test               # Vitest : logique (node) et composants (jsdom)
+cd frontend && npm run test:coverage  # idem, avec la couverture : échoue sous 90 % de lignes ou de fonctions
 cd frontend && npx vitest run src/board/window.test.ts   # un fichier
 cd frontend && npm run dev            # http://localhost:5173, proxy /api → GLEIPNIR_API_URL (défaut localhost:8080)
 
@@ -293,14 +295,24 @@ Ils sont dans `internal/board`. Tous sont couverts par des tests table par table
 
 ## Tests
 
+- **Couverture** (ADR-23) : au moins **90 % des lignes et 90 % des fonctions**, côté Go comme côté frontend.
+  - Testez les **cas limites** : bornes, valeurs vides ou `null`, doublons, erreurs, ordre des égalités.
+  - Côté frontend, les seuils sont dans `vitest.config.ts` : `npm run test:coverage` échoue en dessous.
+  - Côté Go, `go tool cover -func` donne le total. Une fonction couverte est une fonction à plus de 0 %. Seul `main` reste à 0 %.
 - **Go** : tests table par table.
   - Les règles métier sont dans `internal/board` : rattachement, liens, conflits, chemin critique avec cycle, non planifiés, ordre.
   - Le cache se teste avec `-race`.
   - Le client GitLab et les handlers se testent face à un **faux GitLab `httptest`**.
   - L'horloge est toujours injectée.
+  - `cmd/server` se teste par `run` et `serve`, sur un port libre. Un test n'envoie SIGTERM au processus qu'**après** que `serve` écoute (`waitHealthy`) : sinon le signal tue le binaire de test.
 - **Vitest** (`vitest.config.ts`, setup `src/test/setup.ts`) :
   - `src/**/*.test.ts` : la logique pure, en node ;
   - `src/**/*.test.tsx` : les composants avec Testing Library. Leur **première ligne** est `// @vitest-environment jsdom`.
+  - **Pièges** :
+    - avec `vi.useFakeTimers({ toFake: ['setInterval', …] })`, le `waitFor` de Testing Library ne sonde plus, et `vi.waitFor` avance l'horloge factice à chaque essai. Videz plutôt les promesses avec `await act(async () => {})` ;
+    - React lit un `timeStamp` de 0 comme absent et le remplace par `Date.now()` : un événement simulé part de 1 ;
+    - jsdom n'a pas de `PointerEvent` : un `MouseEvent` auquel on ajoute `pointerId` et `pointerType` le remplace ;
+    - `getByTitle` et `getByText` normalisent les espaces : pour un texte qui commence ou finit par une espace, lisez l'attribut directement.
 - **Playwright** (`frontend/e2e/`, `playwright.config.ts`) :
   - `*.spec.ts` tournent contre le **backend réel en mode démo** ; `webServer` démarre Go (8081) et Vite (5174), ou les ports donnés par `E2E_API_PORT` / `E2E_WEB_PORT` (voir ADR-22).
   - En développement, React `StrictMode` lance puis annule une première requête `/api/board` : un mock d'erreur ne doit pas compter les appels, mais rester actif jusqu'à ce que le test le retire.
@@ -384,8 +396,8 @@ Ils sont dans `internal/board`. Tous sont couverts par des tests table par table
 
 ### Avant de committer
 
-1. `cd backend && gofmt -l . && go vet ./... && go test -race ./...`. `gofmt -l` ne doit rien lister.
-2. `cd frontend && npm run build && npm test && npm run test:e2e`.
+1. `cd backend && gofmt -l . && go vet ./... && go test -race ./...`. `gofmt -l` ne doit rien lister. La couverture reste ≥ 90 %.
+2. `cd frontend && npm run build && npm run test:coverage && npm run test:e2e`.
 3. Si le client GitLab ou une requête GraphQL a changé : `npm run test:e2e:live` contre un vrai GitLab.
 4. Si un Dockerfile, le compose ou `nginx.conf.template` a changé : `docker compose config`, puis `docker compose up -d --build` et un contrôle de `/api/health` et de la page (CSP : aucune erreur dans la console).
 

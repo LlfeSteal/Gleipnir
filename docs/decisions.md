@@ -492,3 +492,24 @@ Une synchro en cours reste partagée par toutes les requêtes. Sans données en 
 
 **Conséquences.** Deux suites e2e peuvent tourner côte à côte, par exemple `E2E_API_PORT=8093 E2E_WEB_PORT=5193 npm run test:e2e`.
 
+
+## ADR-23 — Couverture de tests : 90 % de lignes et de fonctions
+
+**Contexte.** La couverture n'était pas mesurée côté frontend. Côté Go, `cmd/server` n'était presque pas testé : `run` lisait l'environnement du processus et attendait un signal, ce qui le rendait intestable.
+
+**Décision.**
+
+- **Seuil** : au moins **90 % des lignes et 90 % des fonctions** couvertes, pour le backend comme pour le frontend. Les cas limites sont testés explicitement (bornes, valeurs vides, erreurs), pas seulement les chemins nominaux.
+- **Frontend** : dev-dépendance **`@vitest/coverage-v8`**, à la même version que `vitest`. C'est le fournisseur officiel de Vitest ; il s'appuie sur la couverture native de V8, sans instrumentation Babel ni dépendance d'exécution. `vitest.config.ts` fixe les seuils, donc `npm run test:coverage` échoue en dessous. Sont exclus :
+  - les tests et leur setup ;
+  - `fixtures.ts` ;
+  - les fichiers de types seuls ;
+  - `main.tsx`, couvert par Playwright.
+- **Backend** : la bibliothèque standard suffit (`go test -coverprofile`, puis `go tool cover -func`).
+- **`cmd/server`** :
+  - `run(ctx, getenv, logger)` reçoit son contexte et sa lecture de l'environnement ;
+  - `serve` porte les signaux, le logger et le code de sortie ;
+  - `main` se réduit à `os.Exit(serve(os.Getenv, os.Stderr))` ;
+  - `shutdownTimeout` est une variable, pour tester la fermeture forcée des connexions.
+
+**Conséquences.** Les tests de `cmd/server` démarrent un vrai serveur sur un port libre et s'envoient SIGTERM. Ils ne le font qu'une fois `serve` à l'écoute du signal, sinon le binaire de test serait tué. Seul `main` reste non couvert côté Go.

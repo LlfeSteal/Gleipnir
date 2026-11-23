@@ -109,8 +109,12 @@ Tous les utilisateurs voient ce que le jeton voit. Choisissez donc un compte don
 # Backend
 cd backend && gofmt -l . && go vet ./... && go test -race ./...
 
+# Couverture du backend (au moins 90 % des lignes et des fonctions)
+cd backend && go test -coverprofile=cover.out ./... && go tool cover -func=cover.out | tail -1
+
 # Frontend : build (tsc + vite) puis tests unitaires Vitest (logique en node, composants en jsdom)
 cd frontend && npm run build && npm test
+cd frontend && npm run test:coverage   # échoue sous 90 % des lignes ou des fonctions ; rapport HTML dans coverage/
 
 # Bout en bout (Playwright) contre le mode démo
 cd frontend && npx playwright install chromium     # une fois par conteneur
