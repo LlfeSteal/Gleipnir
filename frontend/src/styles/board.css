@@ -1,0 +1,250 @@
+/* The board canvas (src/components/board). Tokens come from theme.css; components only expose
+   states as data attributes, mapped to tokens here. Layering, bottom to top: columns (0) → links
+   (1) → items (2) → selected item (3) → lane rail (4) → column headers (5). */
+
+/* ---------- Scroll container and canvas ---------- */
+.board-scroll {
+  position: relative; height: 100%; min-height: 0; overflow: auto;
+  overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+  background: var(--bg);
+}
+.board-canvas { position: relative; }
+
+/* ---------- Column headers (sticky top) ---------- */
+.board-header {
+  position: sticky; top: 0; z-index: 5; display: flex;
+  background: var(--material); -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 0.5px solid var(--separator);
+}
+/* The top-left corner sticks both ways, over the rail. */
+.board-corner {
+  position: sticky; left: 0; z-index: 1; flex: none; display: flex; align-items: flex-end;
+  padding: 0 12px 10px 16px; background: var(--card); border-right: 0.5px solid var(--separator);
+}
+.column-header {
+  flex: none; display: flex; flex-direction: column; justify-content: center; gap: 2px; min-width: 0;
+  padding: 0 12px; border-right: 0.5px solid var(--separator);
+}
+.column-header[data-current] { background: var(--current-column); }
+.column-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.column-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+.column-header[data-current] .column-name { color: var(--blue); }
+.column-current {
+  flex: none; height: 16px; padding: 0 6px; border-radius: 8px; line-height: 16px;
+  background: color-mix(in srgb, var(--blue) 14%, transparent); color: var(--blue);
+  font-size: 10px; font-weight: 600;
+}
+.column-dates { font-size: 11px; color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* The unplanned column has no dates: gray and dashed, like undated bars. */
+.column-header[data-unplanned] { border-left: 1px dashed var(--undated-stroke); }
+.column-header[data-unplanned] .column-name { color: var(--text-secondary); font-weight: 500; }
+
+/* ---------- Columns (full height, behind everything) ---------- */
+.board-column { position: absolute; top: 0; z-index: 0; border-right: 0.5px solid var(--separator); pointer-events: none; }
+.board-column[data-current] { background: var(--current-column); }
+.board-column[data-unplanned] {
+  border-left: 1px dashed var(--undated-stroke);
+  background: color-mix(in srgb, var(--undated) 8%, transparent);
+}
+.lane-separator { position: absolute; z-index: 0; height: 0; border-top: 0.5px solid var(--separator); pointer-events: none; }
+.lane-empty { position: absolute; z-index: 1; margin: 0; font-size: 12px; color: var(--text-secondary); pointer-events: none; }
+
+/* ---------- Lane rail (sticky left) ---------- */
+.lane-rail {
+  position: sticky; left: 0; z-index: 4;
+  background: var(--card); border-right: 0.5px solid var(--separator);
+}
+.lane-header {
+  position: absolute; left: 0; right: 0; display: flex; flex-direction: column; gap: 4px; overflow: hidden;
+  padding: 8px 10px 8px 12px;
+  box-shadow: inset 3px 0 0 var(--lane, var(--separator));
+  border-bottom: 0.5px solid var(--separator);
+}
+.lane-header-top { display: flex; align-items: center; gap: 4px; min-height: 24px; }
+.lane-button {
+  flex: none; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px;
+  padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer;
+  transition: background 0.15s var(--ease), opacity 0.15s var(--ease);
+}
+.lane-button:hover { background: var(--fill); color: var(--text); }
+.lane-button:active { transform: scale(0.97); }
+.lane-chevron svg { transform: rotate(90deg); transition: transform 0.2s var(--ease); }
+.lane-header[data-collapsed] .lane-chevron svg { transform: none; }
+.lane-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+/* The pencil appears on hover or keyboard focus; always there without a hover-capable pointer. */
+.lane-edit { opacity: 0; }
+.lane-header:hover .lane-edit, .lane-edit:focus-visible { opacity: 1; }
+@media (hover: none) { .lane-edit { opacity: 1; } }
+.lane-meta {
+  padding-left: 28px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 11px; line-height: 16px; color: var(--text-secondary);
+}
+.lane-labels { display: flex; align-items: center; gap: 8px; }
+.lane-label { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.lane-label-mode { flex: none; }
+.lane-counts {
+  display: flex; align-items: center; gap: 10px; padding-left: 28px; min-height: 18px;
+  font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.lane-count { display: inline-flex; align-items: center; gap: 5px; }
+.lane-outside { font-size: 11px; }
+.label-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--label-color, var(--undated)); }
+
+/* ---------- Compact rail (phones, COMPACT_LAYOUT) ----------
+   The rail keeps what identifies and acts on a lane: the color edge, the chevron, the name on two
+   lines and the pencil below it. Filters and counts stay in the sidebar sheet and the settings. */
+.board-canvas[data-compact] .board-corner { padding: 0 8px 10px 12px; }
+.board-canvas[data-compact] .lane-header { padding: 8px 6px 8px 7px; gap: 0; }
+.board-canvas[data-compact] .lane-header-top {
+  display: grid; grid-template-columns: 24px minmax(0, 1fr); column-gap: 2px; row-gap: 2px; align-items: start;
+}
+.board-canvas[data-compact] .lane-chevron { grid-row: 1; grid-column: 1; }
+.board-canvas[data-compact] .lane-name {
+  grid-row: 1; grid-column: 2; padding-top: 4px; line-height: 16px;
+  white-space: normal; overflow-wrap: anywhere; hyphens: auto;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+}
+/* Aligned on the name's first letter: the 14 px glyph sits 5 px inside its 24 px button. */
+.board-canvas[data-compact] .lane-edit { grid-row: 2; grid-column: 2; margin-left: -5px; }
+.board-canvas[data-compact] :is(.lane-meta, .lane-counts) { display: none; }
+.board-canvas[data-compact] .lane-empty { max-width: 140px; }
+
+/* ---------- Items (shared) ---------- */
+.board-item {
+  position: absolute; z-index: 2; margin: 0; border: 0; text-align: left; cursor: pointer;
+  font-family: inherit; overflow: hidden; white-space: nowrap;
+  --rs: 6px; --re: 6px; /* start / end corner radius */
+  border-radius: var(--rs) var(--re) var(--re) var(--rs);
+  transition: opacity 0.2s var(--ease), filter 0.15s var(--ease), transform 0.15s var(--ease), box-shadow 0.15s var(--ease);
+}
+.board-item:focus-visible { border-radius: var(--rs) var(--re) var(--re) var(--rs); z-index: 3; }
+.board-item[aria-pressed='true'] {
+  z-index: 3; outline: 3px solid color-mix(in srgb, var(--blue) 50%, transparent); outline-offset: 2px;
+}
+.item-ref { flex: none; font-weight: 600; font-variant-numeric: tabular-nums; }
+.off-pill { flex: none; }
+
+/* ---------- Epic bar ---------- */
+/* White 12 px text needs 4.5:1: the system purple only gives 4.1 (light) and 3.5 (dark), so the
+   fill is the epic color deepened with black (4.9 and 4.7). */
+.board-canvas, .item-glyph { --epic-fill: color-mix(in srgb, var(--epic) 90%, #000); }
+:root[data-theme='dark'] :is(.board-canvas, .item-glyph) { --epic-fill: color-mix(in srgb, var(--epic) 84%, #000); }
+.epic-bar {
+  display: flex; align-items: center; gap: 6px; padding: 0 8px;
+  background: var(--epic-fill); color: #fff; font-size: 12px; font-weight: 500;
+}
+.epic-bar:hover { filter: brightness(1.08) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.15)); }
+.epic-bar:active { transform: scale(0.99); }
+.epic-icon { flex: none; }
+.epic-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.epic-clip { flex: none; display: flex; margin: 0 -2px; opacity: 0.85; }
+/* A side cut by the window is square: the bar goes on beyond it. */
+.epic-bar[data-clipped-start] { --rs: 0; padding-left: 4px; }
+.epic-bar[data-clipped-end] { --re: 0; padding-right: 4px; }
+.epic-bar .off-pill { background: color-mix(in srgb, #fff 24%, transparent); color: #fff; }
+/* Closed: hatched like closed bars, secondary text. */
+.epic-bar[data-closed] {
+  background: repeating-linear-gradient(45deg, var(--closed-bg) 0 3px, var(--closed-stroke) 3px 5px), var(--card);
+  color: var(--text-secondary);
+}
+/* Unplanned: gray with a dashed outline, like undated bars. */
+.epic-bar[data-unplanned] {
+  background: color-mix(in srgb, var(--undated) 35%, transparent);
+  border: 1.5px dashed var(--undated-stroke); color: var(--text);
+}
+.epic-bar[data-unplanned] .epic-icon { color: var(--epic); }
+.epic-bar:is([data-closed], [data-unplanned]) .off-pill { background: var(--fill); color: var(--text-secondary); }
+
+/* ---------- Issue card ---------- */
+.issue-card {
+  display: flex; flex-direction: column; gap: 2px; padding: 7px 10px;
+  --rs: 10px; --re: 10px;
+  background: var(--card); color: var(--text); box-shadow: var(--shadow); font-size: 12px;
+}
+.issue-card:hover { transform: translateY(-1px); box-shadow: var(--popover-shadow); }
+.issue-card:active { transform: scale(0.99); }
+.issue-head { display: flex; align-items: center; gap: 6px; height: 20px; flex: none; }
+.issue-state { flex: none; color: var(--issue); }
+.issue-closed { font-size: 11px; color: var(--text-secondary); }
+.issue-spacer { flex: 1; }
+.avatar {
+  flex: none; display: flex; align-items: center; justify-content: center; width: 20px; height: 20px;
+  border-radius: 50%; background: var(--fill); color: var(--text-secondary);
+  font-size: 9px; font-weight: 600; letter-spacing: 0.02em;
+}
+.issue-title {
+  flex: none; height: 32px; overflow: hidden; white-space: normal;
+  font-size: 13px; font-weight: 500; line-height: 16px;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+}
+.issue-blocks, .issue-labels {
+  display: flex; align-items: center; height: 15px; flex: none; min-width: 0; overflow: hidden;
+  font-size: 11px; color: var(--text-secondary);
+}
+.issue-blocks { gap: 4px; margin-top: 2px; }
+.issue-blocks svg { flex: none; }
+.issue-blocks-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.issue-labels { gap: 8px; }
+.issue-label { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.issue-label-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.issue-label-more { flex: none; font-variant-numeric: tabular-nums; }
+.issue-card[data-closed] .issue-state,
+.issue-card[data-closed] .item-ref,
+.issue-card[data-closed] .issue-title { color: var(--text-secondary); }
+/* Unplanned: a dashed outline instead of the shadow. */
+.issue-card[data-unplanned] { box-shadow: none; border: 1px dashed var(--undated-stroke); }
+
+/* ---------- Links ---------- */
+.link-layer { position: absolute; left: 0; top: 0; z-index: 1; overflow: visible; pointer-events: none; }
+.link { transition: opacity 0.2s var(--ease); }
+.link-curve {
+  fill: none; stroke: var(--dependency); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
+  transition: stroke-width 0.15s var(--ease);
+}
+.link-arrow { fill: var(--dependency); stroke: none; }
+.link[data-type='relates'] .link-curve { stroke-dasharray: 2 3; }
+.link[data-type='parent'] .link-curve { stroke-dasharray: 5 3; stroke-linecap: butt; }
+.link[data-conflict] .link-curve { stroke: var(--dependency-conflict); }
+.link[data-conflict] .link-arrow { fill: var(--dependency-conflict); }
+/* The critical path: the strongest neutral, even in conflict (no hue of its own). */
+.link[data-critical] .link-curve { stroke: var(--critical); stroke-width: 2; }
+.link[data-critical] .link-arrow { fill: var(--critical); }
+.link-swatch { flex: none; overflow: visible; }
+
+/* ---------- Fading: critical path and selection ----------
+   A faded item is veiled with the canvas background instead of made translucent: it fades the
+   same way but stays opaque, so the links passing under it don't show through its text. */
+.board-item::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: var(--bg); opacity: 0; transition: opacity 0.2s var(--ease);
+}
+.board-canvas[data-critical-path] .board-item:not([data-critical])::after,
+.board-canvas[data-selection] .board-item:not([data-related])::after { opacity: 0.65; }
+.board-canvas[data-critical-path] .board-item:not([data-critical]):is(:hover, :focus-visible)::after,
+.board-canvas[data-selection] .board-item:not([data-related]):is(:hover, :focus-visible)::after { opacity: 0; }
+.board-canvas[data-critical-path] .board-item:not([data-critical]):not(:hover, :focus-visible),
+.board-canvas[data-selection] .board-item:not([data-related]):not(:hover, :focus-visible) { box-shadow: none; }
+
+/* Critical path: everything off the path fades (no hue of its own). */
+.board-canvas[data-critical-path] .link:not([data-critical]) { opacity: 0.35; }
+
+/* Selection: unrelated links almost vanish, the selection's own links thicken. */
+.board-canvas[data-selection] .link:not([data-connected]) { opacity: 0.1; }
+.board-canvas[data-selection] .link[data-connected] { opacity: 1; }
+.board-canvas[data-selection] .link[data-connected] .link-curve { stroke-width: 2.5; }
+.board-canvas[data-selection] .link[data-connected][data-critical] .link-curve { stroke-width: 3; }
+
+/* ---------- Item glyph (legend, settings, inspector, lane rail) ---------- */
+.item-glyph { flex: none; display: inline-flex; align-items: center; justify-content: center; }
+.item-glyph[data-kind='epic'] { width: 22px; height: 12px; border-radius: 4px; background: var(--epic-fill); color: #fff; }
+.item-glyph[data-kind='epic'][data-size='small'] { width: 16px; height: 10px; border-radius: 3px; }
+.item-glyph[data-kind='epic'][data-closed] {
+  background: repeating-linear-gradient(45deg, var(--closed-bg) 0 2px, var(--closed-stroke) 2px 4px), var(--card);
+  color: var(--text-secondary);
+}
+.item-glyph[data-kind='issue'] {
+  width: 18px; height: 14px; border-radius: 4px; background: var(--card); color: var(--issue);
+  box-shadow: inset 0 0 0 1px var(--text-tertiary);
+}
+.item-glyph[data-kind='issue'][data-size='small'] { width: 14px; height: 11px; border-radius: 3px; }
+.item-glyph[data-kind='issue'][data-closed] { color: var(--text-secondary); }

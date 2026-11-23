@@ -1,0 +1,420 @@
+/* Gleipnir design system (docs/style.md), after Apple's Human Interface Guidelines: system font,
+   Apple system colors, light and dark appearances, hairline separators, soft materials and short
+   motion. The tokens live here only; board.css and app.css use them. Components hold no color:
+   they expose states as data-* attributes, mapped to tokens below and in the other sheets. */
+
+:root {
+  color-scheme: light;
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+
+  /* Neutrals (style.md §2.1) */
+  --bg: #f5f5f7; /* grouped background */
+  --card: #ffffff;
+  --row-alt: #fafafc;
+  --row-hover: rgba(0, 0, 0, 0.035);
+  --text: #1d1d1f;
+  --text-secondary: rgba(60, 60, 67, 0.6);
+  --text-tertiary: rgba(60, 60, 67, 0.3);
+  --separator: rgba(60, 60, 67, 0.12);
+  --fill: rgba(120, 120, 128, 0.12); /* control backgrounds */
+  --fill-pressed: rgba(120, 120, 128, 0.2);
+  --material: rgba(255, 255, 255, 0.72); /* translucent bars, with a blur */
+  /* Opaque: a menu that overflows the blurred toolbar is composited with it, and Chromium then
+     lets the board show through even a 97 % fill (see .menu). */
+  --menu-bg: #f6f6f8;
+  --segment-thumb: #ffffff;
+  --inset-bg: #f5f5f7; /* inset grouped lists inside a card (iOS): the page gray */
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 16px rgba(0, 0, 0, 0.06);
+  --popover-shadow: 0 8px 30px rgba(0, 0, 0, 0.14), 0 0 0 0.5px rgba(0, 0, 0, 0.08);
+  --raised-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.04); /* thumbs, knobs */
+
+  /* Apple system hues (style.md §2.2). Blue is also the accent. */
+  --blue: #007aff;
+  --purple: #af52de;
+  --green: #34c759;
+  --orange: #ff9500;
+  --teal: #30b0c7;
+  --red: #ff3b30;
+
+  /* Meaning. Each hue carries one meaning: green = on track, red = conflict, blue = accent. */
+  --epic: var(--purple);
+  --issue: var(--teal); /* not green: green means "on track" */
+  --on-track: var(--green);
+  --at-risk: var(--orange);
+  --late: var(--red);
+  --warning: var(--orange);
+  --blocked: var(--red);
+  --dependency: #8e8e93; /* systemGray: links are neutral, told apart by their shape */
+  --dependency-conflict: var(--red); /* a blocker that ends after the start of what it blocks */
+  --critical: var(--text); /* the critical path: the strongest neutral, no hue of its own */
+  --undated: #aeaeb2; /* systemGray2: the unplanned column, items from elsewhere */
+  --undated-stroke: #8e8e93; /* systemGray: their dashed outline */
+  --closed-bg: rgba(142, 142, 147, 0.18);
+  --closed-stroke: rgba(142, 142, 147, 0.45);
+  --current-column: rgba(120, 120, 128, 0.06); /* --fill at half strength: the current iteration */
+
+  /* Lane colors: Apple system colors left free by the meanings above (no green, red, teal or
+     purple, which already say something on the board). */
+  --lane-indigo: #5856d6;
+  --lane-blue: var(--blue);
+  --lane-cyan: #32ade6;
+  --lane-mint: #00c7be;
+  --lane-yellow: #ffcc00;
+  --lane-orange: var(--orange);
+  --lane-pink: #ff2d55;
+  --lane-brown: #a2845e;
+
+  --radius: 12px;
+  --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
+/* Dark appearance. data-theme is set on <html> from the user's choice (Automatic / Light / Dark,
+   see hooks/useAppearance.ts and the pre-paint script of index.html): no prefers-color-scheme
+   query here, so a choice of Light wins over a dark system. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #000000;
+  --card: #1c1c1e;
+  --row-alt: #202022;
+  --row-hover: rgba(255, 255, 255, 0.05);
+  --text: #f5f5f7;
+  --text-secondary: rgba(235, 235, 245, 0.6);
+  --text-tertiary: rgba(235, 235, 245, 0.3);
+  --separator: rgba(84, 84, 88, 0.45);
+  --fill: rgba(118, 118, 128, 0.24);
+  --fill-pressed: rgba(118, 118, 128, 0.36);
+  --material: rgba(28, 28, 30, 0.72);
+  --menu-bg: #2c2c2e;
+  --segment-thumb: #636366;
+  --inset-bg: #2c2c2e; /* lighter than the card, not a black hole in it */
+  --shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.08); /* a hairline ring instead of a shadow */
+  --popover-shadow: 0 8px 30px rgba(0, 0, 0, 0.5), 0 0 0 0.5px rgba(255, 255, 255, 0.12);
+
+  --blue: #0a84ff;
+  --purple: #bf5af2;
+  --green: #30d158;
+  --orange: #ff9f0a;
+  --teal: #40c8e0;
+  --red: #ff453a;
+
+  --dependency: #98989d;
+  --undated: #636366;
+  --undated-stroke: #98989d;
+  --closed-bg: rgba(142, 142, 147, 0.22);
+  --closed-stroke: rgba(142, 142, 147, 0.5);
+  --current-column: rgba(118, 118, 128, 0.12);
+
+  --lane-indigo: #5e5ce6;
+  --lane-cyan: #64d2ff;
+  --lane-mint: #63e6e2;
+  --lane-yellow: #ffd60a;
+  --lane-pink: #ff375f;
+  --lane-brown: #ac8e68;
+}
+
+/* A lane's color, by name: other sheets just use var(--lane). */
+[data-lane-color='indigo'] { --lane: var(--lane-indigo); }
+[data-lane-color='blue'] { --lane: var(--lane-blue); }
+[data-lane-color='cyan'] { --lane: var(--lane-cyan); }
+[data-lane-color='mint'] { --lane: var(--lane-mint); }
+[data-lane-color='yellow'] { --lane: var(--lane-yellow); }
+[data-lane-color='orange'] { --lane: var(--lane-orange); }
+[data-lane-color='pink'] { --lane: var(--lane-pink); }
+[data-lane-color='brown'] { --lane: var(--lane-brown); }
+
+/* ---------- Base ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body {
+  margin: 0;
+  font: 14px/1.4 var(--font);
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+a { color: var(--blue); text-decoration: none; }
+a:hover { text-decoration: underline; }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid color-mix(in srgb, var(--blue) 50%, transparent); outline-offset: 2px; border-radius: 6px; }
+/* Thin, quiet scrollbars, like macOS overlay ones. */
+* { scrollbar-width: thin; scrollbar-color: var(--text-tertiary) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--text-tertiary); border-radius: 4px; }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+
+.visually-hidden {
+  position: absolute !important; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+.card { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+.section-header {
+  margin: 0; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.hint { margin: 0; font-size: 12px; color: var(--text-secondary); }
+/* Count pill: "› 2" off-window counts, sidebar counters. */
+.pill {
+  display: inline-flex; align-items: center; justify-content: center; gap: 3px;
+  min-width: 18px; height: 18px; padding: 0 6px; border: 0; border-radius: 9px;
+  background: var(--fill); color: var(--text-secondary);
+  font-size: 11px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+button.pill { cursor: pointer; transition: background 0.15s var(--ease), color 0.15s var(--ease); }
+button.pill:hover { background: var(--fill-pressed); color: var(--text); }
+
+/* ---------- Buttons ---------- */
+.button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: none;
+  height: 28px; padding: 0 12px; border: 0; border-radius: 7px;
+  background: var(--fill); color: var(--text); font-size: 13px; font-weight: 500; white-space: nowrap;
+  cursor: pointer; transition: background 0.15s var(--ease), color 0.15s var(--ease), transform 0.1s var(--ease);
+}
+.button svg { flex: none; }
+.button:hover { background: var(--fill-pressed); }
+.button:active { transform: scale(0.97); }
+.button:disabled { opacity: 0.5; cursor: default; transform: none; }
+.button:disabled:hover { background: var(--fill); }
+.button[aria-pressed='true'] { background: var(--fill-pressed); color: var(--blue); }
+.button.icon { width: 28px; padding: 0; }
+.button.plain { background: none; color: var(--blue); padding: 0 8px; }
+.button.plain:hover { background: var(--fill); }
+.button.plain:disabled:hover { background: none; }
+/* An icon-only plain button (close, chevrons) stays neutral: blue is for actions with words. */
+.button.icon.plain { color: var(--text-secondary); }
+.button.icon.plain:hover { color: var(--text); }
+.button.primary { background: var(--blue); color: #fff; }
+.button.primary:hover { background: color-mix(in srgb, var(--blue) 88%, #000); }
+.button.primary:disabled:hover { background: var(--blue); }
+.button.destructive { background: var(--red); color: #fff; }
+.button.destructive:hover { background: color-mix(in srgb, var(--red) 88%, #000); }
+.button.destructive:disabled:hover { background: var(--red); }
+.spin { animation: spin 0.9s linear infinite; }
+
+/* ---------- Segmented control: a sliding thumb ---------- */
+.segmented {
+  position: relative; display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr;
+  padding: 2px; border-radius: 8px; background: var(--fill);
+}
+.segmented-thumb {
+  position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc((100% - 4px) / var(--segments, 1));
+  border-radius: 6px; background: var(--segment-thumb); box-shadow: var(--raised-shadow);
+  transition: transform 0.22s var(--ease);
+}
+.segmented button {
+  position: relative; z-index: 1; min-width: 64px; height: 24px; padding: 0 12px;
+  border: 0; border-radius: 6px; background: none; font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer;
+  transition: color 0.15s var(--ease);
+}
+.segmented button[aria-checked='false'] { color: var(--text-secondary); }
+.segmented button[aria-checked='false']:hover { color: var(--text); }
+.segmented[data-size='small'] button { min-width: 48px; height: 20px; padding: 0 10px; font-size: 12px; }
+.segmented[data-size='small'] .segmented-thumb { border-radius: 5px; }
+
+/* ---------- Menus and popovers (macOS) ---------- */
+.menu-anchor { position: relative; display: inline-flex; }
+.menu {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 20; min-width: 190px; padding: 5px;
+  /* Opaque (--menu-bg): menus open from the toolbar, which already has a backdrop-filter; a
+     nested blur only sees its parent, and a translucent fill let the board ghost through. */
+  border-radius: 10px; background: var(--menu-bg); box-shadow: var(--popover-shadow); color: var(--text);
+  text-align: left; outline: none;
+  transform-origin: top left; animation: menu-in 0.12s var(--ease);
+}
+.menu[data-align='end'] { left: auto; right: 0; transform-origin: top right; }
+.menu[data-align='center'] { left: 50%; transform: translateX(-50%); transform-origin: top center; animation-name: menu-in-center; }
+.menu-header { padding: 4px 8px 6px; font-size: 11px; font-weight: 600; color: var(--text-secondary); }
+.menu-separator { height: 0.5px; margin: 5px 8px; background: var(--separator); }
+.menu-item {
+  display: flex; align-items: center; gap: 8px; width: 100%; height: 28px; padding: 0 8px;
+  border: 0; border-radius: 6px; background: none; color: var(--text);
+  font-size: 13px; text-align: left; white-space: nowrap; cursor: default;
+}
+.menu-item:hover, .menu-item:focus-visible { background: var(--blue); color: #fff; outline: none; }
+/* The pointer wins over a keyboard highlight left elsewhere: one highlighted row, as in macOS. */
+.menu:hover .menu-item:focus-visible:not(:hover) { background: none; color: var(--text); }
+.menu-item:disabled { color: var(--text-tertiary); background: none; }
+.menu-item-icon { flex: none; display: inline-flex; color: var(--text-secondary); }
+.menu-item:hover .menu-item-icon, .menu-item:focus-visible .menu-item-icon { color: inherit; }
+.menu-item-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.menu-item-detail { flex: none; font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.menu-item:hover .menu-item-detail, .menu-item:focus-visible .menu-item-detail { color: inherit; opacity: 0.8; }
+.menu-item .check { flex: none; visibility: hidden; }
+.menu-item[aria-checked='true'] .check { visibility: visible; }
+
+/* ---------- Search field ---------- */
+.search-field {
+  position: relative; display: flex; align-items: center; gap: 6px;
+  width: 240px; height: 28px; padding: 0 4px 0 8px; border-radius: 8px;
+  background: var(--fill); color: var(--text-secondary);
+  transition: box-shadow 0.15s var(--ease);
+}
+.search-field:focus-within { box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 45%, transparent); }
+.search-field > svg { flex: none; }
+.search-field input, .select-list-search input {
+  flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: none;
+  font-size: 13px; color: var(--text); outline: none; -webkit-appearance: none; appearance: none;
+}
+.search-field input::placeholder, .select-list-search input::placeholder { color: var(--text-secondary); }
+/* Our clear button replaces the browser's. */
+.search-field input::-webkit-search-cancel-button, .select-list-search input::-webkit-search-cancel-button { display: none; }
+.search-clear {
+  flex: none; display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0;
+  border-radius: 50%; background: none; color: var(--text-tertiary); cursor: pointer;
+}
+.search-clear:hover { color: var(--text-secondary); }
+
+/* ---------- Switch (iOS / macOS toggle) ----------
+   The "on" track is blue, not the iOS green: in this app green only ever means "on track"
+   (style.md §1), and blue is the accent of every other pressed control. */
+.switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 28px; font-size: 13px; }
+.switch-row[data-disabled] { opacity: 0.5; }
+.switch-text { display: flex; flex-direction: column; min-width: 0; cursor: default; }
+.switch-description { font-size: 12px; color: var(--text-secondary); }
+.switch {
+  position: relative; flex: none; width: 26px; height: 16px; padding: 0; border: 0; border-radius: 8px;
+  background: var(--fill-pressed); cursor: pointer; transition: background 0.2s var(--ease);
+}
+.switch[aria-checked='true'] { background: var(--blue); }
+.switch:disabled { cursor: default; }
+.switch-knob {
+  position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%;
+  background: #fff; box-shadow: var(--raised-shadow); transition: transform 0.2s var(--ease);
+}
+.switch[aria-checked='true'] .switch-knob { transform: translateX(10px); }
+.switch:not(:disabled):active .switch-knob { width: 14px; }
+.switch[aria-checked='true']:not(:disabled):active .switch-knob { transform: translateX(8px); }
+
+/* ---------- Checkbox row (native control) ---------- */
+.checkbox-row { display: flex; align-items: center; gap: 8px; min-height: 28px; font-size: 13px; cursor: default; }
+.checkbox-row[data-disabled] { opacity: 0.5; }
+.checkbox-row input { flex: none; width: 16px; height: 16px; margin: 0; accent-color: var(--blue); }
+.checkbox-label { display: inline-flex; align-items: center; gap: 6px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.checkbox-detail { flex: none; font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+
+/* ---------- Select list: a bordered inset list of checkable rows ---------- */
+.select-list {
+  display: flex; flex-direction: column; overflow: hidden;
+  border: 0.5px solid var(--separator); border-radius: 8px; background: var(--card);
+}
+.select-list-search {
+  flex: none; display: flex; align-items: center; gap: 6px; height: 28px; margin: 6px; padding: 0 8px;
+  border-radius: 6px; background: var(--fill); color: var(--text-secondary);
+}
+.select-list-search:focus-within { box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 45%, transparent); }
+.select-list-options { overflow-y: auto; overscroll-behavior: contain; padding: 2px 0; }
+.select-list-search + .select-list-options { border-top: 0.5px solid var(--separator); }
+.select-list-option {
+  display: flex; align-items: center; gap: 8px; width: 100%; height: 28px;
+  padding: 0 10px 0 calc(10px + var(--depth, 0) * 16px);
+  border: 0; background: none; color: var(--text); font-size: 13px; text-align: left; cursor: default;
+}
+.select-list-option:hover { background: var(--row-hover); }
+.select-list-option:focus-visible { outline: none; box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--blue) 50%, transparent); border-radius: 0; }
+.select-list-check {
+  flex: none; display: grid; place-items: center; width: 14px; height: 14px; border-radius: 4px;
+  border: 1px solid var(--text-tertiary); background: var(--card); color: #fff;
+  transition: background 0.15s var(--ease), border-color 0.15s var(--ease);
+}
+.select-list-check svg { visibility: hidden; }
+.select-list-option[aria-selected='true'] .select-list-check { background: var(--blue); border-color: var(--blue); }
+.select-list-option[aria-selected='true'] .select-list-check svg { visibility: visible; }
+.select-list-dot {
+  flex: none; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--label-color, var(--text-tertiary)); box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.2);
+}
+.select-list-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.select-list-detail { flex: 0 1 auto; min-width: 0; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--text-secondary); }
+.select-list-empty { padding: 10px; font-size: 13px; color: var(--text-secondary); text-align: center; }
+
+/* ---------- Sheet: native modal <dialog> ---------- */
+.sheet {
+  width: min(720px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px);
+  padding: 0; border: 0; border-radius: 14px; overflow: hidden;
+  background: var(--bg); color: var(--text); box-shadow: var(--popover-shadow);
+}
+.sheet[open] { display: flex; flex-direction: column; animation: sheet-in 0.15s var(--ease); }
+/* Literal colors: ::backdrop doesn't inherit custom properties in every browser. */
+.sheet::backdrop { background: rgba(0, 0, 0, 0.5); animation: fade-in 0.15s var(--ease); }
+:root[data-theme='dark'] .sheet::backdrop { background: rgba(0, 0, 0, 0.65); }
+.sheet-header { flex: none; display: flex; align-items: center; gap: 12px; padding: 14px 12px 12px 16px; }
+.sheet-title { flex: 1; min-width: 0; }
+.sheet-title h2 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 600; }
+.sheet-title p { margin: 2px 0 0; font-size: 12px; color: var(--text-secondary); }
+.sheet-close { border-radius: 50%; }
+.sheet-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 16px 16px; }
+.sheet-footer {
+  flex: none; display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  padding: 12px 16px; border-top: 0.5px solid var(--separator);
+}
+
+/* ---------- States ---------- */
+.banner {
+  display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+  border-radius: var(--radius); background: color-mix(in srgb, var(--red) 10%, var(--card)); color: var(--text);
+}
+.banner > svg { flex: none; color: var(--red); }
+.banner-text { flex: 1; min-width: 0; }
+.banner-text strong { display: block; font-weight: 600; }
+.banner-text span { font-size: 13px; color: var(--text-secondary); }
+
+.empty-state { display: flex; flex-direction: column; align-items: center; padding: 64px 24px; text-align: center; color: var(--text-secondary); }
+.empty-state-icon { display: inline-flex; margin-bottom: 12px; color: var(--text-tertiary); }
+.empty-state strong { color: var(--text); font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+.empty-state p { max-width: 420px; margin: 4px 0 0; }
+.empty-state-action { margin-top: 16px; }
+
+/* Skeleton: the board's shape (column headers, then lanes with a rail and bars), shimmering. */
+.skeleton { overflow: hidden; border-radius: var(--radius); background: var(--card); box-shadow: var(--shadow); }
+.skeleton-row { display: grid; grid-template-columns: 220px repeat(var(--columns, 5), minmax(96px, 1fr)); }
+.skeleton-header { height: 52px; align-items: center; border-bottom: 0.5px solid var(--separator); }
+.skeleton-cell { height: 100%; display: flex; align-items: center; padding: 0 12px; border-left: 0.5px solid var(--separator); }
+.skeleton-lane { grid-auto-rows: 28px; row-gap: 12px; padding: 16px 0; border-bottom: 0.5px solid var(--separator); }
+.skeleton-lane:last-child { border-bottom: 0; }
+.skeleton-rail { display: flex; flex-direction: column; gap: 8px; padding: 0 16px; grid-column: 1; grid-row: 1 / span 3; }
+.skeleton-header .skeleton-rail { grid-row: auto; }
+.skeleton-bar {
+  display: block; height: 10px; border-radius: 5px;
+  background: linear-gradient(90deg, var(--fill) 25%, var(--fill-pressed) 50%, var(--fill) 75%);
+  background-size: 200% 100%; animation: shimmer 1.4s ease-in-out infinite;
+}
+.skeleton-bar.small { height: 8px; }
+.skeleton-bar.block { height: 28px; margin: 0 8px; border-radius: 6px; }
+
+/* ---------- Motion (style.md §6) ---------- */
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes menu-in { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: none; } }
+@keyframes menu-in-center {
+  from { opacity: 0; transform: translateX(-50%) scale(0.96); }
+  to { opacity: 1; transform: translateX(-50%); }
+}
+@keyframes sheet-in { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: none; } }
+@keyframes sheet-up { from { transform: translateY(100%); } to { transform: none; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+
+/* ---------- Phones ---------- */
+@media (max-width: 760px) {
+  /* Sheets rise from the bottom edge, full width. */
+  .sheet {
+    width: 100%; max-height: calc(100dvh - 24px); margin: auto 0 0;
+    border-radius: 14px 14px 0 0;
+  }
+  .sheet[open] { animation: sheet-up 0.22s var(--ease); }
+  .sheet-footer { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+  .search-field { width: 100%; }
+}
+/* Touch: bigger hit targets for the switch and the checkboxes. */
+@media (pointer: coarse) {
+  .switch { width: 40px; height: 24px; border-radius: 12px; }
+  .switch-knob { width: 20px; height: 20px; }
+  .switch[aria-checked='true'] .switch-knob { transform: translateX(16px); }
+  .switch:not(:disabled):active .switch-knob { width: 20px; }
+  .switch[aria-checked='true']:not(:disabled):active .switch-knob { transform: translateX(16px); }
+  .checkbox-row, .switch-row { min-height: 36px; }
+  .select-list-option { height: 36px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after, ::backdrop { animation: none !important; transition: none !important; }
+}

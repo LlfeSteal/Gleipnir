@@ -1,0 +1,14 @@
+# npm ci installs the dependencies in the image; local builds and test outputs stay out.
+node_modules
+dist
+test-results
+playwright-report
+blob-report
+playwright/.cache
+coverage
+*.tsbuildinfo
+*.log
+.env
+.env.*
+Dockerfile
+.dockerignore

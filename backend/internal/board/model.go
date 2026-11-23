@@ -1,0 +1,120 @@
+// Package board turns the raw GitLab data into the normalized board served to the frontend:
+// iterations of one cadence, epics placed on them, the issues that block an epic, and the
+// links between them (spec §5). It holds the business rules; the frontend only lays it out.
+package board
+
+import "time"
+
+// Board is the JSON body of GET /api/board. Item references between epics, issues and links
+// use the work item global ID (gid://gitlab/WorkItem/…): refs ("&18", "#110") are for display
+// only, since issue IIDs repeat from one project to the next.
+type Board struct {
+	SyncedAt   time.Time   `json:"syncedAt"`
+	GitLabURL  string      `json:"gitlabUrl"`
+	RootGroup  Group       `json:"rootGroup"`
+	Cadence    Cadence     `json:"cadence"`
+	Iterations []Iteration `json:"iterations"` // sorted by start date
+	Current    int         `json:"current"`    // index of the current iteration, -1 when none
+	Groups     []Group     `json:"groups"`     // the root group, then its descendants, sorted by path
+	Labels     []Label     `json:"labels"`     // every label used by an epic or a shown issue, sorted by title
+	Epics      []Epic      `json:"epics"`
+	Issues     []Issue     `json:"issues"` // only the issues that block at least one epic
+	Links      []Link      `json:"links"`
+	// CriticalPath is the longest chain of open blocking links, as item IDs from the first
+	// blocker to the last blocked item (empty when there is no blocking link).
+	CriticalPath []string `json:"criticalPath"`
+	// IgnoredIssues counts the synced issues that block no epic, hence not shown.
+	IgnoredIssues int `json:"ignoredIssues"`
+}
+
+type Group struct {
+	Path string `json:"path"`
+	Name string `json:"name"`
+}
+
+type Cadence struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
+type Iteration struct {
+	ID        string `json:"id"`
+	Title     string `json:"title"`     // never empty: "Itération <sequence>" when GitLab has none
+	StartDate string `json:"startDate"` // YYYY-MM-DD
+	DueDate   string `json:"dueDate"`   // YYYY-MM-DD, inclusive
+	WebURL    string `json:"webUrl"`
+	Current   bool   `json:"current"`
+}
+
+type Label struct {
+	Title string `json:"title"`
+	Color string `json:"color"` // GitLab's background color, e.g. "#428bca"
+}
+
+type Person struct {
+	Name     string `json:"name"`
+	Username string `json:"username"`
+}
+
+// State values of epics and issues.
+const (
+	StateOpen   = "open"
+	StateClosed = "closed"
+)
+
+type Epic struct {
+	ID        string   `json:"id"`
+	IID       string   `json:"iid"`
+	Ref       string   `json:"ref"` // "&18"
+	GroupPath string   `json:"groupPath"`
+	Title     string   `json:"title"`
+	Labels    []string `json:"labels"`
+	State     string   `json:"state"`
+	// Start and End are iteration indexes (inclusive); nil when the epic is unplanned.
+	Start *int `json:"start"`
+	End   *int `json:"end"`
+	// StartDate and DueDate are the epic's dates in GitLab ("" when unset).
+	StartDate string `json:"startDate"`
+	DueDate   string `json:"dueDate"`
+	// DatesFromChildren: no dates in GitLab, Start/End come from its child issues (spec §5.2).
+	DatesFromChildren bool   `json:"datesFromChildren"`
+	Unplanned         bool   `json:"unplanned"`
+	WebURL            string `json:"webUrl"`
+}
+
+type Issue struct {
+	ID          string   `json:"id"`
+	IID         string   `json:"iid"`
+	Ref         string   `json:"ref"` // "#110"
+	GroupPath   string   `json:"groupPath"`
+	ProjectPath string   `json:"projectPath"`
+	Title       string   `json:"title"`
+	Labels      []string `json:"labels"`
+	State       string   `json:"state"`
+	// Iteration is an iteration index; nil when the issue has no iteration of the cadence.
+	Iteration  *int    `json:"iteration"`
+	ParentEpic string  `json:"parentEpic"` // epic ID, "" when none
+	Assignee   *Person `json:"assignee"`
+	// BlocksEpics lists the IDs of the epics this issue blocks (never empty).
+	BlocksEpics []string `json:"blocksEpics"`
+	Unplanned   bool     `json:"unplanned"`
+	WebURL      string   `json:"webUrl"`
+}
+
+// Link types.
+const (
+	LinkBlocks  = "blocks"
+	LinkRelates = "relates"
+	LinkParent  = "parent"
+)
+
+// Link joins two shown items. blocks: Source blocks Target. relates: unordered, Source < Target.
+// parent: Source is the parent epic of the Target issue.
+type Link struct {
+	Source string `json:"source"`
+	Target string `json:"target"`
+	Type   string `json:"type"`
+	// Conflict: a blocks link whose open blocker ends in a later iteration than the one its
+	// target starts in.
+	Conflict bool `json:"conflict"`
+}

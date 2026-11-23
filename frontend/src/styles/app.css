@@ -1,0 +1,971 @@
+/* App shell: toolbar, sidebar, main area, summary line, inspector, lane settings sheet.
+   Tokens, generic controls and the shared keyframes (sheet-up, fade-in) come from theme.css,
+   the board canvas from board.css. No color literal here, except the modal backdrop allowed
+   by style.md §2.4. */
+
+/* ---------- Layout: the page never scrolls, its panels do ---------- */
+.app {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+}
+.app-body {
+  position: relative;
+  flex: 1 1 0px;
+  min-height: 0;
+  display: flex;
+}
+.app-main {
+  flex: 1 1 0px;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 24px;
+}
+/* The board card reaches the window bottom: its scroll container fills it. */
+.board-area {
+  flex: 1 1 0px;
+  min-height: 0;
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+}
+.board-card {
+  flex: 1 1 0px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.board-card > * {
+  flex: 1 1 0px;
+  min-height: 0;
+}
+.board-area > .empty-state {
+  flex: 1 1 0px;
+  align-self: flex-start;
+}
+
+/* ---------- Toolbar ---------- */
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  flex: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-areas: 'leading center trailing';
+  align-items: center;
+  gap: 12px 24px;
+  padding: 10px 16px;
+  background: var(--material);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 0.5px solid var(--separator);
+}
+.toolbar-leading {
+  grid-area: leading;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.toolbar-center {
+  grid-area: center;
+  display: flex;
+  justify-content: center;
+}
+.toolbar-trailing {
+  grid-area: trailing;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+.app-icon {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: linear-gradient(135deg, var(--lane-indigo), var(--purple));
+}
+.toolbar-title {
+  min-width: 0;
+}
+.toolbar-title h1 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+.toolbar-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.toolbar-search {
+  width: 240px;
+  min-width: 120px;
+  flex: 0 1 240px;
+}
+.toolbar-updated {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.toolbar-updated:empty {
+  display: none;
+}
+
+/* ---------- Compact toolbar (phones), like an iOS navigation bar ----------
+   Row 1: Filtres, the centered title, then search, sync and appearance; row 2: the window,
+   full width. The search button unfolds a field that takes row 1 over, with "Annuler".
+   Keyed on [data-compact] rather than a media query: the same flag picks the markup. */
+.toolbar[data-compact] {
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-areas:
+    'leading title trailing'
+    'center center center';
+  gap: 8px 12px;
+  padding: max(8px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 10px
+    max(12px, env(safe-area-inset-left));
+}
+.toolbar[data-compact] .toolbar-leading {
+  display: contents;
+}
+.toolbar[data-compact] .toolbar-sidebar {
+  grid-area: leading;
+  justify-self: start;
+}
+.toolbar[data-compact] .app-icon,
+.toolbar[data-compact] .toolbar-subtitle,
+.toolbar[data-compact] .toolbar-updated {
+  display: none;
+}
+.toolbar[data-compact] .toolbar-title {
+  grid-area: title;
+  text-align: center;
+}
+.toolbar[data-compact] .toolbar-title h1 {
+  white-space: nowrap;
+}
+/* Touch targets: 32 px instead of 28 on the bar. */
+.toolbar[data-compact] .button {
+  height: 32px;
+  border-radius: 8px;
+}
+.toolbar[data-compact] .button.icon {
+  width: 32px;
+}
+.toolbar[data-compact] .toolbar-center {
+  min-width: 0;
+}
+.toolbar[data-compact] .window-control {
+  width: 100%;
+}
+.toolbar[data-compact] .window-control .menu-anchor {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.toolbar[data-compact] .window-button {
+  width: 100%;
+  min-width: 0;
+}
+.toolbar-search-row {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  animation: fade-in 0.15s var(--ease);
+}
+.toolbar-search-row .toolbar-search {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  height: 32px;
+}
+
+/* ---------- Window control: ‹ [It. 14 – It. 18 ▾] › ---------- */
+.window-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.window-button {
+  min-width: 148px;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+}
+.window-button-text {
+  white-space: nowrap;
+}
+.window-lists {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(150px, 1fr));
+  gap: 4px;
+}
+.window-list {
+  max-height: 264px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+/* "Début" / "Fin" stay on top while their list scrolls. */
+.window-list .menu-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--menu-bg);
+}
+
+/* ---------- Sidebar (source list) ---------- */
+.sidebar {
+  flex: none;
+  width: 240px;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 16px 12px;
+  background: var(--bg);
+  border-right: 0.5px solid var(--separator);
+}
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.sidebar-header h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sidebar-section > .section-header {
+  margin: 0 6px 4px;
+}
+.sidebar-section > .hint {
+  padding: 0 6px;
+}
+.sidebar-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sidebar-lane,
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding-left: 6px;
+  border-radius: 6px;
+}
+/* Counts line up at the right edge of every row; under the pointer a lane's pencil takes the
+   place of its count (a macOS source list accessory), so neither shifts. */
+.sidebar-lane,
+.sidebar-link {
+  position: relative;
+  padding-right: 6px;
+}
+.sidebar-lane .checkbox-detail,
+.sidebar-link .checkbox-detail {
+  min-width: 16px;
+  text-align: right;
+}
+.sidebar-lane > :first-child,
+.sidebar-link > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.sidebar-lane:hover,
+.sidebar-link:hover {
+  background: var(--row-hover);
+}
+.sidebar-lane-name,
+.sidebar-link-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.sidebar-lane-text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sidebar-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.sidebar .sidebar-edit {
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  width: 24px;
+  height: 24px;
+  margin-top: -12px;
+  background: none;
+  color: var(--text-secondary);
+  opacity: 0;
+  transition: opacity 0.15s var(--ease);
+}
+.sidebar-edit:hover {
+  color: var(--text);
+}
+.sidebar-lane:hover .sidebar-edit,
+.sidebar-edit:focus-visible {
+  opacity: 1;
+}
+.sidebar-lane:hover .checkbox-detail,
+.sidebar-lane:has(.sidebar-edit:focus-visible) .checkbox-detail {
+  visibility: hidden;
+}
+/* Touch: no hover, so the pencil stays, after the count; link rows keep its room. */
+@media (hover: none) {
+  .sidebar .sidebar-edit {
+    position: static;
+    margin: 0;
+    opacity: 1;
+  }
+  .sidebar-lane {
+    padding-right: 2px;
+  }
+  .sidebar-lane:hover .checkbox-detail {
+    visibility: visible;
+  }
+  .sidebar-link {
+    padding-right: 28px;
+  }
+}
+.sidebar-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  margin-top: 2px;
+}
+.sidebar-actions .button.plain {
+  padding: 0 6px;
+}
+.sidebar-switches {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 6px;
+}
+.sidebar-footer {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 6px 0;
+  border-top: 0.5px solid var(--separator);
+}
+.sidebar-footer .hint {
+  margin: 0;
+}
+.sidebar-scrim {
+  display: none;
+}
+
+/* Lane color dots (the color comes from [data-lane-color] on an ancestor). */
+.sidebar .lane-dot,
+.inspector .lane-dot,
+.lane-settings .lane-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--lane);
+}
+
+/* ---------- Summary line ---------- */
+.summary-line {
+  flex: none;
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.summary-part {
+  /* On a narrow screen the line wraps between parts, never inside one. */
+  white-space: nowrap;
+}
+.summary-line strong {
+  color: var(--text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.summary-part[data-alert='true'],
+.summary-part[data-alert='true'] strong {
+  color: var(--red);
+}
+
+/* ---------- Inspector ---------- */
+.inspector {
+  flex: none;
+  width: 340px;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--popover-shadow);
+  animation: inspector-in 0.15s var(--ease);
+}
+@keyframes inspector-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
+.inspector-grabber {
+  display: none;
+}
+.inspector-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 12px 8px 16px;
+}
+.inspector-type {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+.inspector-ref {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.state-pill {
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 7px;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--fill);
+  color: var(--text);
+}
+.state-pill[data-state='closed'] {
+  color: var(--text-secondary);
+}
+.inspector-close {
+  margin-left: auto;
+  background: none;
+  color: var(--text-secondary);
+}
+.inspector-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 0 16px 16px;
+}
+.inspector-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.inspector-secondary {
+  color: var(--text-secondary);
+}
+.inspector-note {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.inspector-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.inspector-section > .section-header {
+  margin: 0;
+}
+
+/* Inset grouped key / value list */
+.inset-list {
+  margin: 0;
+  border-radius: 10px;
+  background: var(--inset-bg);
+}
+.inset-row {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 12px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.inset-row + .inset-row {
+  border-top: 0.5px solid var(--separator);
+}
+.inset-row dt {
+  color: var(--text-secondary);
+}
+.inset-row dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.inspector-lanes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.inspector-lane {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.inspector-inline-link {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--blue);
+  text-align: left;
+  cursor: pointer;
+  font-size: 13px;
+}
+.inspector-inline-link:hover {
+  text-decoration: underline;
+}
+
+.inspector-labels {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.inspector-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.inspector-label .label-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--label-color, var(--text-tertiary));
+}
+
+/* Dependencies: list rows grouped by kind */
+.dependency-group {
+  border-radius: 10px;
+  background: var(--inset-bg);
+  padding: 4px;
+}
+.dependency-group + .dependency-group {
+  margin-top: 6px;
+}
+.dependency-group-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.dependency-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.dependency-row {
+  width: 100%;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  text-align: left;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s var(--ease);
+}
+.dependency-row:hover {
+  background: var(--fill);
+}
+.dependency-row:active {
+  background: var(--fill-pressed);
+}
+.dependency-ref {
+  flex: none;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.dependency-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.dependency-row[data-closed] .dependency-title {
+  color: var(--text-secondary);
+}
+.dependency-when {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.conflict-tag {
+  flex: none;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+}
+.dependency-chevron {
+  flex: none;
+  color: var(--text-tertiary);
+}
+.inspector-open {
+  align-self: flex-start;
+  text-decoration: none;
+}
+.inspector-open:hover {
+  text-decoration: none;
+}
+
+/* ---------- Lane settings sheet ---------- */
+/* Wider than the default sheet for the master–detail layout; phones keep the bottom sheet. */
+@media (min-width: 761px) {
+  .lane-settings {
+    width: min(880px, calc(100vw - 32px));
+  }
+}
+.lane-settings-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  gap: 16px;
+  min-height: 420px;
+}
+.lane-settings-master {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.lane-settings-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-radius: 10px;
+  background: var(--card);
+}
+.lane-settings-list:empty {
+  display: none;
+}
+.lane-settings-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 4px 8px;
+  border-radius: 7px;
+  transition: background 0.15s var(--ease);
+}
+.lane-settings-item:hover {
+  background: var(--row-hover);
+}
+.lane-settings-item[data-selected] {
+  background: color-mix(in srgb, var(--blue) 14%, transparent);
+}
+.lane-settings-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.lane-settings-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.lane-settings-name {
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.lane-settings-summary {
+  font-size: 11px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.lane-settings-tools {
+  flex: none;
+  display: inline-flex;
+  gap: 0;
+  opacity: 0;
+  transition: opacity 0.15s var(--ease);
+}
+.lane-settings-tools .button.icon {
+  width: 24px;
+  height: 24px;
+  background: none;
+  color: var(--text-secondary);
+}
+.lane-settings-item:hover .lane-settings-tools,
+.lane-settings-item[data-selected] .lane-settings-tools,
+.lane-settings-tools:focus-within {
+  opacity: 1;
+}
+@media (hover: none) {
+  .lane-settings-tools {
+    opacity: 1;
+  }
+}
+.lane-settings-add {
+  align-self: flex-start;
+}
+.lane-settings-detail {
+  min-width: 0;
+  padding: 16px;
+  border-radius: 10px;
+  background: var(--card);
+}
+.lane-settings-empty {
+  margin: 0;
+}
+.lane-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.form-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+/* An inset grouped list of switches, rows split by hairlines (iOS Settings). */
+.form-group {
+  padding: 0 12px;
+  border-radius: 10px;
+  background: var(--inset-bg);
+}
+.form-group > .switch-row {
+  padding: 6px 0;
+}
+.form-group > .switch-row + .switch-row {
+  border-top: 0.5px solid var(--separator);
+}
+/* The switch that qualifies a list sits right under it. */
+.select-list + .form-group,
+.select-list + .label-mode {
+  margin-top: 4px;
+}
+.text-field {
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--fill);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.text-field:focus {
+  outline: 3px solid color-mix(in srgb, var(--blue) 45%, transparent);
+  outline-offset: 0;
+}
+.color-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 2px;
+}
+.color-swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--lane);
+  cursor: pointer;
+  transition: transform 0.1s var(--ease);
+}
+.color-swatch:active {
+  transform: scale(0.92);
+}
+.color-swatch[aria-checked='true'] {
+  box-shadow:
+    0 0 0 2px var(--card),
+    0 0 0 4px var(--lane);
+}
+.label-mode {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.plain-fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.plain-fieldset:disabled {
+  opacity: 0.5;
+}
+.sheet-footer-spacer {
+  flex: 1 1 auto;
+}
+
+/* ---------- Narrower windows ---------- */
+@media (max-width: 1180px) {
+  .toolbar-search {
+    width: 180px;
+    flex-basis: 180px;
+  }
+}
+
+/* ---------- Mobile (≤ 760 px): sidebar overlay, inspector bottom sheet ---------- */
+@media (max-width: 760px) {
+  .app-main {
+    padding: 12px;
+  }
+
+  .sidebar[data-overlay] {
+    position: fixed;
+    z-index: 40;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(320px, 88vw);
+    border-right: 0;
+    box-shadow: var(--popover-shadow);
+    padding-top: max(16px, env(safe-area-inset-top));
+    animation: sidebar-in 0.2s var(--ease);
+  }
+  .sidebar-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 39;
+    border: 0;
+    padding: 0;
+    background: rgba(0, 0, 0, 0.4);
+    animation: fade-in 0.15s var(--ease);
+  }
+
+  .inspector {
+    position: fixed;
+    z-index: 30;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    max-height: 70dvh;
+    border-radius: 14px 14px 0 0;
+    padding-bottom: env(safe-area-inset-bottom);
+    animation: sheet-up 0.2s var(--ease);
+    /* Snaps back after a drag that doesn't dismiss it (see Inspector's useSheetDrag). */
+    transition: transform 0.2s var(--ease);
+  }
+  /* The finger drags the sheet from its grabber and header, the page doesn't scroll. */
+  .inspector-grabber,
+  .inspector-header {
+    touch-action: none;
+  }
+  /* A wide hit area around the pill it draws. */
+  .inspector-grabber {
+    display: flex;
+    justify-content: center;
+    flex: none;
+    height: 14px;
+    padding-top: 6px;
+  }
+  .inspector-grabber::before {
+    content: '';
+    width: 36px;
+    height: 5px;
+    border-radius: 3px;
+    background: var(--text-tertiary);
+  }
+
+  .lane-settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+  }
+  .lane-settings-tools {
+    opacity: 1;
+  }
+}
+@keyframes sidebar-in {
+  from {
+    transform: translateX(-100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inspector,
+  .sidebar,
+  .sidebar-scrim {
+    animation: none;
+  }
+}

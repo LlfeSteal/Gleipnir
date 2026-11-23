@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquette – Board GitLab itérations</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,system-ui,-apple-system,sans-serif;color:#1b1f24;background:#f7f8fa;font-size:13px}
+button,input,select{font-family:inherit;font-size:inherit;color:inherit}
+a{color:#1d4fa3}
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:10px 16px;background:#fff;border-bottom:1px solid #e3e6ea}
+.brand{display:flex;align-items:center;gap:8px;font-weight:700;font-size:16px}
+.chipbtn{display:flex;align-items:center;gap:6px;height:36px;padding:0 12px;border:1px solid #d9dde3;background:#fff;border-radius:8px;cursor:pointer;font-weight:500}
+.search{flex:1 1 220px;max-width:420px;display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;border:1px solid #d9dde3;border-radius:8px;background:#f7f8fa}
+.search input{flex:1;border:0;outline:none;background:transparent;min-width:0}
+.sync{margin-left:auto;display:flex;align-items:center;gap:10px}
+.sync small{color:#59616c;font-size:12px}
+.primary{height:36px;padding:0 14px;border:0;border-radius:8px;background:#1d4fa3;color:#fff;font-weight:600;cursor:pointer}
+.ghost{height:36px;padding:0 14px;border:1px solid #d9dde3;border-radius:8px;background:#fff;font-weight:600;cursor:pointer}
+.layout{display:flex;flex-wrap:wrap;align-items:stretch}
+aside{flex:1 1 240px;max-width:290px;padding:18px;background:#fff;border-right:1px solid #e3e6ea;display:flex;flex-direction:column;gap:22px}
+aside h2{margin:0;font-size:14px}
+aside.mini{flex:0 0 52px;max-width:52px;padding:14px 9px;align-items:center;gap:16px}
+aside .vlabel{writing-mode:vertical-rl;transform:rotate(180deg);font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#59616c}
+h3.sec{margin:0 0 6px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#59616c;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.scope{font-size:10px;font-weight:600;letter-spacing:0;text-transform:none;padding:2px 6px;border-radius:4px;background:#eef0f3;color:#3d444d}
+.row{display:flex;align-items:center;gap:10px;min-height:34px;cursor:pointer}
+.row input{width:16px;height:16px;margin:0;accent-color:#1d4fa3;flex:none}
+.row .n{margin-left:auto;font-size:12px;color:#59616c}
+.laneRow{display:flex;align-items:center;gap:8px;min-height:36px}
+.laneRow label{display:flex;align-items:center;gap:10px;flex:1;min-width:0;cursor:pointer}
+.laneRow input{width:16px;height:16px;margin:0;accent-color:#1d4fa3;flex:none}
+.laneRow .nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.seg{display:inline-grid;grid-auto-flow:column;border:1px solid #d9dde3;border-radius:8px;overflow:hidden}
+.seg button{height:30px;padding:0 10px;border:0;font-size:12px;font-weight:600;cursor:pointer;background:#fff}
+.seg button+button{border-left:1px solid #d9dde3}
+.seg button[aria-pressed=true]{background:#1b1f24;color:#fff}
+.labels{display:flex;flex-wrap:wrap;gap:6px}
+.lab{display:flex;align-items:center;gap:6px;min-height:30px;padding:0 10px;border-radius:999px;border:1px solid #d0d5dc;background:#fff;font-size:12px;font-weight:500;cursor:pointer}
+.dot{width:8px;height:8px;border-radius:50%;flex:none}
+.gdot{width:10px;height:10px;border-radius:3px;flex:none}
+.hint{font-size:12px;color:#59616c;line-height:1.5}
+.linkbtn{border:0;background:none;color:#1d4fa3;font-weight:600;font-size:12px;cursor:pointer;padding:6px 0;text-transform:none;letter-spacing:0}
+.icbtn{width:32px;height:32px;border:1px solid #d9dde3;border-radius:6px;background:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none}
+.icbtn.flat{border-color:transparent;background:transparent}
+.icbtn.flat:hover{background:#eef0f3}
+.icbtn:disabled{opacity:.35;cursor:default}
+main{flex:999 1 560px;min-width:0;padding:18px 18px 24px;display:flex;flex-direction:column;gap:12px;position:relative}
+.head{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px}
+.head h1{margin:0;font-size:20px}
+.head .sub{color:#59616c}
+.stats{display:flex;flex-wrap:wrap;gap:8px;font-size:12px}
+.stats span{padding:6px 10px;border-radius:999px;background:#fff;border:1px solid #e3e6ea}
+.toolbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 18px}
+.win{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 8px;background:#fff;border:1px solid #e3e6ea;border-radius:10px}
+.win .k{font-size:12px;font-weight:700;color:#3d444d;padding:0 4px}
+.win select{height:32px;padding:0 8px;border:1px solid #d9dde3;border-radius:6px;background:#fff;cursor:pointer}
+.win .arrow{color:#59616c}
+.win .presets{display:flex;gap:4px;padding-left:6px;border-left:1px solid #e3e6ea}
+.win .presets button{height:32px;padding:0 10px;border:1px solid #d9dde3;border-radius:6px;background:#fff;font-size:12px;font-weight:600;cursor:pointer}
+.win .presets button[aria-pressed=true]{background:#1b1f24;border-color:#1b1f24;color:#fff}
+.legend{display:flex;flex-wrap:wrap;align-items:center;gap:16px;font-size:12px;color:#3d444d}
+.legend > span{display:flex;align-items:center;gap:8px}
+.scroller{overflow:auto;background:#fff;border:1px solid #e3e6ea;border-radius:12px;-webkit-overflow-scrolling:touch}
+.canvas{position:relative;margin:8px}
+.col{position:absolute;top:0;border-radius:10px;background:#f4f5f7;border:1px solid #f4f5f7}
+.col.cur{background:#eef3fc;border-color:#bfd2f3}
+.colhead{position:absolute;top:0;padding:10px 12px;display:flex;flex-direction:column;gap:3px}
+.badge{font-size:11px;font-weight:600;padding:2px 7px;border-radius:999px;background:#1d4fa3;color:#fff}
+.muted{color:#59616c;font-size:12px}
+.rail{position:sticky;left:0;top:0;width:0;height:0;z-index:6}
+.rail-bg{position:absolute;left:-8px;top:-8px;background:#fff;border-right:1px solid #e3e6ea}
+.lane{position:absolute;left:0;display:flex;flex-direction:column;gap:7px;padding:10px 10px 10px 14px;background:#fff;border:1px solid #e3e6ea;border-radius:10px;overflow:hidden}
+.lane .top1{display:flex;align-items:flex-start;gap:4px}
+.lane .tog{flex:none;width:28px;height:28px;margin:-4px 0 0 -6px;border:0;background:transparent;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.lane .tog:hover,.lane .edit:hover{background:#eef0f3}
+.lane .edit{flex:none;width:28px;height:28px;margin:-4px -4px 0 auto;border:0;background:transparent;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.lane .gname{font-weight:700;font-size:13px;line-height:1.3;padding-top:2px}
+.lane .meta{font-size:11px;color:#59616c;line-height:1.4}
+.lane .meta b{color:#3d444d;font-weight:600}
+.lane .chips{display:flex;flex-wrap:wrap;gap:4px}
+.lane .chips span{height:18px;line-height:18px;padding:0 6px;border-radius:999px;font-size:10px;font-weight:600}
+.lane .cnt{display:flex;flex-wrap:wrap;gap:10px;font-size:12px;color:#3d444d}
+.lane .cnt span{display:flex;align-items:center;gap:5px}
+.lane-sep{position:absolute;height:0;border-top:1px dashed #d3d8de}
+.empty{position:absolute;font-size:12px;color:#59616c;font-style:italic}
+svg.links{position:absolute;left:0;top:0;pointer-events:none;z-index:2;overflow:visible}
+.el{position:absolute;z-index:3;cursor:pointer;text-align:left;transition:opacity .15s}
+.bar{display:flex;align-items:center;gap:8px;padding:0 10px;font-size:12px}
+.bar .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag{flex:none;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 6px;border-radius:4px}
+.ep{border-radius:10px;background:#5b3fb0;border:1px solid #4a3192;color:#fff}
+.ep .tag{background:rgba(255,255,255,.18);color:#fff}
+.ep.cl{border-top-left-radius:0;border-bottom-left-radius:0;border-left:2px dashed rgba(255,255,255,.75)}
+.ep.cr{border-top-right-radius:0;border-bottom-right-radius:0;border-right:2px dashed rgba(255,255,255,.75)}
+.off{flex:none;display:inline-flex;align-items:center;gap:3px;height:20px;padding:0 6px;border-radius:999px;font-size:11px;font-weight:600;white-space:nowrap}
+.ep .off{background:#fff;color:#4a3192}
+.card .off{background:#fff4e5;color:#8a3a0c;border:1px solid #f3c9a0}
+.card{padding:0;display:flex;flex-direction:column;background:#fff;border:1px solid #cfd6e0;border-radius:8px;box-shadow:0 1px 2px rgba(16,24,40,.06);overflow:hidden}
+.card .hd{display:flex;align-items:center;gap:6px;height:26px;padding:0 10px;background:#e8f0fd;border-bottom:1px solid #d3e1f8;font-size:12px}
+.card.closed .hd{background:#eef0f3;border-bottom-color:#e0e3e8}
+.card .ref{font-weight:700;color:#1d4fa3}
+.card.closed .ref{color:#3d444d}
+.card .bd{padding:8px 10px;display:flex;flex-direction:column;gap:6px}
+.card .blk{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:#8a3a0c;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.el.sel{outline:3px solid rgba(47,111,219,.45);outline-offset:1px}
+.sp{flex:1}
+.av{width:20px;height:20px;border-radius:50%;color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none}
+.ttl{font-size:13px;line-height:17px;font-weight:500;height:34px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.lbls{display:flex;gap:4px;overflow:hidden;height:20px;align-items:center}
+.lbls span.l{flex:none;height:20px;line-height:20px;padding:0 7px;border-radius:999px;font-size:11px;font-weight:600;white-space:nowrap}
+.detail{position:absolute;top:150px;right:28px;width:350px;max-width:calc(100% - 36px);max-height:80vh;overflow:auto;padding:18px;background:#fff;border:1px solid #d9dde3;border-radius:12px;box-shadow:0 12px 32px rgba(16,24,40,.16);display:flex;flex-direction:column;gap:14px;z-index:10}
+.detail h2{margin:0;font-size:17px;line-height:1.3}
+.detail dl{margin:0;display:grid;grid-template-columns:100px 1fr;gap:6px 10px}
+.detail dt{color:#59616c}.detail dd{margin:0;font-weight:500}
+.grp{display:flex;flex-direction:column;gap:6px;border-top:1px solid #eceef1;padding-top:12px}
+.grp b{display:flex;align-items:center;gap:8px;font-size:12px;color:#3d444d}
+.rel{display:flex;align-items:center;gap:8px;min-height:36px;padding:6px 10px;border:1px solid #e3e6ea;border-radius:8px;background:#fafbfc;text-align:left;cursor:pointer}
+.rel strong{font-size:12px;color:#59616c;flex:none}
+.rel span.tt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rel .ow{flex:none;font-size:11px;font-weight:600;color:#8a3a0c}
+.close{width:32px;height:32px;border:0;border-radius:8px;background:#f3f4f6;cursor:pointer;margin-left:auto;display:flex;align-items:center;justify-content:center;flex:none}
+.open{display:flex;align-items:center;justify-content:center;height:40px;border-radius:8px;border:1px solid #d9dde3;font-weight:600;text-decoration:none}
+.filtersToggle{display:none}
+.scrim{position:fixed;inset:0;background:rgba(16,24,40,.45);display:flex;align-items:center;justify-content:center;padding:16px;z-index:50}
+.dialog{width:680px;max-width:100%;max-height:92vh;overflow:auto;background:#fff;border-radius:14px;box-shadow:0 24px 48px rgba(16,24,40,.24);display:flex;flex-direction:column}
+.dialog > header{display:flex;align-items:flex-start;gap:12px;padding:18px 20px 12px;border-bottom:1px solid #eceef1}
+.dialog > header h2{margin:0;font-size:17px}
+.dialog > header p{margin:4px 0 0;color:#59616c;font-size:13px;line-height:1.45}
+.dialog .body{padding:16px 20px;display:flex;flex-direction:column;gap:10px}
+.lcard{border:1px solid #e3e6ea;border-radius:10px;overflow:hidden}
+.lcard.isopen{border-color:#9db8e6;box-shadow:0 0 0 3px rgba(47,111,219,.12)}
+.lhead{display:flex;align-items:center;gap:10px;padding:10px 12px}
+.lhead input[type=checkbox]{width:16px;height:16px;accent-color:#1d4fa3;margin:0;flex:none}
+.lhead .nm{display:flex;flex-direction:column;min-width:0;flex:1}
+.lhead .nm strong{font-size:13px}
+.lhead .nm span{font-size:12px;color:#59616c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lbody{border-top:1px solid #eceef1;background:#fafbfc;padding:14px 14px 16px;display:grid;grid-template-columns:120px 1fr;gap:14px 14px;align-items:start}
+.lbody .k{font-size:12px;font-weight:700;color:#3d444d;padding-top:7px}
+.lbody input[type=text]{height:36px;padding:0 10px;border:1px solid #d9dde3;border-radius:8px;width:100%;background:#fff}
+.lbody input[type=color]{width:36px;height:36px;padding:0;border:1px solid #d9dde3;border-radius:8px;background:#fff;cursor:pointer}
+.checks{display:flex;flex-direction:column;gap:2px}
+.checks label{display:flex;align-items:center;gap:8px;min-height:32px;cursor:pointer}
+.checks input{width:16px;height:16px;accent-color:#1d4fa3;margin:0;flex:none}
+.checks small{color:#59616c}
+.addrow{display:flex;gap:8px}
+.addrow input{flex:1;height:36px;padding:0 12px;border:1px solid #d9dde3;border-radius:8px;min-width:0}
+.dialog footer{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 20px 18px;border-top:1px solid #eceef1}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+@media (max-width:760px){
+  .top{padding:10px 12px}
+  .sync small{display:none}
+  aside{max-width:none;flex-basis:100%;border-right:0;border-bottom:1px solid #e3e6ea;display:none}
+  aside.show{display:flex}
+  .filtersToggle{display:flex}
+  main{padding:12px}
+  .win .presets{border-left:0;padding-left:0}
+  .detail{position:fixed;left:0;right:0;bottom:0;top:auto;width:auto;max-width:none;max-height:70vh;border-radius:16px 16px 0 0}
+  .lbody{grid-template-columns:1fr}
+  .lbody .k{padding-top:0}
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><rect x="1" y="1" width="26" height="26" rx="7" fill="#1b1f24"/><path d="M8 9h4v10H8zM13 9h4v6h-4z" fill="none" stroke="#fff" stroke-width="1.6"/></svg>
+    Trame
+  </div>
+  <button class="chipbtn" type="button" data-act="config">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+    Couloirs : <strong id="laneSummary"></strong>
+  </button>
+  <button class="chipbtn filtersToggle" type="button" id="ft" aria-expanded="false">Filtres</button>
+  <label class="search">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#59616c" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+    <input id="q" type="search" placeholder="Rechercher (#110, &amp;18…)" aria-label="Rechercher">
+  </label>
+  <div class="sync"><small>Synchronisé avec gitlab.exemple.fr · il y a 3 min</small><button class="primary" type="button">Synchroniser</button></div>
+</header>
+<div class="layout">
+  <aside id="side"></aside>
+  <main>
+    <div class="head">
+      <div><h1>Dépendances par itération</h1><div class="sub">plateforme/atlas · cadence « Sprints produit »</div></div>
+      <div class="stats" id="stats"></div>
+    </div>
+    <div class="toolbar">
+      <div class="win" id="win"></div>
+      <div class="legend" id="legend"></div>
+    </div>
+    <div class="scroller"><div class="canvas" id="canvas"></div></div>
+    <div id="detail"></div>
+  </main>
+</div>
+<div id="dlg"></div>
+<script>
+(function(){
+// ---------- Données d'exemple (simulent la synchro GitLab) ----------
+const ITS=[
+ {name:'Itération 12',short:'It. 12',dates:'7 – 20 oct.'},{name:'Itération 13',short:'It. 13',dates:'21 oct. – 3 nov.'},
+ {name:'Itération 14',short:'It. 14',dates:'4 – 17 nov.'},{name:'Itération 15',short:'It. 15',dates:'18 nov. – 1 déc.',current:true},
+ {name:'Itération 16',short:'It. 16',dates:'2 – 15 déc.'},{name:'Itération 17',short:'It. 17',dates:'16 – 29 déc.'},
+ {name:'Itération 18',short:'It. 18',dates:'6 – 19 janv.'},{name:'Itération 19',short:'It. 19',dates:'20 janv. – 2 févr.'},
+ {name:'Itération 20',short:'It. 20',dates:'3 – 16 févr.'},{name:'Itération 21',short:'It. 21',dates:'17 févr. – 2 mars'}];
+const CUR=ITS.findIndex(i=>i.current);
+const LABELS={'frontend':{bg:'#dbe7fb',fg:'#1d4fa3',dot:'#2f6fdb'},'backend':{bg:'#e6e2f8',fg:'#46379a',dot:'#6d5bd0'},'API':{bg:'#d7f0eb',fg:'#0d5d51',dot:'#14a08a'},'bug':{bg:'#fbe2dc',fg:'#9c2f19',dot:'#e0532f'},'sécurité':{bg:'#fdecd3',fg:'#7f4405',dot:'#e08a1e'},'UX':{bg:'#f7e0f1',fg:'#87286e',dot:'#c4479f'},'data':{bg:'#e4f0d6',fg:'#3f6212',dot:'#65a30d'},'mobile':{bg:'#e0f2fe',fg:'#075985',dot:'#0284c7'},'priorité::haute':{bg:'#9c2f19',fg:'#ffffff',dot:'#9c2f19'}};
+const PEOPLE={AL:{n:'Amélie Laurent',c:'#2f6fdb'},MB:{n:'Malik Benali',c:'#0f766e'},CD:{n:'Chloé Dubois',c:'#a1449b'},TR:{n:'Thomas Roux',c:'#b45309'},SN:{n:'Sofia Nguyen',c:'#4a3a9e'},JP:{n:'Julien Petit',c:'#3f6212'}};
+const G={identite:'plateforme/atlas/identite',xp:'plateforme/atlas/experience',api:'plateforme/atlas/api',data:'plateforme/atlas/data'};
+const DEFAULT_GROUPS=[{id:G.identite,name:'Identité & sécurité'},{id:G.xp,name:'Expérience produit'},{id:G.api,name:'API & intégrations'},{id:G.data,name:'Data'}];
+const E=(id,g,title,start,end,labels)=>({id,g,title,start,end,labels});
+const EPICS=[
+ E('&12',G.identite,'Authentification SSO',2,4,['sécurité','backend']),
+ E('&13',G.identite,'Gestion fine des droits',5,7,['sécurité','backend']),
+ E('&16',G.identite,"Journal d'audit",7,9,['sécurité']),
+ E('&15',G.xp,'Refonte du tableau de bord',3,5,['frontend','UX']),
+ E('&17',G.xp,'Mode hors ligne mobile',6,8,['mobile','frontend']),
+ E('&19',G.api,'Webhooks sortants',0,3,['API','backend']),
+ E('&18',G.api,"API d'export des données",4,6,['API','backend']),
+ E('&22',G.api,'Portail développeur',7,9,['API','UX']),
+ E('&21',G.data,'Pipeline analytique',5,7,['data','backend']),
+ E('&23',G.data,'Modèles prédictifs',8,9,['data'])];
+const I=(id,g,title,it,epic,labels,state,who)=>({id,g,title,it,epic,labels,state,who});
+const ISSUES=[
+ // issues qui bloquent un epic (affichées)
+ I('#104',G.identite,'Corriger la déconnexion intempestive',3,'&12',['bug','priorité::haute','backend'],'open','TR'),
+ I('#114',G.identite,'Audit de sécurité du SSO',4,'&12',['sécurité'],'open','TR'),
+ I('#140',G.api,'Contrat d’interface des webhooks',1,'&19',['API'],'closed','SN'),
+ I('#107',G.api,"API d'agrégation des métriques",4,'&18',['backend','API'],'open','SN'),
+ I('#110',G.api,'Endpoint d’export CSV / JSON',5,'&18',['backend','API'],'open','SN'),
+ I('#113',G.xp,'Lenteur au chargement du tableau',5,'&15',['bug','priorité::haute','frontend'],'open','MB'),
+ I('#125',G.xp,'Quota de stockage local',6,'&17',['mobile','backend'],'open','CD'),
+ I('#131',G.data,'Montée de version Kafka',2,'&21',['data','backend'],'closed','JP'),
+ I('#130',G.data,"Schéma d'événements v2",6,'&21',['data'],'open','JP'),
+ // issues sans dépendance vers un epic (jamais affichées)
+ I('#101',G.identite,'Configurer le fournisseur SAML',2,'&12',['backend','sécurité'],'closed','AL'),
+ I('#103',G.identite,'Gestion des sessions et refresh token',3,'&12',['backend','sécurité'],'open','AL'),
+ I('#106',G.xp,'Widgets configurables',4,'&15',['frontend'],'open','MB'),
+ I('#108',G.xp,'Persistance des préférences utilisateur',5,'&15',['backend'],'open','AL'),
+ I('#109',G.api,"Spécification OpenAPI de l'export",4,'&18',['API'],'open','SN'),
+ I('#112',G.api,"Documentation développeur de l'export",6,'&18',['API'],'open','CD'),
+ I('#120',G.data,'Ingestion des événements produit',5,'&21',['data','backend'],'open','JP')];
+const LINKS=[
+ // epic ↔ epic
+ ['&12','blocks','&13'],['&12','blocks','&18'],['&19','blocks','&18'],['&18','blocks','&22'],['&13','blocks','&16'],
+ ['&13','blocks','&17'],['&15','relates','&17'],['&18','blocks','&21'],['&21','blocks','&23'],['&16','relates','&22'],
+ // issue → epic (seules ces issues sont affichées)
+ ['#104','blocks','&13'],['#114','blocks','&18'],['#140','blocks','&18'],['#107','blocks','&15'],['#110','blocks','&21'],
+ ['#113','blocks','&17'],['#125','blocks','&17'],['#131','blocks','&21'],['#130','blocks','&23'],
+ // issue ↔ issue (n'apparaissent que si les deux issues sont bloquantes)
+ ['#107','relates','#110'],['#103','relates','#104'],['#109','blocks','#110']];
+const LT={
+ blocks:{label:'Bloque',color:'#c8501f',sw:2,dash:'none',arrow:true},
+ relates:{label:'Lié à',color:'#2f6fdb',sw:1.75,dash:'none'},
+ parent:{label:'Epic parent → issue',color:'#7a68c0',sw:1.5,dash:'6 4'}};
+const ALL=LINKS.map(l=>({a:l[0],t:l[1],b:l[2]}));
+ISSUES.forEach(o=>ALL.push({a:o.epic,t:'parent',b:o.id}));
+const byId={};
+EPICS.forEach(o=>byId[o.id]=Object.assign({kind:'epic'},o));
+ISSUES.forEach(o=>byId[o.id]=Object.assign({kind:'issue'},o));
+// Règle : une issue n'est affichable que si elle bloque au moins un epic
+const BLOCKS_EPIC={};ALL.forEach(l=>{if(l.t==='blocks'&&l.a[0]==='#'&&l.b[0]==='&')(BLOCKS_EPIC[l.a]=BLOCKS_EPIC[l.a]||[]).push(l.b);});
+const BLOCKERS=ISSUES.filter(o=>BLOCKS_EPIC[o.id]);
+const HIDDEN_ISSUES=ISSUES.length-BLOCKERS.length;
+const PALETTE=['#b45309','#be185d','#475569','#4d7c0f','#7c3aed','#0369a1','#9f1239'];
+const TYPES=[['epic','Epics'],['issue','Issues bloquant un epic']];
+
+// ---------- Couloirs ----------
+const L=(id,name,color,groups,types,labels,mode,on)=>({id,name,color,groups,sub:true,types:{epic:types.includes('e'),issue:types.includes('i')},labels,mode,on});
+const DEFAULT_LANES=[
+ L('l1','Identité & sécurité','#b45309',[G.identite],'ei',[],'any',true),
+ L('l2','Expérience produit','#be185d',[G.xp],'ei',[],'any',true),
+ L('l3','API & Data','#475569',[G.api,G.data],'ei',[],'any',true),
+ L('l4','Bloqueurs prioritaires','#9f1239',[G.identite,G.xp,G.api,G.data],'i',['priorité::haute'],'any',false)];
+const DEFAULT_WIN={from:CUR-1,to:CUR+3};
+let saved=null;try{saved=JSON.parse(localStorage.getItem('trame.v4')||'null');}catch(e){}
+const clone=o=>JSON.parse(JSON.stringify(o));
+const S={q:'',sel:null,hideClosed:false,collapsed:{},
+ lanes:saved&&saved.lanes?saved.lanes:clone(DEFAULT_LANES),
+ groups:saved&&saved.groups?saved.groups:clone(DEFAULT_GROUPS),
+ win:saved&&saved.win?saved.win:clone(DEFAULT_WIN),
+ ltypes:{blocks:true,relates:true,parent:false},dlg:null,sideCollapsed:false};
+try{S.sideCollapsed=localStorage.getItem('trame.side')==='1';}catch(e){}
+const save=()=>{try{localStorage.setItem('trame.v4',JSON.stringify({lanes:S.lanes,groups:S.groups,win:S.win}));}catch(e){}};
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const gName=(id,groups)=>{const g=(groups||S.groups).find(x=>x.id===id);return g?g.name:id.split('/').pop();};
+
+const ICON={
+ epic:(c='#ffffff',s=15)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/></svg>`,
+ issue:(c='#2f6fdb',s=14)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2.4" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.6" fill="${c}"/></svg>`,
+ closed:(c='#3d444d',s=14)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2.4" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9.5"/></svg>`,
+ block:(c='#c8501f',s=12)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2.6" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M6 18L18 6"/></svg>`,
+ pencil:`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3d444d" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M14 6l4 4"/></svg>`,
+ x:`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3d444d" stroke-width="2.4" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>`,
+ up:`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg>`,
+ down:`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>`,
+ left:`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>`,
+ right:`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>`,
+ trash:`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9c2f19" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>`};
+const TYPE_ICON={epic:()=>ICON.epic('#5b3fb0',12),issue:()=>ICON.issue('#2f6fdb',12)};
+const SWATCH={
+ epic:`<span style="display:inline-flex;align-items:center;height:18px;padding:0 8px;border-radius:7px;background:#5b3fb0">${ICON.epic('#fff',11)}</span>`,
+ issue:`<span style="display:inline-flex;flex-direction:column;width:26px;height:20px;border:1px solid #cfd6e0;border-radius:4px;overflow:hidden;background:#fff"><span style="height:7px;background:#e8f0fd;border-bottom:1px solid #d3e1f8"></span></span>`};
+
+function geo(a,b,both){
+ const ax=a.x+a.w/2,ay=a.y+a.h/2,bx=b.x+b.w/2,by=b.y+b.h/2,cl=(v,l,h)=>Math.max(l,Math.min(h,v));
+ let x1,y1,x2,y2,d,dx,dy;const right=b.x>=a.x+a.w-1,left=a.x>=b.x+b.w-1;
+ if(both&&Math.abs(ax-bx)<2){x1=a.x+a.w;y1=ay;x2=b.x+b.w;y2=by;const k=Math.min(34,16+Math.abs(y2-y1)/8);d=`M${x1} ${y1} C${x1+k} ${y1} ${x2+k} ${y2} ${x2} ${y2}`;dx=-1;dy=0;}
+ else if(right||left){const s=right?1:-1;x1=right?a.x+a.w:a.x;y1=ay;x2=right?b.x:b.x+b.w;y2=by;const k=Math.max(24,Math.abs(x2-x1)/2);d=`M${x1} ${y1} C${x1+s*k} ${y1} ${x2-s*k} ${y2} ${x2} ${y2}`;dx=s;dy=0;}
+ else{const s=by>ay?1:-1;const lo=Math.max(a.x,b.x)+14,hi=Math.min(a.x+a.w,b.x+b.w)-14;if(lo<=hi){const x=cl(a.w<b.w?ax:bx,lo,hi);x1=x2=x;}else{x1=ax;x2=bx;}y1=s>0?a.y+a.h:a.y;y2=s>0?b.y:b.y+b.h;const k=Math.max(14,Math.abs(y2-y1)/2);d=`M${x1} ${y1} C${x1} ${y1+s*k} ${x2} ${y2-s*k} ${x2} ${y2}`;dx=0;dy=s;}
+ const Lh=8,W=4.5,bx2=x2-dx*Lh,by2=y2-dy*Lh,px=-dy*W,py=dx*W;
+ return{d,arrow:`M${x2} ${y2} L${bx2+px} ${by2+py} L${bx2-px} ${by2-py} Z`};
+}
+
+// L'élément correspond-il au couloir (hors fenêtre temporelle) ?
+function inLane(lane,o,kind){
+ if(!lane.types[kind])return false;
+ if(kind==='issue'&&!BLOCKS_EPIC[o.id])return false;
+ if(!lane.groups.some(g=>o.g===g||(lane.sub&&o.g.indexOf(g+'/')===0)))return false;
+ if(lane.labels.length){const ok=lane.mode==='any'?lane.labels.some(l=>o.labels.includes(l)):lane.labels.every(l=>o.labels.includes(l));if(!ok)return false;}
+ return true;
+}
+const inWin=o=>o.kind==='epic'||o.start!==undefined?(o.end>=S.win.from&&o.start<=S.win.to):(o.it>=S.win.from&&o.it<=S.win.to);
+const winLabel=o=>{const k=byId[o]?byId[o]:o;if(k.it!==undefined)return ITS[k.it].short;return ITS[k.start].short+' → '+ITS[k.end].short;};
+
+function render(){
+ const from=S.win.from,to=S.win.to,N=to-from+1;
+ const LW=196,CW=N>7?180:212,CG=12,HEAD=64,colX=i=>LW+(i-from)*(CW+CG),W=colX(to+1)-CG+8;
+ const q=S.q.trim().toLowerCase();
+ const textOk=o=>!q||(o.id+' '+o.title).toLowerCase().includes(q);
+ const openOk=o=>!(S.hideClosed&&o.state==='closed');
+ const lanesOn=S.lanes.filter(l=>l.on);
+ const pack=items=>{const rows=[];const p=items.map(it=>{let r=rows.findIndex(row=>row.every(o=>o.e<it.s||o.s>it.e));if(r<0){rows.push([]);r=rows.length-1;}rows[r].push(it);return{it,row:r};});return{p,n:rows.length};};
+ const R={},occ={},lanes=[],shown=[],eligible={};let y=HEAD+14;
+ const put=(laneId,o,kind,rect,extra)=>{const key=laneId+'|'+o.id;R[key]=rect;(occ[o.id]=occ[o.id]||[]).push(key);shown.push(Object.assign({key,o,kind,lane:laneId},extra||{}));};
+ lanesOn.forEach(ln=>{
+  const epsAll=EPICS.filter(o=>inLane(ln,o,'epic')&&textOk(o));
+  const issAll=ISSUES.filter(o=>inLane(ln,o,'issue')&&textOk(o)&&openOk(o));
+  epsAll.forEach(o=>eligible[o.id]=1);issAll.forEach(o=>eligible[o.id]=1);
+  const eps=epsAll.filter(o=>o.end>=from&&o.start<=to).map(o=>({o,s:Math.max(o.start,from),e:Math.min(o.end,to)}));
+  const iss=issAll.filter(o=>o.it>=from&&o.it<=to);
+  const lane={ln,top:y,n:{epic:eps.length,issue:iss.length},out:(epsAll.length-eps.length)+(issAll.length-iss.length),collapsed:!!S.collapsed[ln.id]};
+  lanes.push(lane);
+  y+=10;
+  if(lane.collapsed){lane.h=72;y=lane.top+72+12;return;}
+  if(!eps.length&&!iss.length){lane.empty=y;y+=34;}
+  if(eps.length){const k=pack(eps);k.p.forEach(p=>{const x=colX(p.it.s)+6;put(ln.id,p.it.o,'epic',{x,y:y+p.row*46,w:colX(p.it.e)+CW-6-x,h:36},{cl:p.it.o.start<from,cr:p.it.o.end>to});});y+=k.n*46+8;}
+  if(iss.length){const cnt=ITS.map(()=>0);iss.forEach(o=>{const k=cnt[o.it]++;put(ln.id,o,'issue',{x:colX(o.it)+6,y:y+k*124,w:CW-12,h:114});});y+=Math.max(...cnt)*124;}
+  y=Math.max(y,lane.top+150);lane.h=y-lane.top;
+  y+=12;
+ });
+ const H=Math.max(y+6,380);
+
+ // Liens visibles + dépendances vers des éléments hors fenêtre
+ const sel=S.sel,has=!!(sel&&occ[sel]),conn={},segs=[],seen={},offWin={};
+ ALL.forEach(l=>{
+  if(!S.ltypes[l.t])return;
+  if(occ[l.a]&&occ[l.b]){
+   occ[l.a].forEach(ka=>{const lane=ka.split('|')[0];const kb=occ[l.b].find(k=>k.split('|')[0]===lane)||occ[l.b][0];const id=ka+'>'+kb+l.t;if(seen[id])return;seen[id]=1;segs.push({l,ka,kb});});
+  }else if(occ[l.a]&&eligible[l.b]&&!occ[l.b]){(offWin[l.a]=offWin[l.a]||[]).push(l.b);}
+  else if(occ[l.b]&&eligible[l.a]&&!occ[l.a]){(offWin[l.b]=offWin[l.b]||[]).push(l.a);}
+ });
+ if(has){conn[sel]=1;segs.forEach(s=>{if(s.l.a===sel)conn[s.l.b]=1;if(s.l.b===sel)conn[s.l.a]=1;});}
+ const op=id=>has?(conn[id]?1:.3):1;
+ let h='';
+ for(let i=from;i<=to;i++){const it=ITS[i];
+  h+=`<div class="col${it.current?' cur':''}" style="left:${colX(i)}px;width:${CW}px;height:${H}px"></div>
+  <div class="colhead" style="left:${colX(i)}px;width:${CW}px"><div style="display:flex;align-items:center;gap:6px"><strong>${it.name}</strong>${it.current?'<span class="badge">En cours</span>':''}</div><span class="muted">${it.dates}</span></div>`;}
+ let rail=`<div class="rail"><div class="rail-bg" style="width:${LW}px;height:${H+16}px"></div><div style="position:absolute;left:4px;top:24px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#59616c">Couloirs</div>`;
+ lanes.forEach((l,i)=>{
+  const ln=l.ln,types=TYPES.filter(t=>ln.types[t[0]]);
+  const groupsTxt=ln.groups.map(g=>gName(g)).join(', ')||'aucun groupe';
+  rail+=`<div class="lane" style="top:${l.top}px;width:${LW-16}px;height:${l.h}px;box-shadow:inset 4px 0 0 ${ln.color}">
+   <div class="top1"><button class="tog" type="button" data-collapse="${esc(ln.id)}" aria-expanded="${!l.collapsed}" aria-label="${l.collapsed?'Déplier':'Replier'} le couloir ${esc(ln.name)}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3d444d" stroke-width="2.4" aria-hidden="true" style="transform:rotate(${l.collapsed?-90:0}deg)"><path d="M6 9l6 6 6-6"/></svg></button><span class="gname">${esc(ln.name)}</span><button class="edit" type="button" data-edit="${esc(ln.id)}" aria-label="Modifier le couloir ${esc(ln.name)}">${ICON.pencil}</button></div>
+   ${l.collapsed?'':`<div class="meta"><b>Groupes</b> · ${esc(groupsTxt)}${ln.sub?' (+ sous-groupes)':''}</div>
+   ${ln.labels.length?`<div class="chips">${ln.labels.map(n=>`<span style="background:${LABELS[n]?LABELS[n].bg:'#eef0f3'};color:${LABELS[n]?LABELS[n].fg:'#3d444d'}">${esc(n)}</span>`).join('')}</div><div class="meta">${ln.mode==='any'?'au moins un label':'tous les labels'}</div>`:'<div class="meta"><b>Labels</b> · tous</div>'}`}
+   <span class="cnt">${types.map(t=>`<span title="${t[1]}">${TYPE_ICON[t[0]]()}${l.n[t[0]]}</span>`).join('')}${l.out?`<span class="muted" style="font-size:11px">+${l.out} hors fenêtre</span>`:''}</span></div>`;
+  if(i<lanes.length-1)h+=`<div class="lane-sep" style="left:${colX(from)}px;width:${W-colX(from)}px;top:${l.top+l.h+6}px"></div>`;
+  if(l.empty)h+=`<div class="empty" style="left:${colX(from)+10}px;top:${l.empty+8}px">Aucun élément de ce couloir dans la fenêtre choisie.</div>`;
+ });
+ if(!lanes.length)h+=`<div class="empty" style="left:${colX(from)+10}px;top:${HEAD+30}px">Aucun couloir affiché. Ouvrez « Couloirs » pour en activer ou en créer un.</div>`;
+ rail+='</div>';
+ h=rail+h;
+ h+=`<svg class="links" width="${W}" height="${H}" aria-hidden="true">`;
+ segs.forEach(s=>{const m=LT[s.l.t],g=geo(R[s.ka],R[s.kb],s.l.a[0]==='#'&&s.l.b[0]==='#'),touch=has&&(s.l.a===sel||s.l.b===sel),o=has?(touch?1:.08):(s.l.t==='parent'?.7:.95);
+  h+=`<path d="${g.d}" fill="none" stroke="${m.color}" stroke-width="${m.sw+(touch?1:0)}" stroke-dasharray="${m.dash}" opacity="${o}"/>`;if(m.arrow)h+=`<path d="${g.arrow}" fill="${m.color}" opacity="${o}"/>`;});
+ h+='</svg>';
+ const pos=(key,id)=>{const r=R[key];return `left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px;opacity:${op(id)}`;};
+ const offBadge=id=>{const n=offWin[id]?new Set(offWin[id]).size:0;return n?`<span class="off" title="Dépendances vers des éléments hors de la fenêtre">${ICON.right}${n} hors fenêtre</span>`:'';};
+ shown.forEach(s=>{
+  const o=s.o,isSel=sel===o.id,attrs=`data-id="${esc(o.id)}" aria-pressed="${isSel}" style="${pos(s.key,o.id)}"`;
+  if(s.kind==='epic'){
+   h+=`<button type="button" class="el bar ep${s.cl?' cl':''}${s.cr?' cr':''}${isSel?' sel':''}" ${attrs}>${s.cl?`<span title="Commence en ${ITS[o.start].short}" style="display:flex">${ICON.left}</span>`:''}${ICON.epic()}<span class="tag">Epic</span><strong>${esc(o.id)}</strong><span class="t" style="font-weight:500">${esc(o.title)}</span>${offBadge(o.id)}${s.cr?`<span title="Se termine en ${ITS[o.end].short}" style="display:flex">${ICON.right}</span>`:''}</button>`;
+  }else{
+   const p=PEOPLE[o.who],closed=o.state==='closed',targets=BLOCKS_EPIC[o.id];
+   const lbl=o.labels.slice(0,2).map(n=>`<span class="l" style="background:${LABELS[n].bg};color:${LABELS[n].fg}">${esc(n)}</span>`).join('')+(o.labels.length>2?`<span class="l" style="background:#eef0f3;color:#3d444d">+${o.labels.length-2}</span>`:'');
+   h+=`<button type="button" class="el card${closed?' closed':''}${isSel?' sel':''}" ${attrs}><span class="hd">${closed?ICON.closed():ICON.issue()}<span class="ref">${o.id}</span>${closed?'<span style="font-size:11px;color:#3d444d;font-weight:600">Fermée</span>':''}<span class="sp"></span>${offBadge(o.id)}<span class="av" style="background:${p.c}" title="${esc(p.n)}">${o.who}</span></span><span class="bd"><span class="ttl">${esc(o.title)}</span><span class="blk">${ICON.block()}Bloque ${targets.map(esc).join(', ')}</span><span class="lbls">${lbl}</span></span></button>`;
+  }
+ });
+ const cv=document.getElementById('canvas');cv.style.width=W+'px';cv.style.height=H+'px';cv.innerHTML=h;
+ const uniq=k=>new Set(shown.filter(s=>s.kind===k).map(s=>s.o.id)).size;
+ const nDeps=new Set(segs.filter(s=>s.l.t==='blocks').map(s=>s.l.a+s.l.b)).size;
+ document.getElementById('stats').innerHTML=`<span><strong>${lanesOn.length}</strong> couloirs</span><span><strong>${uniq('epic')}</strong> epics</span><span><strong>${uniq('issue')}</strong> issues bloquantes</span><span><strong>${nDeps}</strong> blocages visibles</span>`;
+ document.getElementById('legend').innerHTML=TYPES.map(t=>`<span>${SWATCH[t[0]]}${t[0]==='issue'?'Issue bloquante':'Epic'}</span>`).join('')+Object.keys(LT).filter(k=>S.ltypes[k]).map(k=>{const m=LT[k];return `<span><svg width="26" height="10" aria-hidden="true"><path d="M1 5 L24 5" stroke="${m.color}" stroke-width="${m.sw}" stroke-dasharray="${m.dash}"/>${m.arrow?`<path d="M25 5 L19 2 L19 8 Z" fill="${m.color}"/>`:''}</svg>${m.label}</span>`;}).join('');
+ document.getElementById('laneSummary').textContent=lanesOn.length+' / '+S.lanes.length;
+ renderWin();renderSide(segs);renderDetail(has,occ);renderDialog();
+ // Amène l'élément choisi depuis le détail dans la partie visible du board
+ if(S.reveal){const id=S.reveal;S.reveal=null;const sc=document.querySelector('.scroller'),el=[...cv.querySelectorAll('[data-id]')].find(x=>x.dataset.id===id);
+  if(el&&sc){const left=el.offsetLeft-LW-16,right=el.offsetLeft+el.offsetWidth-sc.clientWidth+24;
+   if(sc.scrollLeft>left)sc.scrollLeft=Math.max(0,left);else if(sc.scrollLeft<right)sc.scrollLeft=Math.min(left,right);
+   const r=el.getBoundingClientRect();if(r.top<0||r.bottom>window.innerHeight)el.scrollIntoView({block:'center'});}}
+}
+
+function renderWin(){
+ const f=S.win.from,t=S.win.to,opt=(sel,max,min)=>ITS.map((it,i)=>`<option value="${i}" ${i===sel?'selected':''} ${(min!==undefined&&i<min)||(max!==undefined&&i>max)?'disabled':''}>${it.name}${it.current?' (en cours)':''}</option>`).join('');
+ const pr=(k,lab,a,b)=>`<button type="button" data-win="${a}|${b}" aria-pressed="${f===a&&t===b}">${lab}</button>`;
+ document.getElementById('win').innerHTML=`<span class="k">Fenêtre</span>
+  <button class="icbtn" type="button" data-shift="-1" ${f===0?'disabled':''} aria-label="Décaler d'une itération vers le passé">${ICON.left}</button>
+  <label class="sr" for="wf">Première itération</label><select id="wf" data-wsel="from">${opt(f,t)}</select>
+  <span class="arrow">→</span>
+  <label class="sr" for="wt">Dernière itération</label><select id="wt" data-wsel="to">${opt(t,undefined,f)}</select>
+  <button class="icbtn" type="button" data-shift="1" ${t===ITS.length-1?'disabled':''} aria-label="Décaler d'une itération vers le futur">${ICON.right}</button>
+  <span class="presets">${pr('c','En cours ± 2',Math.max(0,CUR-2),Math.min(ITS.length-1,CUR+2))}${pr('n','6 prochaines',CUR,Math.min(ITS.length-1,CUR+5))}${pr('a','Toutes',0,ITS.length-1)}</span>`;
+}
+
+function renderSide(segs){
+ const side=document.getElementById('side');
+ const mini=S.sideCollapsed&&!window.matchMedia('(max-width:760px)').matches;
+ side.classList.toggle('mini',mini);
+ if(mini){
+  const on=S.lanes.filter(l=>l.on);
+  side.innerHTML=`<button class="icbtn" type="button" data-act="side" aria-expanded="false" aria-label="Déplier le panneau de configuration" title="Déplier le panneau">${ICON.right}</button>
+   <span class="vlabel">Configuration</span>
+   <div style="display:flex;flex-direction:column;gap:8px;align-items:center" aria-hidden="true">${on.map(l=>`<span class="gdot" style="background:${l.color};width:12px;height:12px" title="${esc(l.name)}"></span>`).join('')}</div>`;
+  return;
+ }
+ let h=`<div style="display:flex;align-items:center;justify-content:space-between"><h2>Board</h2><button class="icbtn flat" type="button" data-act="side" aria-expanded="true" aria-label="Replier le panneau de configuration" title="Replier le panneau">${ICON.left}</button></div>`;
+ h+=`<section><h3 class="sec">Couloirs<button class="linkbtn" type="button" data-act="config">Configurer</button></h3>`+S.lanes.map(l=>`<div class="laneRow"><label><input type="checkbox" data-laneon="${esc(l.id)}" ${l.on?'checked':''}><span class="gdot" style="background:${l.color}"></span><span class="nm">${esc(l.name)}</span></label><button class="icbtn flat" type="button" data-edit="${esc(l.id)}" aria-label="Modifier ${esc(l.name)}">${ICON.pencil}</button></div>`).join('')+`<button class="linkbtn" type="button" data-act="newlane">+ Nouveau couloir</button><p class="hint" style="margin:6px 0 0">Groupes, affichage des issues et labels se règlent couloir par couloir.</p></section>`;
+ h+='<section><h3 class="sec">Types de lien<span class="scope">tous les couloirs</span></h3>'+Object.keys(LT).map(k=>{const m=LT[k];return `<label class="row"><input type="checkbox" data-lt="${k}" ${S.ltypes[k]?'checked':''}><svg width="30" height="10" aria-hidden="true"><path d="M1 5 L28 5" stroke="${m.color}" stroke-width="${m.sw}" stroke-dasharray="${m.dash}"/>${m.arrow?`<path d="M29 5 L22 1.5 L22 8.5 Z" fill="${m.color}"/>`:''}</svg>${m.label}<span class="n">${new Set(segs.filter(s=>s.l.t===k).map(s=>s.l.a+s.l.b)).size}</span></label>`;}).join('')+'</section>';
+ h+=`<section><h3 class="sec">Affichage<span class="scope">tous les couloirs</span></h3><label class="row"><input type="checkbox" data-act="closed" ${S.hideClosed?'checked':''}>Masquer les issues fermées</label></section>
+  <p class="hint" style="margin:0">Seules les issues qui bloquent au moins un epic sont affichées (${HIDDEN_ISSUES} autres issues synchronisées sont ignorées).</p>
+  <p class="hint" style="margin:0">Touchez un élément pour mettre en évidence ses dépendances. Dans le détail, un élément hors fenêtre déplace la fenêtre jusqu'à lui.</p>`;
+ side.innerHTML=h;
+}
+
+function renderDetail(has,occ){
+ const box=document.getElementById('detail');
+ if(!has){box.innerHTML='';return;}
+ const sel=S.sel,o=byId[sel],t=id=>byId[id]?byId[id].title:'',groups=[];
+ const grp=(label,ids,type,ls)=>{if(ids.length)groups.push({label,ids,c:LT[type].color,ls});};
+ const blk=ALL.filter(l=>l.t==='blocks');
+ if(o.kind==='epic'){
+  grp('Bloque',blk.filter(l=>l.a===sel).map(l=>l.b),'blocks','solid');
+  grp('Bloqué par (epics)',blk.filter(l=>l.b===sel&&l.a[0]==='&').map(l=>l.a),'blocks','solid');
+  grp('Bloqué par (issues)',blk.filter(l=>l.b===sel&&l.a[0]==='#').map(l=>l.a),'blocks','solid');
+  grp('Lié à',ALL.filter(l=>l.t==='relates'&&(l.a===sel||l.b===sel)).map(l=>l.a===sel?l.b:l.a),'relates','solid');
+ }else{
+  grp('Bloque',blk.filter(l=>l.a===sel).map(l=>l.b),'blocks','solid');
+  grp('Lié à',ALL.filter(l=>l.t==='relates'&&(l.a===sel||l.b===sel)&&BLOCKS_EPIC[l.a===sel?l.b:l.a]).map(l=>l.a===sel?l.b:l.a),'relates','solid');
+ }
+ const inL=S.lanes.filter(l=>l.on&&inLane(l,o,o.kind)).map(l=>l.name).join(', ')||'—';
+ let kind,icon,kc,st,sb,sf,facts;
+ if(o.kind==='issue'){const c=o.state==='closed';kind='Issue';icon=c?ICON.closed():ICON.issue();kc='#1d4fa3';st=c?'Fermée':'Ouverte';sb=c?'#eef0f3':'#dbe7fb';sf=c?'#3d444d':'#1d4fa3';facts=[['Groupe',o.g],['Couloir(s)',inL],['Itération',ITS[o.it].name+' ('+ITS[o.it].dates+')'],['Epic parent',o.epic+' '+t(o.epic)],['Assigné·e',PEOPLE[o.who].n]];}
+ else{kind='Epic';icon=ICON.epic('#5b3fb0');kc='#4b37a0';st='Ouvert';sb='#efebfb';sf='#4b37a0';facts=[['Groupe',o.g],['Couloir(s)',inL],['Période',ITS[o.start].name+' → '+ITS[o.end].name]];}
+ let h=`<section class="detail" aria-label="Détail"><div style="display:flex;align-items:center;gap:8px">${icon}<span style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:${kc}">${kind}</span><span class="muted" style="font-weight:600">${esc(o.id)}</span><span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:${sb};color:${sf}">${st}</span><button class="close" type="button" data-act="close" aria-label="Fermer">${ICON.x}</button></div><h2>${esc(o.title)}</h2><dl>${facts.map(f=>`<dt>${f[0]}</dt><dd style="word-break:break-word">${esc(f[1])}</dd>`).join('')}</dl>`;
+ if(o.labels.length)h+=`<div class="lbls" style="height:auto;flex-wrap:wrap">${o.labels.map(n=>`<span class="l" style="background:${LABELS[n].bg};color:${LABELS[n].fg}">${esc(n)}</span>`).join('')}</div>`;
+ if(!groups.length)h+=`<p class="hint" style="margin:0">Aucune dépendance.</p>`;
+ groups.forEach(g=>{h+=`<div class="grp"><b><span style="width:18px;border-top:2px ${g.ls} ${g.c}"></span>${g.label} · ${g.ids.length}</b>${g.ids.map(id=>{const k=byId[id]?byId[id].kind:'issue',vis=!!occ[id];return `<button type="button" class="rel" data-id="${esc(id)}">${k==='epic'?ICON.epic('#5b3fb0',13):ICON.issue('#2f6fdb',13)}<strong>${esc(id)}</strong><span class="tt">${esc(t(id))}</span>${vis?'':`<span class="ow">${winLabel(id)}</span>`}</button>`;}).join('')}</div>`;});
+ h+=`<a class="open" href="#" data-act="noop">Ouvrir dans GitLab ↗</a></section>`;
+ box.innerHTML=h;
+}
+
+// Sélectionner un élément hors fenêtre : on décale la fenêtre pour l'inclure
+function focusItem(id){
+ const o=byId[id];if(!o){S.sel=null;return;}
+ const a=o.kind==='epic'?o.start:o.it,b=o.kind==='epic'?o.end:o.it,w=S.win.to-S.win.from;
+ if(b<S.win.from||a>S.win.to){let f=a<S.win.from?a:Math.max(0,b-w);f=Math.min(f,ITS.length-1-w);S.win={from:Math.max(0,f),to:Math.max(0,f)+w};save();}
+ S.sel=id;S.reveal=id;
+}
+
+// ---------- Dialogue de configuration des couloirs ----------
+function laneSummary(l,groups){
+ const t=[l.types.epic?'epics':'',l.types.issue?'issues bloquantes':''].filter(Boolean).join(', ')||'rien';
+ const g=l.groups.length?l.groups.map(id=>gName(id,groups)).join(', '):'aucun groupe';
+ const lb=l.labels.length?(l.mode==='any'?'au moins un de ':'tous : ')+l.labels.join(', '):'tous labels';
+ return `${g} · ${t} · ${lb}`;
+}
+function renderDialog(){
+ const box=document.getElementById('dlg');
+ if(!S.dlg){box.innerHTML='';return;}
+ const D=S.dlg,n=D.lanes.length;
+ let h=`<div class="scrim" data-dl="cancel"><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dlgT">
+  <header><div style="flex:1"><h2 id="dlgT">Configurer les couloirs</h2><p>Chaque couloir est un filtre : groupes GitLab, epics et/ou issues bloquantes, labels. Les types de lien et la fenêtre d'itérations s'appliquent à tout le board.</p></div>
+  <button class="close" type="button" data-dl="cancel" aria-label="Fermer">${ICON.x}</button></header><div class="body">`;
+ D.lanes.forEach((l,i)=>{
+  const open=D.open===l.id;
+  h+=`<div class="lcard${open?' isopen':''}"><div class="lhead">
+   <input type="checkbox" data-dlc="on|${i}" ${l.on?'checked':''} aria-label="Afficher ${esc(l.name)}">
+   <span class="gdot" style="background:${l.color};width:12px;height:12px"></span>
+   <div class="nm"><strong>${esc(l.name)}</strong><span>${esc(laneSummary(l,D.groups))}</span></div>
+   <button class="icbtn" type="button" data-dl="up|${i}" ${i===0?'disabled':''} aria-label="Monter">${ICON.up}</button>
+   <button class="icbtn" type="button" data-dl="down|${i}" ${i===n-1?'disabled':''} aria-label="Descendre">${ICON.down}</button>
+   <button class="icbtn" type="button" data-dl="edit|${i}" aria-expanded="${open}" aria-label="${open?'Fermer':'Modifier'} ${esc(l.name)}">${open?ICON.up:ICON.pencil}</button>
+   <button class="icbtn" type="button" data-dl="del|${i}" aria-label="Supprimer ${esc(l.name)}">${ICON.trash}</button></div>`;
+  if(open){
+   h+=`<div class="lbody">
+    <label class="k" for="ln${i}">Nom et couleur</label>
+    <div style="display:flex;gap:8px"><input type="text" id="ln${i}" value="${esc(l.name)}" data-dli="name|${i}"><input type="color" value="${l.color}" data-dlc="color|${i}" aria-label="Couleur"></div>
+    <span class="k">Groupes GitLab</span>
+    <div class="checks">${D.groups.map(g=>`<label><input type="checkbox" data-dlc="group|${i}|${esc(g.id)}" ${l.groups.includes(g.id)?'checked':''}><span>${esc(g.name)} <small>${esc(g.id)}</small></span></label>`).join('')}
+     <label style="margin-top:4px;border-top:1px solid #e3e6ea;padding-top:6px"><input type="checkbox" data-dlc="sub|${i}" ${l.sub?'checked':''}>Inclure les sous-groupes</label></div>
+    <span class="k">Afficher</span>
+    <div class="checks">
+     <label><input type="checkbox" data-dlc="type|${i}|epic" ${l.types.epic?'checked':''}>${SWATCH.epic}Epics</label>
+     <label><input type="checkbox" data-dlc="type|${i}|issue" ${l.types.issue?'checked':''}>${SWATCH.issue}Issues <small>— uniquement celles qui bloquent un epic</small></label></div>
+    <span class="k">Labels</span>
+    <div style="display:flex;flex-direction:column;gap:8px">
+     <div class="labels">${Object.keys(LABELS).map(nm=>{const on=l.labels.includes(nm),Lb=LABELS[nm];return `<button type="button" class="lab" data-dl="label|${i}|${esc(nm)}" aria-pressed="${on}" style="${on?`background:${Lb.bg};color:${Lb.fg};border-color:${Lb.fg}`:''}"><span class="dot" style="background:${Lb.dot}"></span>${esc(nm)}</button>`;}).join('')}</div>
+     <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px"><div class="seg" role="group" aria-label="Correspondance des labels"><button type="button" data-dl="mode|${i}|any" aria-pressed="${l.mode==='any'}">Au moins un</button><button type="button" data-dl="mode|${i}|all" aria-pressed="${l.mode==='all'}">Tous</button></div>
+     <span class="hint">${l.labels.length?'S\'applique aux epics et aux issues.':'Aucun label choisi : tous les éléments sont gardés.'}</span></div>
+    </div></div>`;
+  }
+  h+=`</div>`;
+ });
+ h+=`<button class="ghost" type="button" data-dl="addlane" style="align-self:flex-start">+ Nouveau couloir</button>
+  <form class="addrow" data-form="group" style="margin-top:8px"><label class="sr" for="newg">Chemin d'un groupe GitLab à rendre disponible</label><input id="newg" placeholder="Ajouter un groupe GitLab, ex. plateforme/atlas/mobile" autocomplete="off"><button class="ghost" type="submit">Ajouter le groupe</button></form>
+  <p class="hint" style="margin:0">L'ordre de la liste est l'ordre des couloirs sur le board.</p>
+  </div><footer><button class="linkbtn" type="button" data-dl="defaults">Rétablir les couloirs d'exemple</button><span class="sp"></span><button class="ghost" type="button" data-dl="cancel">Annuler</button><button class="primary" type="button" data-dl="apply">Appliquer</button></footer></div></div>`;
+ const d0=box.querySelector('.dialog'),scroll=d0?d0.scrollTop:0;
+ box.innerHTML=h;
+ const d=box.querySelector('.dialog');if(d)d.scrollTop=scroll;
+}
+const openDialog=(laneId,newLane)=>{S.dlg={lanes:clone(S.lanes),groups:clone(S.groups),open:laneId||null};if(newLane)addLane();renderDialog();};
+function addLane(){const D=S.dlg,id='l'+Date.now().toString(36);D.lanes.push({id,name:'Nouveau couloir',color:PALETTE[D.lanes.length%PALETTE.length],groups:[],sub:true,types:{epic:true,issue:true},labels:[],mode:'any',on:true});D.open=id;}
+
+document.addEventListener('click',e=>{
+ if(S.dlg){
+  const t=e.target,b=t.closest('[data-dl]');if(!b)return;
+  const D=S.dlg,[act,a1,a2]=b.dataset.dl.split('|'),i=+a1;
+  if(act==='cancel'){if(b.classList.contains('scrim')&&t!==b)return;S.dlg=null;renderDialog();return;}
+  if(act==='apply'){S.lanes=D.lanes;S.groups=D.groups;S.dlg=null;save();render();return;}
+  if(act==='up'){[D.lanes[i-1],D.lanes[i]]=[D.lanes[i],D.lanes[i-1]];}
+  else if(act==='down'){[D.lanes[i+1],D.lanes[i]]=[D.lanes[i],D.lanes[i+1]];}
+  else if(act==='del'){D.lanes.splice(i,1);}
+  else if(act==='edit'){D.open=D.open===D.lanes[i].id?null:D.lanes[i].id;}
+  else if(act==='label'){const l=D.lanes[i];l.labels=l.labels.includes(a2)?l.labels.filter(x=>x!==a2):l.labels.concat([a2]);}
+  else if(act==='mode'){D.lanes[i].mode=a2;}
+  else if(act==='addlane'){addLane();}
+  else if(act==='defaults'){D.lanes=clone(DEFAULT_LANES);D.groups=clone(DEFAULT_GROUPS);D.open=null;}
+  renderDialog();return;
+ }
+ const el=e.target.closest('[data-id],[data-act],[data-collapse],[data-edit],[data-shift],[data-win]');
+ if(!el){if(e.target.closest('.canvas')&&S.sel){S.sel=null;render();}return;}
+ if(el.matches('input,select'))return;
+ if(el.dataset.edit){openDialog(el.dataset.edit);return;}
+ if(el.dataset.id){if(S.sel===el.dataset.id&&el.closest('.canvas'))S.sel=null;else focusItem(el.dataset.id);}
+ else if(el.dataset.shift){const d=+el.dataset.shift;if(S.win.from+d>=0&&S.win.to+d<ITS.length){S.win={from:S.win.from+d,to:S.win.to+d};save();}}
+ else if(el.dataset.win){const [a,b]=el.dataset.win.split('|').map(Number);S.win={from:a,to:b};save();}
+ else if(el.dataset.collapse){const id=el.dataset.collapse;S.collapsed[id]=!S.collapsed[id];}
+ else if(el.dataset.act==='side'){S.sideCollapsed=!S.sideCollapsed;try{localStorage.setItem('trame.side',S.sideCollapsed?'1':'0');}catch(_){}}
+ else if(el.dataset.act==='close'){S.sel=null;}
+ else if(el.dataset.act==='noop'){e.preventDefault();return;}
+ else if(el.dataset.act==='config'){openDialog();return;}
+ else if(el.dataset.act==='newlane'){openDialog(null,true);return;}
+ else return;
+ render();
+});
+document.addEventListener('input',e=>{
+ const d=e.target.dataset;
+ if(S.dlg&&d.dli){const [k,i]=d.dli.split('|');if(k==='name'){S.dlg.lanes[+i].name=e.target.value;const nm=e.target.closest('.lcard').querySelector('.nm strong');if(nm)nm.textContent=e.target.value;}}
+});
+document.addEventListener('submit',e=>{
+ e.preventDefault();if(!S.dlg)return;
+ const inp=document.getElementById('newg');const path=(inp&&inp.value||'').trim().replace(/^\/+|\/+$/g,'');
+ if(!path||S.dlg.groups.some(g=>g.id===path))return;
+ const seg=path.split('/').pop();
+ S.dlg.groups.push({id:path,name:seg.charAt(0).toUpperCase()+seg.slice(1).replace(/[-_]/g,' ')});
+ renderDialog();const n=document.getElementById('newg');if(n)n.focus();
+});
+document.addEventListener('change',e=>{
+ const el=e.target,d=el.dataset;
+ if(S.dlg){
+  if(!d.dlc)return;
+  const [k,a1,a2]=d.dlc.split('|'),l=S.dlg.lanes[+a1];
+  if(k==='on')l.on=el.checked;
+  else if(k==='color')l.color=el.value;
+  else if(k==='sub')l.sub=el.checked;
+  else if(k==='type')l.types[a2]=el.checked;
+  else if(k==='group')l.groups=el.checked?l.groups.concat([a2]):l.groups.filter(g=>g!==a2);
+  renderDialog();return;
+ }
+ if(d.wsel){const v=+el.value;if(d.wsel==='from')S.win.from=Math.min(v,S.win.to);else S.win.to=Math.max(v,S.win.from);save();}
+ else if(d.lt)S.ltypes[d.lt]=el.checked;
+ else if(d.laneon){const l=S.lanes.find(x=>x.id===d.laneon);if(l){l.on=el.checked;save();}}
+ else if(d.act==='closed')S.hideClosed=el.checked;
+ else return;
+ render();
+});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&S.dlg){S.dlg=null;renderDialog();}});
+document.getElementById('q').addEventListener('input',e=>{S.q=e.target.value;render();});
+document.getElementById('ft').addEventListener('click',e=>{const s=document.getElementById('side');const on=s.classList.toggle('show');e.currentTarget.setAttribute('aria-expanded',on);});
+render();
+})();
+</script>
+</body>
+</html>

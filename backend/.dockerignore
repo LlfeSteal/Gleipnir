@@ -1,0 +1,7 @@
+# Only the Go sources go into the build context.
+server
+*.test
+*.out
+coverage*
+.env
+.env.*
