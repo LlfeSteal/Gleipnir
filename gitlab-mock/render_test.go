@@ -7,7 +7,7 @@ import (
 )
 
 func TestDatasetShapes(t *testing.T) {
-	d := newDataset(now)
+	d := newDataset(now, layout{})
 	ids := map[string]bool{}
 	for _, it := range d.items {
 		if ids[it.ID] {
@@ -50,7 +50,7 @@ func TestDatasetShapes(t *testing.T) {
 // TestDatasetJSON checks the widgets serialize as the backend decodes them: null for an
 // unset date, iteration or parent.
 func TestDatasetJSON(t *testing.T) {
-	d := newDataset(now)
+	d := newDataset(now, layout{})
 	find := func(id string) string {
 		for _, it := range d.items {
 			if it.ID == id {
@@ -83,7 +83,38 @@ func TestOptional(t *testing.T) {
 	if optional("") != nil || optional("x") != "x" || optionalRef("") != nil || optionalRef("a") != (idRef{ID: "a"}) {
 		t.Fatal("optional values")
 	}
-	if g, ok := newDataset(now).group("nope"); ok || g != (groupNode{}) {
+	if g, ok := newDataset(now, layout{}).group("nope"); ok || g != (groupNode{}) {
 		t.Fatal("unknown group")
+	}
+}
+
+// The GitLab numbering restarts at 1 in each group and project, as a GitLab filled by the
+// seeder numbers them, under the chosen root.
+func TestGitLabLayout(t *testing.T) {
+	d := newDataset(now, layout{root: "demo/gleipnir", rootName: "Gleipnir", gitlabIIDs: true})
+	if d.root != (groupNode{FullPath: "demo/gleipnir", Name: "Gleipnir"}) || !d.knows("demo/gleipnir/api") {
+		t.Fatalf("root %+v", d.root)
+	}
+	iids := map[string][]string{}
+	for _, it := range d.items {
+		iids[it.Namespace.FullPath] = append(iids[it.Namespace.FullPath], it.IID)
+		if !strings.HasSuffix(it.WebURL, "/-/work_items/"+it.IID) {
+			t.Errorf("%s: webUrl %s", it.ID, it.WebURL)
+		}
+	}
+	want := map[string]string{
+		"demo/gleipnir/identite":      "1,2,3",
+		"demo/gleipnir/experience":    "1,2,3,4",
+		"demo/gleipnir/identite/sso":  "1,2,3,4",
+		"demo/gleipnir/data/pipeline": "1,2,3,4",
+	}
+	for ns, w := range want {
+		if got := strings.Join(iids[ns], ","); got != w {
+			t.Errorf("%s: IIDs %s, want %s", ns, got, w)
+		}
+	}
+	// The GIDs stay those of the mockup: only the references change.
+	if mock := newDataset(now, layout{}); mock.items[0].ID != d.items[0].ID || mock.items[0].IID == d.items[0].IID {
+		t.Fatalf("GID %s / %s, IID %s / %s", mock.items[0].ID, d.items[0].ID, mock.items[0].IID, d.items[0].IID)
 	}
 }

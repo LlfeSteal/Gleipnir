@@ -34,6 +34,7 @@ Ce fichier consigne les choix qui structurent Gleipnir, sous forme de courts ADR
 | 25 | Faux GitLab pour la démo et les e2e | 2026-11-24 |
 | 26 | Jeton de démo vérifié par le faux GitLab | 2026-11-24 |
 | 27 | Seeder : le jeu de démo dans un vrai GitLab | 2026-11-24 |
+| 28 | E2E agnostiques : même suite sur le faux et le vrai GitLab | 2026-11-24 |
 
 ---
 
@@ -372,7 +373,7 @@ Les erreurs sont typées : `ErrUnauthorized`, `ErrGroupNotFound`, `ErrPremiumReq
 
 ## ADR-17 — Stratégie de tests
 
-*2026-11-23 · Accepté · Amendé par ADR-25 (les e2e lisent un faux GitLab)*
+*2026-11-23 · Accepté · Amendé par ADR-25 (les e2e lisent un faux GitLab) et ADR-28 (e2e agnostiques)*
 
 **Contexte.** Les règles métier, la mise en page et l'intégration GitLab échouent de façons différentes. Chacune demande son outil.
 
@@ -643,3 +644,24 @@ Une synchro en cours reste partagée par toutes les requêtes. Sans données en 
 - Les tests du seeder tournent contre un **faux GitLab à état** qui refuse ce que GitLab refuse : noms avec « & », chevauchement d'itérations, parent non-epic, assigné non membre, lien en double. Ils vérifient la création, la deuxième exécution sans écriture, le recalage dans les deux sens, la correction des dérives, le dry-run et le cas non-admin.
 - Noms, arguments, inputs et énumérations ont été **vérifiés sur l'introspection de gitlab.com** (2026-11-24). Le seeder n'a **pas encore tourné sur une vraie instance** : c'est une limite connue jusqu'au premier passage sur l'instance Ultimate auto-hébergée.
 - Les mutations `workItem*` sont « Experiment » dans GitLab : une mise à jour de l'instance peut casser le seeder, pas Gleipnir.
+
+## ADR-28 — E2E agnostiques : même suite sur le faux et le vrai GitLab
+
+*2026-11-24 · Accepté · Amende ADR-17*
+
+**Contexte.** Les e2e de démo désignaient les éléments par leurs refs de maquette (`&18`, `#110`), le groupe par `plateforme/atlas` et les itérations par leur titre. Sur un vrai GitLab rempli par le seeder (ADR-27), GitLab attribue lui-même les IID : ils repartent de 1 dans chaque groupe et chaque projet, et `&1` existe en quatre exemplaires. La racine et, sans droits admin, les assignés diffèrent aussi.
+
+**Décision.**
+
+- Un élément se désigne par sa **clé** dans le jeu de démo et se **trouve par son titre**, unique dans le jeu.
+- Tout le reste est **lu dans le board servi** : refs, itérations, racine, chemins, cadence, assignés. `e2e/global-setup.ts` le charge une fois et le passe aux workers par l'environnement ; `e2e/demo.ts` le lit paresseusement, car les fichiers de test se chargent avant le setup.
+- Les assertions de **comportement** ne changent pas : comptes, liens, conflits, chemin critique, fenêtre et couloirs sont ceux du jeu, identiques sur les deux.
+- Une recherche par ref vérifie que tout ce qui reste affiché correspond : sur un vrai GitLab, `#1` trouve aussi `#10` et les `#1` des autres projets.
+- Le setup refuse un board dont l'itération en cours n'est pas « Itération 15 », avec un message qui renvoie au seeder.
+- Le faux GitLab sait **se numéroter comme un GitLab rempli par le seeder** (`GITLAB_MOCK_NUMBERING=gitlab`, `GITLAB_MOCK_ROOT`). `npm run test:e2e:gitlab-like` rejoue toute la suite ainsi : c'est la preuve, sans instance réelle, que la suite ne dépend pas des refs de la maquette.
+
+**Conséquences.**
+
+- `BASE_URL=http://localhost npm run test:e2e` lance toute la suite de démo sur une pile branchée sur un vrai GitLab rempli. Elle reste valide deux semaines après chaque passage du seeder.
+- Les titres des tests gardent les clés de la maquette : un rapport se lit de la même façon sur les deux environnements.
+- Ajouter un élément au jeu demande d'ajouter son titre dans `e2e/demo.ts`.

@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { boardItem, inspector, openBoard, sidebar } from './helpers2';
+import { it, ref } from './demo';
 
 // Phone layout (≤ 760 px, spec §4.6 and §4.8): the sidebar is a "Filtres" overlay, the
 // inspector a bottom sheet, and the board scrolls sideways under a fixed lane rail.
@@ -75,7 +76,7 @@ test('tapping an item opens the inspector as a bottom sheet', async ({ page }) =
   await expect(epic).toHaveAttribute('aria-pressed', 'true');
   const panel = inspector(page);
   await expect(panel).toBeVisible();
-  await expect(panel.getByText('&18', { exact: true })).toBeVisible();
+  await expect(panel.getByText(ref('&18'), { exact: true }).first()).toBeVisible();
 
   const box = (await panel.boundingBox())!;
   expect(box.x).toBeCloseTo(0, 0);
@@ -96,7 +97,7 @@ test('the toolbar controls are reachable', async ({ page }) => {
 
   // The window moves.
   await windowGroup.getByRole('button', { name: 'Itération suivante' }).tap();
-  await expect(windowGroup.getByRole('button', { name: /^Fenêtre : / })).toHaveAccessibleName('Fenêtre : It. 15 – It. 19');
+  await expect(windowGroup.getByRole('button', { name: /^Fenêtre : / })).toHaveAccessibleName(`Fenêtre : ${it(15)} – ${it(19)}`);
 
   // Sync asks the backend for fresh data.
   const request = page.waitForRequest((r) => new URL(r.url()).searchParams.get('refresh') === '1');
@@ -109,7 +110,7 @@ test('the toolbar controls are reachable', async ({ page }) => {
   const search = page.getByRole('searchbox', { name: 'Rechercher un epic ou une issue' });
   await expect(search).toBeFocused();
   await expect(search).toBeInViewport({ ratio: 1 });
-  await search.fill('&21');
+  await search.fill(ref('&21'));
   await expect(boardItem(page, '&21')).toBeVisible();
   await expect(boardItem(page, '&18')).toHaveCount(0);
   await page.getByRole('banner').getByRole('button', { name: 'Annuler' }).tap();

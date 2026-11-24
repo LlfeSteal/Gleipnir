@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { boardItem, boardItems, boardLanes, DEFAULT_LANES, laneSheet, openBoard, sidebar } from './helpers2';
+import { group, root } from './demo';
+import { itemName } from './helpers';
 
 // Lane settings (spec §4.4) and the sidebar's lane list (§4.8). The sheet edits a draft:
 // nothing changes on the board before "Appliquer".
@@ -105,8 +107,8 @@ test('a new lane on label "priorité::haute" with issues only shows #104 and #11
   await sheet.getByRole('textbox', { name: 'Nom' }).fill('Priorités');
 
   const groups = sheet.getByRole('listbox', { name: 'Groupes' });
-  await groups.getByRole('option', { name: 'Atlas, plateforme/atlas' }).click();
-  await expect(groups.getByRole('option', { name: 'Atlas, plateforme/atlas' })).toHaveAttribute('aria-selected', 'true');
+  await groups.getByRole('option', { name: `${root().name}, ${root().path}` }).click();
+  await expect(groups.getByRole('option', { name: `${root().name}, ${root().path}` })).toHaveAttribute('aria-selected', 'true');
   await expect(sheet.getByRole('switch', { name: 'Inclure les sous-groupes' })).toHaveAttribute('aria-checked', 'true');
 
   await sheet.getByRole('switch', { name: 'Epics' }).click();
@@ -124,7 +126,7 @@ test('a new lane on label "priorité::haute" with issues only shows #104 and #11
 
   // Only this lane on the board.
   for (const name of DEFAULT_LANES) await sheet.getByRole('checkbox', { name: `Afficher ${name}` }).uncheck();
-  await expect(sheet.getByRole('button', { name: /^Priorités / })).toContainText('Atlas · issues · tous : priorité::haute');
+  await expect(sheet.getByRole('button', { name: /^Priorités / })).toContainText(`${root().name} · issues · tous : priorité::haute`);
 
   await sheet.getByRole('button', { name: 'Appliquer' }).click();
   await expect(sheet).toBeHidden();
@@ -139,9 +141,9 @@ test('groups and "Inclure les sous-groupes" decide what a lane holds', async ({ 
   // The Data lane on the root group only: items all live in subgroups, so it shows nothing.
   await page.getByRole('button', { name: 'Modifier le couloir Data' }).click();
   const groups = sheet.getByRole('listbox', { name: 'Groupes' });
-  await groups.getByRole('option', { name: 'Data, plateforme/atlas/data' }).click();
-  await groups.getByRole('option', { name: 'Atlas, plateforme/atlas' }).click();
-  await expect(groups.getByRole('option', { name: 'Data, plateforme/atlas/data' })).toHaveAttribute('aria-selected', 'false');
+  await groups.getByRole('option', { name: `Data, ${group('data')}` }).click();
+  await groups.getByRole('option', { name: `${root().name}, ${root().path}` }).click();
+  await expect(groups.getByRole('option', { name: `Data, ${group('data')}` })).toHaveAttribute('aria-selected', 'false');
   const subgroups = sheet.getByRole('switch', { name: 'Inclure les sous-groupes' });
   await subgroups.click();
   await expect(subgroups).toHaveAttribute('aria-checked', 'false');
@@ -155,7 +157,7 @@ test('groups and "Inclure les sous-groupes" decide what a lane holds', async ({ 
   await sheet.getByRole('switch', { name: 'Inclure les sous-groupes' }).click();
   await sheet.getByRole('button', { name: 'Appliquer' }).click();
   await expect(boardItem(page, '&21')).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Issue #110 / })).toHaveCount(2);
+  await expect(page.getByRole('button', { name: itemName('#110') })).toHaveCount(2);
 });
 
 test('"Rétablir les couloirs par défaut" brings the default lanes back', async ({ page }) => {

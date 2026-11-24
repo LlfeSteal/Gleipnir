@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page, Route } from '@playwright/test';
 import { boardItem, openBoard } from './helpers2';
+import { group } from './demo';
 
 // Error states (spec §6, src/api/client.ts errorMessage): the backend's {error, code} body,
 // or a proxy answering without it, becomes a French banner with "Réessayer".
@@ -88,10 +89,10 @@ test('"Synchroniser" asks the backend to read the groups of the active lanes aga
   expect(url.searchParams.get('refresh')).toBe('1');
   // The default lanes: one per subgroup of the demo's root group.
   expect(url.searchParams.get('groups')?.split(',')).toEqual([
-    'plateforme/atlas/api',
-    'plateforme/atlas/data',
-    'plateforme/atlas/experience',
-    'plateforme/atlas/identite',
+    group('api'),
+    group('data'),
+    group('experience'),
+    group('identite'),
   ]);
   await expect(page.getByRole('button', { name: 'Synchroniser' })).toBeEnabled();
   await expect(boardItem(page, '&18')).toBeVisible();
@@ -125,7 +126,7 @@ test('"Synchroniser" only reads the lanes left active, and is off without any', 
   const response = page.waitForResponse((r) => isBoard(new URL(r.url())) && r.request().url().includes('refresh=1'));
   await sync.click();
   const answer = await response;
-  expect(new URL(answer.url()).searchParams.get('groups')).toBe('plateforme/atlas/api');
+  expect(new URL(answer.url()).searchParams.get('groups')).toBe(group('api'));
   expect(answer.status()).toBe(200);
   expect(['HIT', 'MISS']).toContain(answer.headers()['x-cache']);
   // The toolbar tells how old the groups on screen are.

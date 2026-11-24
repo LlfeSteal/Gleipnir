@@ -129,15 +129,40 @@ func under(path, parent string) bool {
 	return strings.HasPrefix(path, parent+"/")
 }
 
-// rootPath is the fake GitLab's root group: GITLAB_GROUP of the demo.
-const rootPath = "plateforme/atlas"
+// defaultRoot is the fake GitLab's root group: GITLAB_GROUP of the demo.
+const defaultRoot = "plateforme/atlas"
+
+// layout places the dataset. The zero value is the mockup's: root plateforme/atlas, named
+// Atlas, items numbered as in the mockup (&18, #110). gitlabIIDs numbers them as a GitLab
+// filled by the seeder would: from 1 in each group (epics) and each project (issues), in
+// creation order, so references repeat ("&1" in every group). The e2e must pass on both.
+type layout struct {
+	root, rootName string
+	gitlabIIDs     bool
+}
 
 // newDataset renders the demo data (package dataset) placed around now as GitLab's GraphQL
 // API returns it. On top of the shared data, &22 is related to an item outside the group, a
 // link the backend must drop.
-func newDataset(now time.Time) *dataset {
+func newDataset(now time.Time, lay layout) *dataset {
 	ds := demo.New(now)
-	d := &dataset{root: groupNode{FullPath: rootPath, Name: ds.RootName}, cadence: ds.Cadence}
+	rootPath, rootName := lay.root, lay.rootName
+	if rootPath == "" {
+		rootPath = defaultRoot
+	}
+	if rootName == "" {
+		rootName = ds.RootName
+	}
+	// iid numbers an item: its mockup number, or the next one of its namespace.
+	counters := map[string]int{}
+	iid := func(key, namespace string) string {
+		if !lay.gitlabIIDs {
+			return key[1:]
+		}
+		counters[namespace]++
+		return strconv.Itoa(counters[namespace])
+	}
+	d := &dataset{root: groupNode{FullPath: rootPath, Name: rootName}, cadence: ds.Cadence}
 	groupIDs := map[string]int{rootPath: 40}
 	for i, g := range ds.Groups {
 		path := rootPath + "/" + g.Slug
@@ -230,9 +255,10 @@ func newDataset(now time.Time) *dataset {
 
 	for _, e := range ds.Epics {
 		group := rootPath + "/" + e.Group
+		number := iid(e.Key, group)
 		n := workItemNode{
-			ID: gid(e.Key), IID: e.Key[1:], Title: e.Title, State: "OPEN",
-			WebURL:    fmt.Sprintf("%s/groups/%s/-/work_items/%s", webBase, group, e.Key[1:]),
+			ID: gid(e.Key), IID: number, Title: e.Title, State: "OPEN",
+			WebURL:    fmt.Sprintf("%s/groups/%s/-/work_items/%s", webBase, group, number),
 			Namespace: namespaceRef{ID: fmt.Sprintf("gid://gitlab/Group/%d", groupIDs[group]), FullPath: group},
 		}
 		n.WorkItemType.Name = "Epic"
@@ -247,9 +273,10 @@ func newDataset(now time.Time) *dataset {
 		if is.Closed {
 			state = "CLOSED"
 		}
+		number := iid(is.Key, project)
 		n := workItemNode{
-			ID: gid(is.Key), IID: is.Key[1:], Title: is.Title, State: state,
-			WebURL:    fmt.Sprintf("%s/%s/-/work_items/%s", webBase, project, is.Key[1:]),
+			ID: gid(is.Key), IID: number, Title: is.Title, State: state,
+			WebURL:    fmt.Sprintf("%s/%s/-/work_items/%s", webBase, project, number),
 			Namespace: namespaceRef{ID: fmt.Sprintf("gid://gitlab/Namespaces::ProjectNamespace/%d", projectIDs[project]), FullPath: project},
 		}
 		n.WorkItemType.Name = "Issue"

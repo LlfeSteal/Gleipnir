@@ -169,6 +169,18 @@ Les tests e2e passent donc par le vrai client GitLab du backend : requêtes, pag
 
 Il ne demande ni GitLab ni Docker.
 
+**La même suite tourne sur un vrai GitLab** rempli par le seeder (voir « Sur un vrai GitLab rempli avec le jeu de démo ») :
+
+```bash
+docker compose up -d --build                        # .env : GITLAB_GROUP=<le groupe rempli>, jeton read_api
+cd frontend && BASE_URL=http://localhost npm run test:e2e
+```
+
+- Les tests désignent les éléments par leur clé dans le jeu de démo (`&18`) et les retrouvent par leur **titre** : sur un vrai GitLab, les numéros sont ceux de GitLab et se répètent d'un groupe à l'autre.
+- Les refs, itérations, chemins et assignés affichés sont lus dans le board servi, une fois, avant les tests.
+- Ils supposent que « Itération 15 » est en cours : relancez le seeder (`-apply`) au moins toutes les deux semaines pour recaler les dates.
+- `npm run test:e2e:gitlab-like` rejoue la suite sur le faux GitLab numéroté comme un GitLab rempli par le seeder (`&1` dans chaque groupe), sous une autre racine.
+
 Les tests marqués **`@live`** tournent contre un vrai GitLab, à travers une pile déjà lancée :
 
 ```bash

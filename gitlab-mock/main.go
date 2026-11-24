@@ -47,7 +47,7 @@ func run(ctx context.Context, getenv func(string) string, logger *slog.Logger) e
 	if err != nil {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
-	srv := &server{pageSize: cfg.pageSize, token: cfg.token, now: time.Now, logger: logger}
+	srv := &server{pageSize: cfg.pageSize, token: cfg.token, layout: cfg.layout, now: time.Now, logger: logger}
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.port,
 		Handler:           srv.handler(),
@@ -84,9 +84,11 @@ type config struct {
 	port     string
 	pageSize int
 	token    string
+	layout   layout
 }
 
-// loadConfig reads PORT, PAGE_SIZE and GITLAB_MOCK_TOKEN.
+// loadConfig reads PORT, PAGE_SIZE, GITLAB_MOCK_TOKEN and the layout: GITLAB_MOCK_ROOT,
+// GITLAB_MOCK_ROOT_NAME and GITLAB_MOCK_NUMBERING (mockup or gitlab).
 func loadConfig(getenv func(string) string) (config, error) {
 	cfg := config{
 		port:     strings.TrimSpace(getenv("PORT")),
@@ -106,6 +108,15 @@ func loadConfig(getenv func(string) string) (config, error) {
 			return config{}, fmt.Errorf("PAGE_SIZE %q is not a number between 1 and 100", s)
 		}
 		cfg.pageSize = n
+	}
+	cfg.layout.root = strings.Trim(strings.TrimSpace(getenv("GITLAB_MOCK_ROOT")), "/")
+	cfg.layout.rootName = strings.TrimSpace(getenv("GITLAB_MOCK_ROOT_NAME"))
+	switch n := strings.TrimSpace(getenv("GITLAB_MOCK_NUMBERING")); n {
+	case "", "mockup":
+	case "gitlab":
+		cfg.layout.gitlabIIDs = true
+	default:
+		return config{}, fmt.Errorf("GITLAB_MOCK_NUMBERING %q: use mockup or gitlab", n)
 	}
 	if cfg.token == "" {
 		return config{}, fmt.Errorf("GITLAB_MOCK_TOKEN is required: the token the backend must send (e.g. DEMO-JETON-TEST)")

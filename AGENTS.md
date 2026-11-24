@@ -111,6 +111,8 @@ cd frontend && npm run dev            # http://localhost:5173, proxy /api → GL
 cd frontend && npx playwright install chromium   # une fois par conteneur
 cd frontend && npm run test:e2e       # tout sauf @live : démarre le faux GitLab (8082), le backend (8081) et Vite (5174)
 cd frontend && E2E_MOCK_PORT=8094 E2E_API_PORT=8093 E2E_WEB_PORT=5193 npm run test:e2e   # sur d'autres ports, en parallèle d'une autre suite
+cd frontend && npm run test:e2e:gitlab-like   # la même suite, faux GitLab numéroté comme un GitLab rempli par le seeder (&1 partout), racine demo/gleipnir
+cd frontend && BASE_URL=http://localhost npm run test:e2e        # la suite de démo sur une pile docker branchée sur un GitLab rempli par le seeder
 cd frontend && BASE_URL=http://localhost npm run test:e2e:live   # @live, contre la pile docker sur un vrai GitLab
 
 # Docker
@@ -361,7 +363,14 @@ Ils sont dans `internal/board`. Tous sont couverts par des tests table par table
     - `getByTitle` et `getByText` normalisent les espaces : pour un texte qui commence ou finit par une espace, lisez l'attribut directement.
 - **Playwright** (`frontend/e2e/`, `playwright.config.ts`) :
   - `*.spec.ts` tournent contre le **backend réel, branché sur le faux GitLab** : `webServer` démarre `gitlab-mock` (8082), le backend (8081) et Vite (5174), ou les ports donnés par `E2E_MOCK_PORT` / `E2E_API_PORT` / `E2E_WEB_PORT` (voir ADR-22). Le client GitLab, la pagination et le rafraîchissement ciblé sont donc couverts de bout en bout.
-  - Le jeu de démo vit dans `gitlab-mock/dataset/dataset.go`. Les assertions des e2e (couloirs, « Itération 15 » en cours, références) en dépendent : changez-les ensemble.
+  - Le jeu de démo vit dans `gitlab-mock/dataset/dataset.go`. Les assertions des e2e (couloirs, « Itération 15 » en cours, liens, comptes) en dépendent : changez-les ensemble.
+  - **Agnostiques** (ADR-28) : la même suite tourne sur le faux GitLab et sur un vrai GitLab rempli par le seeder.
+    - Un élément se désigne par sa **clé** du jeu (`'&18'`) : `item(page, key)` et `boardItem(page, key)` le trouvent par son **titre**, jamais par sa ref (sur un vrai GitLab, `&1` existe dans chaque groupe).
+    - Tout texte qui montre une ref, une itération, un chemin, la racine ou un assigné passe par `e2e/demo.ts` : `ref('&21')`, `title('#101')`, `it(14)` (« It. 14 »), `itTitle(15)`, `group('api')`, `root()`, `cadence()`, `assignee('#110')`. Ils lisent le board que `e2e/global-setup.ts` charge une fois (variable `E2E_DEMO_BOARD`) ; les titres des tests gardent les clés.
+    - `ref()` d'une issue ignorée (non affichée) échoue : désignez-la par `title()`.
+    - Une recherche par ref vérifie que tout ce qui reste affiché correspond, pas un compte : sur un vrai GitLab, `#1` trouve aussi `#10`.
+    - Le `globalSetup` exige `current === 3` (« Itération 15 ») : sur un GitLab rempli, relancer le seeder recale les dates.
+    - `npm run test:e2e:gitlab-like` (`E2E_GITLAB_LIKE=1`) le vérifie sans instance : `GITLAB_MOCK_NUMBERING=gitlab` et `GITLAB_MOCK_ROOT=demo/gleipnir`.
   - `webServer` donne `DEMO-JETON-TEST` au faux GitLab (`GITLAB_MOCK_TOKEN`) et au backend (`GITLAB_TOKEN`) : le chargement du board prouve que le jeton passe, et un jeton exporté dans le shell n'est pas envoyé au faux GitLab.
   - En développement, React `StrictMode` lance puis annule une première requête `/api/board` : un mock d'erreur ne doit pas compter les appels, mais rester actif jusqu'à ce que le test le retire.
   - Vite surveille les fichiers par polling (le montage WSL du devcontainer rate les événements inotify). Un état d'erreur se simule avec `page.route` (401, 502).
@@ -446,7 +455,7 @@ Ils sont dans `internal/board`. Tous sont couverts par des tests table par table
 ### Avant de committer
 
 1. `cd backend && gofmt -l . && go vet ./... && go test -race ./...`. `gofmt -l` ne doit rien lister. La couverture reste ≥ 90 %. Idem dans `gitlab-mock/` s'il a changé.
-2. `cd frontend && npm run build && npm run test:coverage && npm run test:e2e`.
+2. `cd frontend && npm run build && npm run test:coverage && npm run test:e2e && npm run test:e2e:gitlab-like`.
 3. Si le client GitLab ou une requête GraphQL a changé : `npm run test:e2e:live` contre un vrai GitLab.
 4. Si un Dockerfile, le compose ou `nginx.conf.template` a changé : `docker compose config` (et avec `-f docker-compose.demo.yml`), puis `docker compose up -d --build` et un contrôle de `/api/health` et de la page (CSP : aucune erreur dans la console).
 

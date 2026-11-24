@@ -1,9 +1,11 @@
 import { expect } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
+import { keyOf, kind, title } from './demo';
 
 // Shared helpers of the demo e2e suites. The demo dataset (gitlab-mock/dataset/dataset.go) has
 // ten iterations, Itération 12 to 21; Itération 15 (index 3) is always the current one, so the
-// default window is It. 14 – It. 18.
+// default window is It. 14 – It. 18. Items are named by their key in the dataset ("&18") and
+// found by their title (see demo.ts).
 
 /** The default lanes of the demo, one per subgroup of plateforme/atlas, sorted by path. */
 export const DEMO_LANES = ['API et intégrations', 'Data', 'Expérience produit', 'Identité et sécurité'] as const;
@@ -15,11 +17,15 @@ export async function openBoard(page: Page): Promise<void> {
   await expect(windowButton(page)).toBeVisible();
 }
 
-/** An epic bar or an issue card by its reference ("&18", "#110"). The accessible name starts
- * with the kind and the reference: "Epic &18 API d'export…", "Issue #110 Endpoint…". */
-export function item(page: Page, ref: string): Locator {
-  const kind = ref.startsWith('&') ? 'Epic' : 'Issue';
-  return page.getByRole('button', { name: new RegExp(`^${kind} ${escapeRegExp(ref)}(\\s|,|$)`) });
+/** An epic bar or an issue card by its key in the dataset ("&18", "#110"). The accessible name
+ * is the kind, the reference and the title: "Epic &18 API d'export…", "Issue #131 …, fermée". */
+export function item(page: Page, key: string): Locator {
+  return page.getByRole('button', { name: itemName(key) });
+}
+
+/** The accessible name of an item, by key, whatever its reference. */
+export function itemName(key: string): RegExp {
+  return new RegExp(`^${kind(key)} [&#]\\d+ ${escapeRegExp(title(key))}(, fermée?)?$`);
 }
 
 /** Every epic bar and issue card drawn on the board. */
@@ -27,11 +33,17 @@ export function boardItems(page: Page): Locator {
   return page.getByRole('button', { name: /^(Epic &|Issue #)\d+/ });
 }
 
-/** The references of the items drawn, sorted and without duplicates. */
-export async function shownRefs(page: Page): Promise<string[]> {
+/** The keys of the items drawn ("&18"), sorted and without duplicates. */
+export async function shownKeys(page: Page): Promise<string[]> {
   const names = await boardItems(page).evaluateAll((els) => els.map((el) => el.getAttribute('aria-label') ?? ''));
-  const refs = names.map((name) => /^(?:Epic|Issue) ([&#]\d+)/.exec(name)?.[1] ?? '').filter(Boolean);
-  return [...new Set(refs)].sort();
+  const titles = names.map((name) => /^(?:Epic|Issue) [&#]\d+ (.*?)(?:, fermée?)?$/.exec(name)?.[1] ?? '').filter(Boolean);
+  return [...new Set(titles.map(keyOf))].sort();
+}
+
+/** The references and titles of the items drawn ("#110 Endpoint…"), for the search. */
+export async function shownLabels(page: Page): Promise<string[]> {
+  const names = await boardItems(page).evaluateAll((els) => els.map((el) => el.getAttribute('aria-label') ?? ''));
+  return names.map((name) => name.replace(/^(Epic|Issue) /, '').replace(/, fermée?$/, ''));
 }
 
 /** The window pop-up button of the toolbar: "Fenêtre : It. 14 – It. 18". */

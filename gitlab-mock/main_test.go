@@ -30,8 +30,13 @@ func TestConfig(t *testing.T) {
 		want config
 		err  string
 	}{
-		"defaults":          {with(nil), config{"8080", 10, token}, ""},
-		"set":               {with(map[string]string{"PORT": " 9000 ", "PAGE_SIZE": "100", "GITLAB_MOCK_TOKEN": " t "}), config{"9000", 100, "t"}, ""},
+		"defaults": {with(nil), config{"8080", 10, token, layout{}}, ""},
+		"set": {with(map[string]string{
+			"PORT": " 9000 ", "PAGE_SIZE": "100", "GITLAB_MOCK_TOKEN": " t ",
+			"GITLAB_MOCK_ROOT": "/demo/gleipnir/", "GITLAB_MOCK_ROOT_NAME": " Gleipnir ", "GITLAB_MOCK_NUMBERING": "gitlab",
+		}), config{"9000", 100, "t", layout{"demo/gleipnir", "Gleipnir", true}}, ""},
+		"mockup numbering":  {with(map[string]string{"GITLAB_MOCK_NUMBERING": "mockup"}), config{"8080", 10, token, layout{}}, ""},
+		"bad numbering":     {with(map[string]string{"GITLAB_MOCK_NUMBERING": "random"}), config{}, "GITLAB_MOCK_NUMBERING"},
 		"no token":          {map[string]string{}, config{}, "GITLAB_MOCK_TOKEN is required"},
 		"blank token":       {map[string]string{"GITLAB_MOCK_TOKEN": "  "}, config{}, "GITLAB_MOCK_TOKEN is required"},
 		"port not a number": {with(map[string]string{"PORT": "abc"}), config{}, "PORT"},

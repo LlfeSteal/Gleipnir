@@ -10,10 +10,12 @@ import {
   openBoard,
   openWindowMenu,
   searchField,
-  shownRefs,
+  shownKeys,
+  shownLabels,
   summaryLine,
   summaryPart,
 } from './helpers';
+import { it, ref } from './demo';
 
 // Search, display options, link types, critical path and conflicts (spec §4.5, §4.7). Counts
 // are those of the default window It. 14 – It. 18.
@@ -22,17 +24,30 @@ test.beforeEach(async ({ page }) => {
   await openBoard(page);
 });
 
+/** Every item drawn matches the query, in its reference or its title, case-insensitive. On a
+ * real GitLab references repeat across projects ("#3") and match longer ones ("#31"): the
+ * search keeps all of them. */
+async function expectOnlyMatches(page: import('@playwright/test').Page, query: string) {
+  await expect
+    .poll(async () => (await shownLabels(page)).filter((label) => !label.toLowerCase().includes(query.toLowerCase())))
+    .toEqual([]);
+}
+
 test.describe('search', () => {
   test('by issue reference', async ({ page }) => {
-    await searchField(page).fill('#110');
-    await expect(boardItems(page)).toHaveCount(1);
+    const all = await boardItems(page).count();
+    await searchField(page).fill(ref('#110'));
     await expect(item(page, '#110')).toBeVisible();
+    await expectOnlyMatches(page, ref('#110'));
+    expect(await boardItems(page).count()).toBeLessThan(all);
   });
 
   test('by epic reference', async ({ page }) => {
-    await searchField(page).fill('&18');
-    await expect(boardItems(page)).toHaveCount(1);
+    const all = await boardItems(page).count();
+    await searchField(page).fill(ref('&18'));
     await expect(item(page, '&18')).toBeVisible();
+    await expectOnlyMatches(page, ref('&18'));
+    expect(await boardItems(page).count()).toBeLessThan(all);
   });
 
   test('by title words, case-insensitive, in every lane', async ({ page }) => {
@@ -42,21 +57,21 @@ test.describe('search', () => {
 
     // "export": the epic &18 (API et intégrations) and the issue #110 of its project.
     await searchField(page).fill('EXPORT');
-    await expect.poll(() => shownRefs(page)).toEqual(['#110', '&18']);
+    await expect.poll(() => shownKeys(page)).toEqual(['#110', '&18']);
   });
 
   test('clearing the search brings everything back', async ({ page }) => {
     const all = await boardItems(page).count();
-    await searchField(page).fill('#110');
-    await expect(boardItems(page)).toHaveCount(1);
+    await searchField(page).fill(ref('#110'));
+    await expect.poll(() => boardItems(page).count()).toBeLessThan(all);
     await page.getByRole('button', { name: 'Effacer', exact: true }).click();
     await expect(searchField(page)).toHaveValue('');
     await expect(searchField(page)).toBeFocused();
     await expect(boardItems(page)).toHaveCount(all);
 
     // Escape in the field clears it too.
-    await searchField(page).fill('&18');
-    await expect(boardItems(page)).toHaveCount(1);
+    await searchField(page).fill(ref('&18'));
+    await expect.poll(() => boardItems(page).count()).toBeLessThan(all);
     await searchField(page).press('Escape');
     await expect(searchField(page)).toHaveValue('');
     await expect(boardItems(page)).toHaveCount(all);
@@ -75,7 +90,7 @@ test.describe('search', () => {
 test('"Masquer les issues fermées" hides the closed blockers #131 and #140', async ({ page }) => {
   await openWindowMenu(page);
   await page.getByRole('menuitemradio', { name: 'Toutes', exact: true }).click();
-  await expectWindow(page, 'It. 12', 'It. 21');
+  await expectWindow(page, it(12), it(21));
   await expect(item(page, '#131')).toBeVisible();
   await expect(item(page, '#140')).toBeVisible();
   await expect(item(page, '#140')).toHaveAccessibleName(/, fermée$/);
@@ -181,7 +196,7 @@ test('conflicts are counted in the summary and drawn as conflict links', async (
   await page.keyboard.press('Escape');
   await expect(item(page, '&15')).toHaveAttribute('aria-pressed', 'false');
   for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Itération suivante' }).click();
-  await expectWindow(page, 'It. 17', 'It. 21');
+  await expectWindow(page, it(17), it(21));
   await expect(item(page, '#107')).toHaveCount(0);
   await expect(summaryPart(page, 'conflicts')).toHaveText('2 conflits');
   await expect(conflicts).toHaveCount(2);

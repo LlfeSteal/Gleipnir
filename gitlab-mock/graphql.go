@@ -22,6 +22,7 @@ const maxBody = 1 << 20
 type server struct {
 	pageSize int
 	token    string
+	layout   layout
 	now      func() time.Time
 	logger   *slog.Logger
 }
@@ -108,7 +109,7 @@ func (s *server) authorized(r *http.Request) bool {
 
 // resolve answers one query; a nil group means the path is not a group of the dataset.
 func (s *server) resolve(op, fullPath string, vars map[string]any) (map[string]any, error) {
-	d := newDataset(s.now())
+	d := newDataset(s.now(), s.layout)
 	g, ok := d.group(fullPath)
 	known := map[string]bool{"Groups": true, "Cadences": true, "CurrentIterations": true, "Iterations": true, "WorkItems": true}
 	if !known[op] {

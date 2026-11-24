@@ -1,5 +1,6 @@
 import { expect } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
+import { itemName } from './helpers';
 
 // Helpers of the selection, lanes, mobile and errors specs. The demo dataset
 // (gitlab-mock/dataset/dataset.go): "Itération 15" is always current, so the default window is
@@ -7,10 +8,9 @@ import type { Locator, Page } from '@playwright/test';
 
 export const DEFAULT_LANES = ['API et intégrations', 'Data', 'Expérience produit', 'Identité et sécurité'];
 
-/** An epic or issue on the board, by its ref ("&18", "#110"): its button is named "Epic &18 …". */
-export function boardItem(page: Page, ref: string): Locator {
-  const kind = ref.startsWith('&') ? 'Epic' : 'Issue';
-  return page.getByRole('button', { name: new RegExp(`^${kind} ${ref} `) }).first();
+/** An epic or issue on the board, by its key in the dataset ("&18", "#110"), found by its title. */
+export function boardItem(page: Page, key: string): Locator {
+  return page.getByRole('button', { name: itemName(key) }).first();
 }
 
 /** Every epic and issue drawn on the board. */

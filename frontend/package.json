@@ -11,7 +11,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test --grep-invert @live",
-    "test:e2e:live": "playwright test --grep @live"
+    "test:e2e:live": "playwright test --grep @live",
+    "test:e2e:gitlab-like": "E2E_GITLAB_LIKE=1 E2E_MOCK_PORT=8085 E2E_API_PORT=8084 E2E_WEB_PORT=5177 playwright test --grep-invert @live"
   },
   "dependencies": {
     "react": "^19.2.0",

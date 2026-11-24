@@ -7,11 +7,12 @@ import {
   item,
   laneToggle,
   openBoard,
-  shownRefs,
+  shownKeys,
   sidebar,
   summaryLine,
   windowButton,
 } from './helpers';
+import { cadence, it, itTitle, ref, root, title } from './demo';
 
 // The board of the demo dataset in its default state: window It. 14 – It. 18 (current − 1 …
 // current + 3), the four default lanes, the unplanned column shown.
@@ -22,11 +23,11 @@ test.beforeEach(async ({ page }) => {
 
 test('the toolbar shows the title and the group · cadence subtitle', async ({ page }) => {
   await expect(page.getByRole('heading', { level: 1, name: 'Dépendances' })).toBeVisible();
-  await expect(page.getByText('Atlas · Sprints produit', { exact: true })).toBeVisible();
+  await expect(page.getByText(`${root().name} · ${cadence()}`, { exact: true })).toBeVisible();
 });
 
 test('the default window shows It. 14 to It. 18, with Itération 15 marked current', async ({ page }) => {
-  await expectWindow(page, 'It. 14', 'It. 18');
+  await expectWindow(page, it(14), it(18));
   const columns = [14, 15, 16, 17, 18].map((n) => page.getByText(`Itération ${n}`, { exact: true }));
   for (const column of columns) await expect(column).toBeVisible();
   // Left to right, in order.
@@ -38,7 +39,7 @@ test('the default window shows It. 14 to It. 18, with Itération 15 marked curre
   // Only one column is current, and it is Itération 15 with its "En cours" badge.
   const current = page.locator('[aria-current="date"]');
   await expect(current).toHaveCount(1);
-  await expect(current).toContainText('Itération 15');
+  await expect(current).toContainText(itTitle(15));
   await expect(current.getByText('En cours', { exact: true })).toBeVisible();
 });
 
@@ -53,27 +54,27 @@ test('the four default lanes come from the demo subgroups, in path order', async
 
 test('epic bars and blocking issue cards are drawn, ignored issues never are', async ({ page }) => {
   await expect(item(page, '&18')).toBeVisible();
-  await expect(item(page, '&18')).toHaveAccessibleName("Epic &18 API d'export des données");
+  await expect(item(page, '&18')).toHaveAccessibleName(`Epic ${ref('&18')} API d'export des données`);
   await expect(item(page, '#110')).toBeVisible();
-  await expect(item(page, '#110')).toContainText('Bloque &21');
+  await expect(item(page, '#110')).toContainText(`Bloque ${ref('&21')}`);
   // A closed blocker stays, marked closed.
-  await expect(item(page, '#131')).toHaveAccessibleName('Issue #131 Montée de version Kafka, fermée');
+  await expect(item(page, '#131')).toHaveAccessibleName(`Issue ${ref('#131')} Montée de version Kafka, fermée`);
   await expect(item(page, '#131')).toContainText('Fermée');
 
   // Everything the default window shows: 7 epics in the window + &25 unplanned, 8 blocking
   // issues in the window + #132 unplanned. Epics &16, &22, &23, &24 and issue #140 are outside.
-  expect(await shownRefs(page)).toEqual(
+  expect(await shownKeys(page)).toEqual(
     ['#104', '#107', '#110', '#113', '#114', '#125', '#130', '#131', '#132', '&12', '&13', '&15', '&17', '&18', '&19', '&21', '&25'].sort(),
   );
   // #101 (and the other issues blocking no epic) are never drawn, whatever the window.
-  await expect(page.getByText('#101', { exact: true })).toHaveCount(0);
+  await expect(page.getByText(title('#101'), { exact: true })).toHaveCount(0);
   await expect(item(page, '#101')).toHaveCount(0);
 });
 
 test('an ignored issue is never shown, even with every iteration in the window', async ({ page }) => {
   await windowButton(page).click();
   await page.getByRole('menuitemradio', { name: 'Toutes' }).click();
-  await expectWindow(page, 'It. 12', 'It. 21');
+  await expectWindow(page, it(12), it(21));
   await expect(item(page, '#140')).toBeVisible();
   for (const ref of ['#101', '#103', '#106', '#108', '#109', '#112', '#120', '#126', '#127']) {
     await expect(item(page, ref)).toHaveCount(0);
@@ -119,7 +120,7 @@ test('the unplanned column holds &25 and #132 while "Afficher les non planifiés
   await expect(item(page, '#132')).toBeVisible();
   // Both sit in the last column, right of every iteration.
   const column = await page.getByText('Non planifié', { exact: true }).boundingBox();
-  const lastIteration = await page.getByText('Itération 18', { exact: true }).boundingBox();
+  const lastIteration = await page.getByText(itTitle(18), { exact: true }).boundingBox();
   const epic = await item(page, '&25').boundingBox();
   expect(column && lastIteration && epic).toBeTruthy();
   expect(column!.x).toBeGreaterThan(lastIteration!.x);
