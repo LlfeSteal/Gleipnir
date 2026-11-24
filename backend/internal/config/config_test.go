@@ -40,28 +40,61 @@ func TestEverySetting(t *testing.T) {
 		"GITLAB_CADENCE": " Sprints ",
 		"PORT":           "9000",
 		"CACHE_TTL":      "90s",
-		"GLEIPNIR_DEMO":  "no",
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.GitLabURL != "https://gitlab.example.com" || cfg.Cadence != "Sprints" || cfg.Port != "9000" ||
-		cfg.CacheTTL != 90*time.Second || cfg.Demo {
+		cfg.CacheTTL != 90*time.Second {
 		t.Fatalf("got %+v", cfg)
 	}
 }
 
-func TestDemoNeedsNoGroup(t *testing.T) {
-	for _, v := range []string{"1", "true", "TRUE", "Yes"} {
-		cfg, err := Load(env(map[string]string{"GLEIPNIR_DEMO": v}))
+// The demo mode is gone: an old demo configuration fails closed instead of starting against
+// gitlab.com, and a leftover variable only warns.
+func TestLegacyDemoVariable(t *testing.T) {
+	_, err := Load(env(map[string]string{"GLEIPNIR_DEMO": "1"}))
+	if err == nil || !strings.Contains(err.Error(), "GITLAB_GROUP is required") || !strings.Contains(err.Error(), "docker-compose.demo.yml") {
+		t.Fatalf("got %v, want a missing group error pointing at the demo overlay", err)
+	}
+	cfg, err := Load(env(map[string]string{"GITLAB_GROUP": "org", "GITLAB_TOKEN": "t", "GLEIPNIR_DEMO": "1"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := cfg.Warnings(); len(w) != 1 || !strings.Contains(w[0], "GLEIPNIR_DEMO is no longer supported") {
+		t.Fatalf("got %v", w)
+	}
+	if _, err := Load(env(map[string]string{})); strings.Contains(err.Error(), "GLEIPNIR_DEMO") {
+		t.Fatalf("no hint without the variable: %v", err)
+	}
+}
+
+// A token sent over plain http to another machine travels in clear text.
+func TestPlainHTTPWarns(t *testing.T) {
+	cases := map[string]struct {
+		url, token string
+		warns      bool
+	}{
+		"https":                     {"https://gitlab.example.com", "t", false},
+		"http with token":           {"http://gitlab.example.com", "t", true},
+		"http on a compose service": {"http://gitlab-mock:8080", "t", true},
+		"http without token":        {"http://gitlab-mock:8080", "", false},
+		"localhost":                 {"http://localhost:8082", "t", false},
+		"IPv4 loopback":             {"http://127.0.0.1:8082", "t", false},
+		"IPv6 loopback":             {"http://[::1]:8082", "t", false},
+		"private address":           {"http://10.0.0.5", "t", true},
+	}
+	for name, c := range cases {
+		cfg, err := Load(env(map[string]string{"GITLAB_GROUP": "org", "GITLAB_URL": c.url, "GITLAB_TOKEN": c.token}))
 		if err != nil {
-			t.Fatalf("%s: %v", v, err)
+			t.Fatalf("%s: %v", name, err)
 		}
-		if !cfg.Demo || cfg.Group != "" {
-			t.Fatalf("%s: got %+v", v, cfg)
+		warned := false
+		for _, w := range cfg.Warnings() {
+			warned = warned || strings.Contains(w, "plain http")
 		}
-		if w := cfg.Warnings(); len(w) != 0 {
-			t.Fatalf("%s: no token warning expected in demo, got %v", v, w)
+		if warned != c.warns {
+			t.Errorf("%s: plain http warning = %v, want %v", name, warned, c.warns)
 		}
 	}
 }
@@ -90,7 +123,6 @@ func TestErrors(t *testing.T) {
 		{"bad ttl", map[string]string{"GITLAB_GROUP": "g", "CACHE_TTL": "5"}, "CACHE_TTL"},
 		{"zero ttl", map[string]string{"GITLAB_GROUP": "g", "CACHE_TTL": "0s"}, "must be positive"},
 		{"negative ttl", map[string]string{"GITLAB_GROUP": "g", "CACHE_TTL": "-1m"}, "must be positive"},
-		{"bad demo", map[string]string{"GLEIPNIR_DEMO": "maybe"}, "GLEIPNIR_DEMO"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

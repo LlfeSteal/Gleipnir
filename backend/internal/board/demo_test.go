@@ -74,10 +74,10 @@ func TestDemoBuild(t *testing.T) {
 		t.Errorf("#132 = %+v", is)
 	}
 	if is := issues["#110"]; is.GroupPath != "plateforme/atlas/api" || is.ProjectPath != "plateforme/atlas/api/export" ||
-		is.WebURL != "https://gitlab.exemple.fr/plateforme/atlas/api/export/-/issues/110" || is.Assignee.Username != "snguyen" {
+		is.WebURL != "https://gitlab.example.com/plateforme/atlas/api/export/-/issues/110" || is.Assignee.Username != "snguyen" {
 		t.Errorf("#110 = %+v", is)
 	}
-	if e := epics["&18"]; e.WebURL != "https://gitlab.exemple.fr/groups/plateforme/atlas/api/-/epics/18" {
+	if e := epics["&18"]; e.WebURL != "https://gitlab.example.com/groups/plateforme/atlas/api/-/epics/18" {
 		t.Errorf("&18 url = %s", e.WebURL)
 	}
 

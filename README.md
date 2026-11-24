@@ -60,10 +60,16 @@ Le bouton **Synchroniser** ne relit que les groupes des **couloirs actifs**, ave
 ### En mode démo, sans GitLab
 
 ```bash
-GLEIPNIR_DEMO=1 docker compose up -d --build
+docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build
 ```
 
-Aucun fichier `.env` n'est nécessaire. Le backend sert le jeu d'exemple de la maquette, et « Itération 15 » est l'itération en cours.
+Aucun fichier `.env` n'est nécessaire. Un **faux GitLab** (`gitlab-mock/`) sert le jeu d'exemple de la maquette au backend, et « Itération 15 » est l'itération en cours.
+
+- Le backend ne sait pas qu'il parle à un faux GitLab : il le lit comme le vrai, par `GITLAB_URL`.
+- Le faux GitLab n'est jamais construit ni démarré sans `docker-compose.demo.yml`. Il ne publie aucun port sur l'hôte.
+- L'overlay vide `GITLAB_TOKEN` : même avec un `.env` réel, votre jeton n'est pas envoyé au faux GitLab.
+
+Pour revenir au vrai GitLab : `docker compose up -d --build`, sans l'overlay. `docker compose down --remove-orphans` arrête aussi le faux GitLab.
 
 ## Développement natif
 
@@ -72,8 +78,14 @@ Deux terminaux.
 **Backend**, sur http://localhost:8080 :
 
 ```bash
-cd backend && GLEIPNIR_DEMO=1 go run ./cmd/server                 # mode démo
 cd backend && (set -a; . ../.env; set +a; go run ./cmd/server)    # avec le .env de la racine
+```
+
+En mode démo, lancez d'abord le faux GitLab dans un troisième terminal :
+
+```bash
+cd gitlab-mock && PORT=8082 go run .
+cd backend && GITLAB_URL=http://localhost:8082 GITLAB_GROUP=plateforme/atlas go run ./cmd/server
 ```
 
 Le backend lit uniquement les variables d'environnement : il ne charge pas `.env` lui-même.
@@ -94,11 +106,10 @@ Toutes les variables sont lues par le backend. Avec Docker, elles viennent de `.
 |---|---|---|
 | `GITLAB_URL` | `https://gitlab.com` | Instance GitLab. |
 | `GITLAB_TOKEN` | — | Jeton `read_api`. Il reste côté serveur et n'est jamais journalisé. |
-| `GITLAB_GROUP` | — | Chemin complet du groupe racine. **Obligatoire**, sauf en mode démo. |
+| `GITLAB_GROUP` | — | Chemin complet du groupe racine. **Obligatoire.** |
 | `GITLAB_CADENCE` | la cadence de l'itération en cours | Cadence d'itérations affichée, par titre ou par id. |
 | `CACHE_TTL` | `5m` | Durée Go entre la fin d'une synchro complète et le début de la suivante. Le board en cache reste servi pendant la synchro. |
 | `TZ` | `Europe/Paris` (compose) | Fuseau horaire. Il décide de l'itération en cours. |
-| `GLEIPNIR_DEMO` | vide | `1` ou `true` : sert le jeu de démonstration au lieu de GitLab. |
 | `PORT` | `8080` | Port du backend. Ne pas le changer avec Docker : nginx proxifie vers `backend:8080`. |
 | `GLEIPNIR_PORT` | `80` | Port de l'hôte où compose publie l'interface. |
 | `GLEIPNIR_BACKEND_URL` | `http://backend:8080` | Image frontend : adresse du backend vers laquelle nginx proxifie `/api/`. |
@@ -118,15 +129,21 @@ cd backend && go test -coverprofile=cover.out ./... && go tool cover -func=cover
 cd frontend && npm run build && npm test
 cd frontend && npm run test:coverage   # échoue sous 90 % des lignes ou des fonctions ; rapport HTML dans coverage/
 
-# Bout en bout (Playwright) contre le mode démo
+# Faux GitLab de la démo
+cd gitlab-mock && gofmt -l . && go vet ./... && go test -race ./...
+
+# Bout en bout (Playwright) contre le faux GitLab
 cd frontend && npx playwright install chromium     # une fois par conteneur
 cd frontend && npm run test:e2e
 ```
 
 `npm run test:e2e` démarre tout seul les serveurs dont il a besoin :
 
-- le backend en mode démo sur le port 8081 ;
+- le faux GitLab sur le port 8082 ;
+- le backend, qui le lit, sur le port 8081 ;
 - Vite sur le port 5174.
+
+Les tests e2e passent donc par le vrai client GitLab du backend : requêtes, pagination et conversion.
 
 Il ne demande ni GitLab ni Docker.
 
@@ -146,9 +163,10 @@ backend/                 API Go (module gleipnir, bibliothèque standard uniquem
   cmd/server/            point d'entrée : configuration, routes, arrêt propre
   internal/config/       variables d'environnement
   internal/gitlab/       client GraphQL GitLab (lecture seule)
-  internal/board/        modèle JSON, règles métier, jeu de démonstration
+  internal/board/        modèle JSON, règles métier
   internal/cache/        board en mémoire : synchro complète périodique, rafraîchissement ciblé
   internal/api/          handlers HTTP
+gitlab-mock/             faux GitLab de la démo et des tests e2e (module Go séparé, jamais déployé)
 frontend/                application React + Vite + TypeScript
   src/api/               client HTTP et types de l'API
   src/board/             logique pure du board (couloirs, fenêtre, mise en page, liens), testée
@@ -159,6 +177,7 @@ frontend/                application React + Vite + TypeScript
   nginx.conf.template    configuration nginx de l'image
 docs/                    spécifications, maquette, charte, décisions
 docker-compose.yml       pile locale : backend + frontend
+docker-compose.demo.yml  overlay de démo : ajoute le faux GitLab et y branche le backend
 ```
 
 ## Documentation

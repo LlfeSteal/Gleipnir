@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"net"
 	"net/url"
 	"strconv"
 	"strings"
@@ -18,7 +19,8 @@ type Config struct {
 	Cadence   string // iteration cadence title or ID; "" = the one holding the current iteration
 	Port      string
 	CacheTTL  time.Duration // data is fresh for that long, then served stale while it refreshes
-	Demo      bool          // serve the demo dataset instead of GitLab
+
+	legacyDemo bool // GLEIPNIR_DEMO is set: the demo mode is gone, the variable is ignored
 }
 
 const (
@@ -31,10 +33,6 @@ const (
 func Load(getenv func(string) string) (Config, error) {
 	get := func(key string) string { return strings.TrimSpace(getenv(key)) }
 
-	demo, err := parseBool(get("GLEIPNIR_DEMO"))
-	if err != nil {
-		return Config{}, fmt.Errorf("GLEIPNIR_DEMO: %w", err)
-	}
 	cfg := Config{
 		GitLabURL: strings.TrimRight(get("GITLAB_URL"), "/"),
 		Token:     get("GITLAB_TOKEN"),
@@ -42,7 +40,8 @@ func Load(getenv func(string) string) (Config, error) {
 		Cadence:   get("GITLAB_CADENCE"),
 		Port:      get("PORT"),
 		CacheTTL:  defaultCacheTTL,
-		Demo:      demo,
+
+		legacyDemo: get("GLEIPNIR_DEMO") != "",
 	}
 
 	if cfg.GitLabURL == "" {
@@ -52,8 +51,13 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, fmt.Errorf("GITLAB_URL %q is not a valid http(s) URL (e.g. https://gitlab.example.com)", cfg.GitLabURL)
 	}
 
-	if cfg.Group == "" && !cfg.Demo {
-		return Config{}, fmt.Errorf("GITLAB_GROUP is required: set the full path of the root GitLab group (e.g. my-org/my-team), or GLEIPNIR_DEMO=1 to serve the demo dataset")
+	if cfg.Group == "" {
+		msg := "GITLAB_GROUP is required: set the full path of the root GitLab group (e.g. my-org/my-team)"
+		if cfg.legacyDemo {
+			// Fail closed: an old demo configuration must not start against gitlab.com.
+			msg += "; GLEIPNIR_DEMO is no longer supported, run the demo with docker-compose.demo.yml"
+		}
+		return Config{}, fmt.Errorf("%s", msg)
 	}
 
 	if cfg.Port == "" {
@@ -79,10 +83,31 @@ func Load(getenv func(string) string) (Config, error) {
 // Warnings lists the settings that work but are probably a mistake.
 func (c Config) Warnings() []string {
 	var out []string
-	if !c.Demo && c.Token == "" {
+	if c.Token == "" {
 		out = append(out, "GITLAB_TOKEN is empty: only public groups and projects are readable, and GitLab may refuse anonymous GraphQL queries")
 	}
+	if c.Token != "" && !c.secureTransport() {
+		out = append(out, "GITLAB_URL is plain http: the token travels in clear text, use https")
+	}
+	if c.legacyDemo {
+		out = append(out, "GLEIPNIR_DEMO is no longer supported and is ignored: run the demo with docker-compose.demo.yml")
+	}
 	return out
+}
+
+// secureTransport tells whether the token reaches GitLab over TLS, or at least never leaves the
+// machine (loopback).
+func (c Config) secureTransport() bool {
+	u, err := url.Parse(c.GitLabURL)
+	if err != nil || u.Scheme == "https" {
+		return true // Load rejects an invalid URL
+	}
+	host := u.Hostname()
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // LogValue logs the configuration without the token, only whether it is set.
@@ -94,16 +119,5 @@ func (c Config) LogValue() slog.Value {
 		slog.Bool("tokenSet", c.Token != ""),
 		slog.String("port", c.Port),
 		slog.Duration("cacheTTL", c.CacheTTL),
-		slog.Bool("demo", c.Demo),
 	)
-}
-
-func parseBool(s string) (bool, error) {
-	switch strings.ToLower(s) {
-	case "1", "true", "yes", "on":
-		return true, nil
-	case "", "0", "false", "no", "off":
-		return false, nil
-	}
-	return false, fmt.Errorf("%q is not a boolean (use 1/true/yes or 0/false/no)", s)
 }

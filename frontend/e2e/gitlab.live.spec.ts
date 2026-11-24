@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test';
 
 interface Health {
   status: string;
-  demo: boolean;
+  gitlabUrl: string;
 }
 
 interface BoardJson {
@@ -18,7 +18,8 @@ test.describe('@live', () => {
   test('the board loads from GitLab and shows only what /api/board sent', async ({ page, request }) => {
     const health = (await (await request.get('/api/health')).json()) as Health;
     expect(health.status).toBe('ok');
-    expect(health.demo, 'the stack must not run in demo mode').toBe(false);
+    // The demo stack reads the fake GitLab over plain http (http://gitlab-mock:8080).
+    expect(health.gitlabUrl, 'the stack must read a real GitLab, not the fake one').toMatch(/^https:\/\//);
 
     const response = await request.get('/api/board');
     expect(response.ok(), `GET /api/board: HTTP ${response.status()}`).toBe(true);

@@ -28,7 +28,7 @@ const (
 // ErrInvalidScope: a scoped refresh names no known group.
 var ErrInvalidScope = errors.New("no known group in the refresh scope")
 
-// Source reads GitLab (or the demo dataset).
+// Source reads GitLab.
 type Source interface {
 	// Fetch reads everything: groups, cadence, iterations and work items.
 	Fetch(ctx context.Context) (*board.Raw, error)

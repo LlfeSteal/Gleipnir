@@ -1,7 +1,7 @@
 import { expect } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
 
-// Shared helpers of the demo e2e suites. The demo dataset (backend/internal/board/demo.go) has
+// Shared helpers of the demo e2e suites. The demo dataset (gitlab-mock/dataset.go) has
 // ten iterations, Itération 12 to 21; Itération 15 (index 3) is always the current one, so the
 // default window is It. 14 – It. 18.
 

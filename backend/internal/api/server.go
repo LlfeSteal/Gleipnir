@@ -16,7 +16,7 @@ import (
 	"gleipnir/internal/cache"
 )
 
-// Source hands the raw board data to the server: the GitLab client, or the demo dataset.
+// Source hands the raw board data to the server: the GitLab client.
 type Source = cache.Source
 
 // Options configures a Server. Only Source is required.
@@ -26,7 +26,6 @@ type Options struct {
 	Now    func() time.Time                         // default time.Now
 	// Cache: Interval is CACHE_TTL; Now and Logger default to the server's.
 	Cache     cache.Options
-	Demo      bool
 	GitLabURL string
 	Group     string
 	// Token is never served: it is only scrubbed from the error messages, just in case.
@@ -42,7 +41,6 @@ type Server struct {
 	cache *cache.Store
 	log   *slog.Logger
 
-	demo      bool
 	gitlabURL string
 	group     string
 	token     string
@@ -53,7 +51,6 @@ func NewServer(opts Options) *Server {
 		build:     opts.Build,
 		now:       opts.Now,
 		log:       opts.Logger,
-		demo:      opts.Demo,
 		gitlabURL: opts.GitLabURL,
 		group:     opts.Group,
 		token:     opts.Token,
@@ -96,7 +93,6 @@ func (s *Server) Run(ctx context.Context) {
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":    "ok",
-		"demo":      s.demo,
 		"gitlabUrl": s.gitlabURL,
 		"group":     s.group,
 	})

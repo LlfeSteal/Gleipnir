@@ -1,0 +1,31 @@
+# Demo overlay: a fake GitLab (gitlab-mock/) serves sample data to the real backend.
+#   docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build
+# Without this file, the fake GitLab is neither built nor started.
+
+services:
+  gitlab-mock:
+    build:
+      context: ./gitlab-mock
+      dockerfile: Dockerfile
+    container_name: gleipnir-gitlab-mock
+    environment:
+      # Decides which iteration is the current one: keep it equal to the backend's.
+      TZ: ${TZ:-Europe/Paris}
+    # Reachable from the backend only: no port published on the host.
+    expose:
+      - "8080"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+
+  backend:
+    environment:
+      GITLAB_URL: http://gitlab-mock:8080
+      GITLAB_GROUP: plateforme/atlas
+      GITLAB_CADENCE: ""
+      # Overrides .env (environment wins over env_file): a real token never reaches the fake.
+      GITLAB_TOKEN: ""
+    depends_on:
+      gitlab-mock:
+        condition: service_healthy

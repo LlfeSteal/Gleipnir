@@ -6,14 +6,13 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: gleipnir-backend
-    # Optional, so that `GLEIPNIR_DEMO=1 docker compose up` works without any configuration.
+    # Optional, so that the demo overlay (docker-compose.demo.yml) runs without any .env.
     env_file:
       - path: .env
         required: false
     environment:
-      # Interpolated from the shell, then from .env: the shell wins.
-      GLEIPNIR_DEMO: ${GLEIPNIR_DEMO:-}
-      # Decides which iteration is the current one.
+      # Decides which iteration is the current one. Interpolated from the shell, then from
+      # .env: the shell wins.
       TZ: ${TZ:-Europe/Paris}
     expose:
       - "8080"

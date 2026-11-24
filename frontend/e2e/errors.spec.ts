@@ -48,8 +48,8 @@ const CASES: { name: string; failure: Failure; title: string; message: string }[
   },
 ];
 
-/** Fails every board request while `failing` is set, then lets them through to the demo
- * backend. (Dev StrictMode mounts twice and aborts the first request, so no counting.) */
+/** Fails every board request while `failing` is set, then lets them through to the backend
+ * (on the fake GitLab). (Dev StrictMode mounts twice and aborts the first request, so no counting.) */
 async function failBoard(page: Page, failure: Failure) {
   const state = { failing: true, calls: [] as string[] };
   await page.route(isBoard, async (route: Route) => {

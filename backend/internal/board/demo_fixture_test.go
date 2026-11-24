@@ -6,10 +6,12 @@ import (
 	"time"
 )
 
-const demoURL = "https://gitlab.exemple.fr"
+// demoURL is a reserved domain (RFC 2606): a link never leads to a real site.
+const demoURL = "https://gitlab.example.com"
 
-// DemoRaw returns the mockup's sample dataset, with iterations placed around now so that
-// "Itération 15" is always the current one. On top of the mockup it holds an epic dated by
+// DemoRaw returns the mockup's sample dataset, as a test fixture: the demo itself is served by
+// the fake GitLab (gitlab-mock/dataset.go), which holds the same data in GraphQL form.
+// Iterations are placed around now so that "Itération 15" is always the current one. On top of the mockup it holds an epic dated by
 // its children (&24), an epic with neither dates nor children (&25) and an open issue that
 // blocks an epic without an iteration (#132). Some links are listed on both sides, as GitLab
 // does, to exercise the normalization.

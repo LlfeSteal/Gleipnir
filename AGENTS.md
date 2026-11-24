@@ -20,6 +20,8 @@ Ce document sert de référence à tout agent ou développeur qui travaille dans
   - Le backend lit l'API GraphQL de GitLab avec un jeton serveur `read_api`.
   - Il applique les règles métier dans `internal/board`.
   - Il garde le board encodé en mémoire : une synchro complète au démarrage puis toutes les `CACHE_TTL`, et des rafraîchissements ciblés sur les groupes des couloirs actifs (ADR-24).
+  - Il n'a **aucun mode démo** : la démo et les e2e le pointent vers un faux GitLab (ADR-25).
+- **Faux GitLab** (`gitlab-mock/`) : module Go séparé, bibliothèque standard uniquement. Il répond aux seules requêtes GraphQL de Gleipnir avec le jeu de démo. Il n'importe rien de `backend/` et n'est jamais déployé.
 - **Frontend** : React 19, TypeScript 6 et Vite 8, **sans autre dépendance d'exécution** que `react` et `react-dom`.
   - Le board est dessiné en HTML/CSS.
   - Les liens sont dans un seul SVG.
@@ -46,9 +48,14 @@ backend/
   internal/board/build.go     raw → Board : groupes, rattachement aux itérations, liens, issues affichées, non planifiés
   internal/board/merge.go     fusion d'un sous-arbre relu dans les données (MergeScope), portée (NormalizeScope)
   internal/board/analysis.go  conflits et chemin critique
-  internal/board/demo.go      jeu de démonstration de la maquette (mode démo, tests)
+  internal/board/demo_fixture_test.go  jeu de la maquette en board.Raw : fixture des tests Go seulement
   internal/cache/cache.go     board en mémoire : synchro complète périodique (Run), rafraîchissement ciblé (Refresh)
   internal/api/               handlers GET /api/health et GET /api/board
+gitlab-mock/                  faux GitLab (module gitlab-mock) : démo et e2e, jamais déployé
+  main.go                     PORT, PAGE_SIZE (10 par défaut, pour exercer la pagination), arrêt propre
+  graphql.go                  POST /api/graphql : aiguillage par nom d'opération, pagination, GET /-/health
+  dataset.go                  jeu de démo au format GraphQL de GitLab, placé autour d'aujourd'hui
+  Dockerfile                  image de la démo (alpine, uid 10001)
 frontend/
   index.html                  script de thème inline (avant le premier rendu) — son hash est dans la CSP
   src/main.tsx, App.tsx       point d'entrée, coquille de l'application (état, préférences)
@@ -63,10 +70,11 @@ frontend/
   src/strings/                textes de l'interface (ui.ts, board.ts, app.ts, réexportés par index.ts)
   src/styles/                 theme.css (jetons + contrôles), board.css (canevas), app.css (coquille)
   src/test/                   setup Vitest (jsdom), media.ts (matchMedia)
-  e2e/                        tests Playwright (*.spec.ts : démo ; *.live.spec.ts : @live)
+  e2e/                        tests Playwright (*.spec.ts : faux GitLab ; *.live.spec.ts : @live)
   nginx.conf.template         nginx de l'image : SPA, gzip, proxy /api, cache, en-têtes de sécurité
 docs/                         specifications.md, mockup.html, style.md, decisions.md
 docker-compose.yml            projet compose « gleipnir » : backend + frontend
+docker-compose.demo.yml       overlay de démo : service gitlab-mock, backend branché dessus, jeton vidé
 .env / .env.example           configuration (.env n'est jamais commité)
 README.md                     documentation utilisateur
 CLAUDE.md                     importe ce fichier
@@ -78,8 +86,13 @@ CLAUDE.md                     importe ce fichier
 # Backend
 cd backend && gofmt -l . && go vet ./... && go test -race ./...
 cd backend && go test -coverprofile=cover.out ./... && go tool cover -func=cover.out | tail -1   # couverture (≥ 90 %)
-cd backend && GLEIPNIR_DEMO=1 go run ./cmd/server                  # mode démo, http://localhost:8080
+cd gitlab-mock && PORT=8082 go run .                                # faux GitLab, puis :
+cd backend && GITLAB_URL=http://localhost:8082 GITLAB_GROUP=plateforme/atlas go run ./cmd/server   # démo, http://localhost:8080
 cd backend && (set -a; . ../.env; set +a; go run ./cmd/server)     # vrai GitLab : le backend ne lit pas .env lui-même
+
+# Faux GitLab
+cd gitlab-mock && gofmt -l . && go vet ./... && go test -race ./...
+cd gitlab-mock && go test -coverprofile=cover.out ./... && go tool cover -func=cover.out | tail -1   # couverture (≥ 90 %)
 
 # Frontend
 cd frontend && npm run build          # tsc -b + vite build
@@ -90,15 +103,16 @@ cd frontend && npm run dev            # http://localhost:5173, proxy /api → GL
 
 # Bout en bout (Playwright)
 cd frontend && npx playwright install chromium   # une fois par conteneur
-cd frontend && npm run test:e2e       # tout sauf @live : démarre le backend démo (8081) et Vite (5174)
-cd frontend && E2E_API_PORT=8093 E2E_WEB_PORT=5193 npm run test:e2e   # sur d'autres ports, en parallèle d'une autre suite
+cd frontend && npm run test:e2e       # tout sauf @live : démarre le faux GitLab (8082), le backend (8081) et Vite (5174)
+cd frontend && E2E_MOCK_PORT=8094 E2E_API_PORT=8093 E2E_WEB_PORT=5193 npm run test:e2e   # sur d'autres ports, en parallèle d'une autre suite
 cd frontend && BASE_URL=http://localhost npm run test:e2e:live   # @live, contre la pile docker sur un vrai GitLab
 
 # Docker
 docker compose up -d --build                     # vrai GitLab, .env requis — http://localhost
-GLEIPNIR_DEMO=1 docker compose up -d --build     # mode démo, sans .env
+docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build   # démo (faux GitLab), sans .env
+docker compose -f docker-compose.yml -f docker-compose.demo.yml config          # valide l'overlay
 docker compose config                            # valide le compose
-docker compose down
+docker compose down --remove-orphans            # --remove-orphans : arrête aussi le faux GitLab d'une démo
 ```
 
 ## Configuration
@@ -108,12 +122,12 @@ Toutes les variables sont lues par le backend, via `internal/config`.
 | Variable | Rôle |
 |---|---|
 | `GITLAB_URL` | Instance GitLab. Défaut : `https://gitlab.com`. |
-| `GITLAB_TOKEN` | Jeton `read_api`. Il n'est jamais journalisé ni renvoyé par l'API. Le backend démarre sans jeton (avertissement), mais GitLab répondra 401 sur un groupe privé. |
-| `GITLAB_GROUP` | Chemin complet du groupe racine. **Obligatoire hors mode démo** : sans lui, le backend refuse de démarrer. |
+| `GITLAB_TOKEN` | Jeton `read_api`. Il n'est jamais journalisé ni renvoyé par l'API. Le backend démarre sans jeton (avertissement), mais GitLab répondra 401 sur un groupe privé. Avec un jeton, un `GITLAB_URL` en `http://` hors loopback donne un avertissement : le jeton circule en clair. |
+| `GITLAB_GROUP` | Chemin complet du groupe racine. **Obligatoire** : sans lui, le backend refuse de démarrer. |
 | `GITLAB_CADENCE` | Cadence d'itérations, par titre ou par id. Défaut : celle qui contient l'itération en cours. |
 | `PORT` | Port du backend, 8080 par défaut. À ne pas changer sous compose : nginx proxifie vers `backend:8080` et le healthcheck vise 8080. |
 | `CACHE_TTL` | Durée Go, `5m` par défaut : délai entre la fin d'une synchro complète et le début de la suivante. |
-| `GLEIPNIR_DEMO` | `1` / `true` : sert `board.DemoRaw` au lieu de GitLab. Vide, `0` ou `false` : désactivé. |
+| `GLEIPNIR_DEMO` | **Supprimée** (ADR-25). Si elle est encore définie : avertissement, et sans `GITLAB_GROUP`, l'erreur de démarrage renvoie vers `docker-compose.demo.yml`. |
 | `TZ` | Fuseau horaire. Il décide de l'itération en cours. Compose le règle par défaut à `Europe/Paris` et l'image embarque `tzdata`. |
 | `GLEIPNIR_PORT` | Compose uniquement : port de l'hôte qui publie le frontend, 80 par défaut. |
 | `GLEIPNIR_BACKEND_URL` | Image frontend uniquement : cible du proxy `/api/`, `http://backend:8080` par défaut. |
@@ -121,12 +135,13 @@ Toutes les variables sont lues par le backend, via `internal/config`.
 **Compose.**
 
 - `env_file` est **optionnel** (`required: false`).
-- `GLEIPNIR_DEMO` et `TZ` passent par `environment`, interpolés depuis le shell puis depuis `.env` : le shell gagne.
+- `TZ` passe par `environment`, interpolé depuis le shell puis depuis `.env` : le shell gagne.
+- **Overlay de démo** (`docker-compose.demo.yml`) : il ajoute `gitlab-mock` (aucun port publié) et impose au backend `GITLAB_URL=http://gitlab-mock:8080`, `GITLAB_GROUP=plateforme/atlas`, `GITLAB_CADENCE=""` et **`GITLAB_TOKEN=""`**. `environment` l'emporte sur `env_file` : le jeton du `.env` n'atteint jamais le faux GitLab. Le backend avertit alors que le jeton est vide : c'est attendu.
 - Après une modification de `.env` : `docker compose up -d --force-recreate backend`, puis `docker compose up -d`.
 
 ## API backend
 
-- `GET /api/health` → `{"status":"ok","demo":bool,"gitlabUrl":"…","group":"…"}`. Jamais de jeton. Le healthcheck Docker s'en sert.
+- `GET /api/health` → `{"status":"ok","gitlabUrl":"…","group":"…"}`. Jamais de jeton. Le healthcheck Docker s'en sert.
 - `GET /api/board` → le `Board` de `internal/board/model.go`, déjà normalisé. Le frontend ne fait que la mise en page.
   - **Paramètres** : `?refresh=1&groups=a/b,a/c` relit les work items des sous-arbres de ces groupes, les fusionne dans le board, puis le sert (ADR-24).
     - Les groupes inconnus sont ignorés ; sans groupe connu, la réponse est 400 `invalid_scope`.
@@ -188,7 +203,7 @@ La plupart viennent de Nornir, où ils ont été appris à la dure.
 - **Dates** : beaucoup d'éléments n'ont pas de dates (`startDate` / `dueDate` à `null`). C'est normal, voir les invariants. Une itération a toujours `startDate` et `dueDate`.
 - **Itérations** : `iterationCadences(includeAncestorGroups: true)`, puis `iterations(iterationCadenceIds: […], includeAncestors: true, sort: CADENCE_AND_DUE_DATE_ASC)`. Une itération de cadence automatique peut ne pas avoir de titre : on affiche alors « Itération {sequence} ».
 - **Groupes trop gros** : gitlab.com répond « Request timed out » sur `workItems` pour les groupes géants (`gitlab-org`). Validez sur un groupe public de taille moyenne.
-- **Validation** : **tout changement de requête doit être validé sur un vrai GitLab**, avec le test `@live` ou un `curl` sur `https://gitlab.com/api/graphql`. Un mock local a déjà accepté un champ qui n'existait pas.
+- **Validation** : **tout changement de requête doit être validé sur un vrai GitLab**, avec le test `@live` ou un `curl` sur `https://gitlab.com/api/graphql`. Un mock local a déjà accepté un champ qui n'existait pas. Le faux GitLab (`gitlab-mock/`) ne valide pas non plus le schéma : il aiguille sur le nom de l'opération et ignore la sélection de champs. Une nouvelle requête (nom d'opération) doit y être ajoutée, sinon il répond `unsupported query`.
 - **Schéma validé** sur gitlab.com le 2026-11-23, avec des `curl` anonymes et le test `live`, sur `gitlab-org/security-products` et `gitlab-org/ruby` :
   - **Énumérations** : le filtre des liens est de type `WorkItemRelatedLinkType` (`RELATED`, `BLOCKED_BY`, `BLOCKS`). `types: [EPIC, ISSUE]` est de type `IssueType`.
   - **Variable de cadence** : `$cadenceId` doit être typée **`IterationsCadenceID!`**.
@@ -328,7 +343,9 @@ Ils sont dans `internal/board`. Tous sont couverts par des tests table par table
     - jsdom n'a pas de `PointerEvent` : un `MouseEvent` auquel on ajoute `pointerId` et `pointerType` le remplace ;
     - `getByTitle` et `getByText` normalisent les espaces : pour un texte qui commence ou finit par une espace, lisez l'attribut directement.
 - **Playwright** (`frontend/e2e/`, `playwright.config.ts`) :
-  - `*.spec.ts` tournent contre le **backend réel en mode démo** ; `webServer` démarre Go (8081) et Vite (5174), ou les ports donnés par `E2E_API_PORT` / `E2E_WEB_PORT` (voir ADR-22).
+  - `*.spec.ts` tournent contre le **backend réel, branché sur le faux GitLab** : `webServer` démarre `gitlab-mock` (8082), le backend (8081) et Vite (5174), ou les ports donnés par `E2E_MOCK_PORT` / `E2E_API_PORT` / `E2E_WEB_PORT` (voir ADR-22). Le client GitLab, la pagination et le rafraîchissement ciblé sont donc couverts de bout en bout.
+  - Le jeu de démo vit dans `gitlab-mock/dataset.go`. Les assertions des e2e (couloirs, « Itération 15 » en cours, références) en dépendent : changez-les ensemble.
+  - `webServer` vide `GITLAB_TOKEN` pour le backend : un jeton exporté dans le shell n'est pas envoyé au faux GitLab.
   - En développement, React `StrictMode` lance puis annule une première requête `/api/board` : un mock d'erreur ne doit pas compter les appels, mais rester actif jusqu'à ce que le test le retire.
   - Vite surveille les fichiers par polling (le montage WSL du devcontainer rate les événements inotify). Un état d'erreur se simule avec `page.route` (401, 502).
   - `*.live.spec.ts` sont marqués `@live` : ils tournent contre un vrai GitLab via `BASE_URL`, et ne supposent rien du contenu du groupe.
@@ -344,6 +361,7 @@ Ils sont dans `internal/board`. Tous sont couverts par des tests table par table
   - `HEALTHCHECK` avec `wget` sur `/api/health`.
   
   `go.mod` n'a pas de dépendance, donc pas de `go.sum` : ne pas en copier.
+- **Image du faux GitLab** (`gitlab-mock/Dockerfile`, démo seulement) : même schéma, sans `ca-certificates`, `HEALTHCHECK` sur `/-/health`. Seul `docker-compose.demo.yml` la construit ; elle tourne en `read_only`, `cap_drop: [ALL]`, sans port publié.
 - **Image frontend** :
   - build `node:22-alpine` (`npm ci`, `npm run build`), puis `nginxinc/nginx-unprivileged:alpine` (uid 101), qui **écoute sur 8080** ;
   - `nginx.conf.template` est copié dans `/etc/nginx/templates/`, et l'entrypoint de l'image y applique `envsubst` au démarrage. Seules les variables définies sont substituées (`GLEIPNIR_BACKEND_URL`), donc `$uri` et `$host` restent intacts.
@@ -399,7 +417,7 @@ Ils sont dans `internal/board`. Tous sont couverts par des tests table par table
   - **Le message est le titre seul** : pas de corps, pas de pied de page ni de trailer (`Co-Authored-By`, `Signed-off-by`…).
   - Le titre est compréhensible par quelqu'un qui ne connaît pas le projet.
   - Types : `feat`, `fix`, `refactor`, `perf`, `test`, `docs`, `build`, `ci`, `chore`.
-  - Scopes : `backend`, `frontend`, `e2e`, `docker`, `docs`.
+  - Scopes : `backend`, `frontend`, `mock`, `e2e`, `docker`, `docs`.
   - Exemples :
     - `feat(frontend): dim unrelated items when one is selected`
     - `fix(backend): pick the next iteration when an epic starts between two`
@@ -410,10 +428,10 @@ Ils sont dans `internal/board`. Tous sont couverts par des tests table par table
 
 ### Avant de committer
 
-1. `cd backend && gofmt -l . && go vet ./... && go test -race ./...`. `gofmt -l` ne doit rien lister. La couverture reste ≥ 90 %.
+1. `cd backend && gofmt -l . && go vet ./... && go test -race ./...`. `gofmt -l` ne doit rien lister. La couverture reste ≥ 90 %. Idem dans `gitlab-mock/` s'il a changé.
 2. `cd frontend && npm run build && npm run test:coverage && npm run test:e2e`.
 3. Si le client GitLab ou une requête GraphQL a changé : `npm run test:e2e:live` contre un vrai GitLab.
-4. Si un Dockerfile, le compose ou `nginx.conf.template` a changé : `docker compose config`, puis `docker compose up -d --build` et un contrôle de `/api/health` et de la page (CSP : aucune erreur dans la console).
+4. Si un Dockerfile, le compose ou `nginx.conf.template` a changé : `docker compose config` (et avec `-f docker-compose.demo.yml`), puis `docker compose up -d --build` et un contrôle de `/api/health` et de la page (CSP : aucune erreur dans la console).
 
 ### Documentation
 

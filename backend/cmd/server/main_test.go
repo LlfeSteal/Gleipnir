@@ -17,44 +17,17 @@ import (
 	"syscall"
 	"testing"
 	"time"
-
-	"gleipnir/internal/board"
-	"gleipnir/internal/config"
-	"gleipnir/internal/gitlab"
 )
 
-func TestNewSource(t *testing.T) {
-	if _, ok := newSource(config.Config{Demo: true}).(demoSource); !ok {
-		t.Fatal("demo mode must serve the demo dataset")
-	}
-	if _, ok := newSource(config.Config{GitLabURL: "https://gitlab.com", Group: "org"}).(*gitlab.Client); !ok {
-		t.Fatal("without demo mode, the source is GitLab")
-	}
-}
-
-func TestDemoSourceFetch(t *testing.T) {
-	raw, err := demoSource{}.Fetch(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if raw == nil || len(raw.Iterations) == 0 || len(raw.Items) == 0 {
-		t.Fatalf("the demo dataset is empty: %+v", raw)
-	}
-}
-
-func TestDemoSourceFetchItems(t *testing.T) {
-	items, err := demoSource{}.FetchItems(context.Background(), []string{"plateforme/atlas/api"})
-	if err != nil || len(items) == 0 {
-		t.Fatalf("FetchItems = %d items, %v", len(items), err)
-	}
-	for _, it := range items {
-		if g := board.ItemGroup(it); g != "plateforme/atlas/api" {
-			t.Errorf("item %s of group %s is outside the scope", it.ID, g)
-		}
-	}
-	if items, _ := (demoSource{}).FetchItems(context.Background(), nil); len(items) != 0 {
-		t.Errorf("an empty scope gave %d items", len(items))
-	}
+// fakeGitLabEnv configures the server on port against a GitLab that answers every query with
+// an empty group: the background sync fails, the server still serves.
+func fakeGitLabEnv(t *testing.T, port string) func(string) string {
+	t.Helper()
+	gl := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"data":{"group":null}}`)
+	}))
+	t.Cleanup(gl.Close)
+	return env(map[string]string{"GITLAB_URL": gl.URL, "GITLAB_GROUP": "org", "PORT": port})
 }
 
 // env returns a getenv over vars.
@@ -95,11 +68,11 @@ func freePort(t *testing.T) string {
 
 func TestRunRejectsAnInvalidConfiguration(t *testing.T) {
 	cases := map[string]map[string]string{
-		"no group outside demo mode": {},
-		"port not a number":          {"GLEIPNIR_DEMO": "1", "PORT": "abc"},
-		"port zero":                  {"GLEIPNIR_DEMO": "1", "PORT": "0"},
-		"port above 65535":           {"GLEIPNIR_DEMO": "1", "PORT": "65536"},
-		"demo not a boolean":         {"GLEIPNIR_DEMO": "maybe"},
+		"no group":          {},
+		"port not a number": {"GITLAB_GROUP": "org", "PORT": "abc"},
+		"port zero":         {"GITLAB_GROUP": "org", "PORT": "0"},
+		"port above 65535":  {"GITLAB_GROUP": "org", "PORT": "65536"},
+		"legacy demo":       {"GLEIPNIR_DEMO": "1"},
 	}
 	for name, vars := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -149,9 +122,9 @@ func TestRunServesThenStopsGracefully(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- run(ctx, env(map[string]string{"GLEIPNIR_DEMO": "1", "PORT": port}), discard()) }()
+	go func() { done <- run(ctx, fakeGitLabEnv(t, port), discard()) }()
 
-	if health := waitHealthy(t, port); health["status"] != "ok" || health["demo"] != true {
+	if health := waitHealthy(t, port); health["status"] != "ok" || health["group"] != "org" {
 		t.Fatalf("health %v", health)
 	}
 	cancel()
@@ -170,7 +143,7 @@ func TestServeStopsOnSIGTERMAndClosesStalledConnections(t *testing.T) {
 	port := freePort(t)
 	var logs syncBuffer
 	done := make(chan int, 1)
-	go func() { done <- serve(env(map[string]string{"GLEIPNIR_DEMO": "1", "PORT": port}), &logs) }()
+	go func() { done <- serve(fakeGitLabEnv(t, port), &logs) }()
 	waitHealthy(t, port) // serve now handles SIGTERM: sending it won't kill the test binary
 
 	// A request whose headers never end keeps its connection active: Shutdown cannot drain it.

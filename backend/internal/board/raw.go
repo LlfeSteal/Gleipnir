@@ -1,6 +1,6 @@
 package board
 
-// Raw is what a source (GitLab, or the demo dataset) hands to Build: the data as GitLab has
+// Raw is what a source (the GitLab client) hands to Build: the data as GitLab has
 // it, before any business rule. Dates are "YYYY-MM-DD" strings, "" when unset.
 type Raw struct {
 	GitLabURL  string

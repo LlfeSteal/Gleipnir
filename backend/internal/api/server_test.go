@@ -194,7 +194,7 @@ func TestHealth(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]any{"status": "ok", "demo": false, "gitlabUrl": "https://gitlab.test", "group": "org"}
+	want := map[string]any{"status": "ok", "gitlabUrl": "https://gitlab.test", "group": "org"}
 	if fmt.Sprint(body) != fmt.Sprint(want) {
 		t.Fatalf("got %v, want %v", body, want)
 	}

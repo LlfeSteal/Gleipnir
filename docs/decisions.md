@@ -15,7 +15,7 @@ Ce fichier consigne les choix qui structurent Gleipnir, sous forme de courts ADR
 | 6 | Une seule cadence par board | 2026-11-23 |
 | 7 | Frontend sans dépendance d'exécution | 2026-11-23 |
 | 8 | Déploiement en deux images | 2026-11-23 |
-| 9 | Mode démo | 2026-11-23 |
+| 9 | Mode démo (remplacé par ADR-25) | 2026-11-23 |
 | 10 | Règles pour les questions ouvertes de la spec | 2026-11-23 |
 | 11 | Écarts d'interface assumés | 2026-11-23 |
 | 12 | Pas d'étiquette « EPIC » | 2026-11-23 |
@@ -31,6 +31,7 @@ Ce fichier consigne les choix qui structurent Gleipnir, sous forme de courts ADR
 | 22 | Outillage de développement dans le devcontainer | 2026-11-23 |
 | 23 | Couverture de tests : 90 % de lignes et de fonctions | 2026-11-23 |
 | 24 | Synchro complète périodique et rafraîchissement ciblé | 2026-11-23 |
+| 25 | Faux GitLab pour la démo et les e2e | 2026-11-24 |
 
 ---
 
@@ -207,7 +208,7 @@ Les erreurs sont typées : `ErrUnauthorized`, `ErrGroupNotFound`, `ErrPremiumReq
 
 ## ADR-9 — Mode démo
 
-*2026-11-23 · Accepté*
+*2026-11-23 · Remplacé par ADR-25*
 
 **Contexte.** Développer l'interface, la tester et la montrer ne doit pas exiger un GitLab Premium et un jeton.
 
@@ -369,7 +370,7 @@ Les erreurs sont typées : `ErrUnauthorized`, `ErrGroupNotFound`, `ErrPremiumReq
 
 ## ADR-17 — Stratégie de tests
 
-*2026-11-23 · Accepté*
+*2026-11-23 · Accepté · Amendé par ADR-25 (les e2e lisent un faux GitLab)*
 
 **Contexte.** Les règles métier, la mise en page et l'intégration GitLab échouent de façons différentes. Chacune demande son outil.
 
@@ -551,3 +552,37 @@ Une synchro en cours reste partagée par toutes les requêtes. Sans données en 
 - Le board peut mêler des groupes d'âges différents, au plus `CACHE_TTL` plus la durée d'une synchro.
 - Un élément déplacé **hors** du sous-arbre relu disparaît jusqu'à la synchro complète suivante, ou jusqu'au rafraîchissement de son nouveau groupe.
 - La date de chaque groupe est servie dans le board : le frontend recalcule l'âge à chaque changement de couloir, sans nouvelle requête.
+
+## ADR-25 — Faux GitLab pour la démo et les e2e
+
+*2026-11-24 · Accepté · Remplace ADR-9, amende ADR-17*
+
+**Contexte.** Le mode démo de l'ADR-9 vivait dans le binaire de production : `GLEIPNIR_DEMO=1` faisait servir `board.DemoRaw` au lieu de GitLab.
+
+- Le binaire livré embarquait un jeu factice et un interrupteur : une variable oubliée dans un `.env` suffisait à servir de fausses données.
+- Les e2e court-circuitaient le client GitLab : requêtes, pagination et conversion n'étaient jamais exercées de bout en bout.
+- Les liens de la démo pointaient vers `gitlab.exemple.fr`, un domaine réel que n'importe qui peut enregistrer.
+
+**Décision.**
+
+- **Le backend n'a plus de mode démo.** `GLEIPNIR_DEMO` n'est plus lue ; `GITLAB_GROUP` est toujours obligatoire ; `/api/health` perd son champ `demo`.
+  - Une ancienne configuration de démo **échoue fermée** : sans `GITLAB_GROUP`, le backend refuse de démarrer, avec un message qui renvoie vers l'overlay. Si la variable traîne à côté d'une vraie configuration, elle donne seulement un avertissement.
+- **Un faux GitLab** (`gitlab-mock/`) imite l'API GraphQL de GitLab pour les **seules** requêtes de Gleipnir et sert le jeu de démo.
+  - Module Go séparé, bibliothèque standard uniquement, qui n'importe rien de `backend/` : il ne partage avec le backend que le contrat HTTP.
+  - Il aiguille sur le nom de l'opération (`Groups`, `Cadences`, `CurrentIterations`, `Iterations`, `WorkItems`) et répond `unsupported query` à toute autre. Un `fullPath` inconnu donne `group: null`, comme GitLab.
+  - Il pagine (10 nœuds par page par défaut), filtre `today`, `cadenceId` et le sous-arbre de `includeDescendants`.
+  - Il ignore le jeton et ne journalise aucun en-tête.
+  - Les `webUrl` utilisent `gitlab.example.com`, domaine réservé (RFC 2606).
+- **Démo Docker** : un overlay `docker-compose.demo.yml`, absent du compose de base.
+  - Il ajoute `gitlab-mock`, sans port publié, en `read_only`, `cap_drop: [ALL]`, `no-new-privileges`, uid 10001.
+  - Il impose au backend `GITLAB_URL=http://gitlab-mock:8080` et `GITLAB_TOKEN=""`. `environment` l'emporte sur `env_file` : un vrai jeton du `.env` n'est jamais envoyé au faux GitLab.
+- **E2E** : Playwright démarre le faux GitLab, puis le vrai backend branché dessus (jeton vidé), puis Vite.
+- **Jeton en clair** : le backend avertit quand un jeton part en `http://` vers une autre machine que la boucle locale.
+
+**Conséquences.**
+
+- Le binaire et l'image de production ne contiennent plus de données factices. `board.DemoRaw` reste une fixture des tests Go (`demo_fixture_test.go`), non compilée dans le binaire.
+- Les e2e couvrent maintenant le client GitLab et le rafraîchissement ciblé.
+- Le jeu de démo existe en deux exemplaires : `gitlab-mock/dataset.go` (démo, e2e) et la fixture Go. Ils peuvent diverger sans casser la démo ; seule la version du faux GitLab est visible.
+- Le faux GitLab **ne valide pas le schéma** : il ignore la sélection de champs. Un changement de requête se valide toujours sur un vrai GitLab (test `@live`).
+- Lancer la démo demande l'overlay : `docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build`.

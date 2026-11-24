@@ -16,11 +16,23 @@ import (
 	"gleipnir/internal/board"
 )
 
-// demoSource serves the demo dataset.
-type demoSource struct{}
+// sampleSource serves a root group with one epic in the current iteration.
+type sampleSource struct{}
 
-func (demoSource) Fetch(context.Context) (*board.Raw, error) { return board.DemoRaw(time.Now()), nil }
-func (demoSource) FetchItems(context.Context, []string) ([]board.RawItem, error) {
+func (sampleSource) Fetch(context.Context) (*board.Raw, error) {
+	today := time.Now().Format("2006-01-02")
+	return &board.Raw{
+		RootGroup:  board.Group{Path: "org", Name: "Org"},
+		Cadence:    board.Cadence{ID: "gid://gitlab/Iterations::Cadence/1", Title: "Sprints"},
+		Iterations: []board.RawIteration{{ID: "gid://gitlab/Iteration/1", Title: "Now", StartDate: today, DueDate: today}},
+		Items: []board.RawItem{{
+			ID: "gid://gitlab/WorkItem/1", IID: "1", Kind: board.KindEpic, Title: "Epic", State: board.StateOpen,
+			NamespacePath: "org", StartDate: today, DueDate: today,
+		}},
+	}, nil
+}
+
+func (sampleSource) FetchItems(context.Context, []string) ([]board.RawItem, error) {
 	return nil, nil
 }
 
@@ -28,7 +40,7 @@ func (demoSource) FetchItems(context.Context, []string) ([]board.RawItem, error)
 func TestNewServerDefaults(t *testing.T) {
 	defer func(l *slog.Logger) { slog.SetDefault(l) }(slog.Default())
 	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
-	rec := get(NewServer(Options{Source: demoSource{}}).Handler(), "/api/board")
+	rec := get(NewServer(Options{Source: sampleSource{}}).Handler(), "/api/board")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body)
 	}
@@ -37,7 +49,7 @@ func TestNewServerDefaults(t *testing.T) {
 		t.Fatalf("X-Fetched-At %q is not the real clock (%v)", rec.Header().Get("X-Fetched-At"), err)
 	}
 	if !strings.Contains(rec.Body.String(), `"epics":[{`) {
-		t.Fatalf("the demo board was not built with board.Build: %.200s", rec.Body)
+		t.Fatalf("the board was not built with board.Build: %.200s", rec.Body)
 	}
 }
 

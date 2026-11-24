@@ -1,5 +1,5 @@
 // Command server serves the Gleipnir API: the board of a GitLab group, read with a server-side
-// token (or the demo dataset with GLEIPNIR_DEMO=1).
+// token. The demo points GITLAB_URL at a fake GitLab (gitlab-mock/): nothing here knows it.
 package main
 
 import (
@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"gleipnir/internal/api"
-	"gleipnir/internal/board"
 	"gleipnir/internal/cache"
 	"gleipnir/internal/config"
 	"gleipnir/internal/gitlab"
@@ -64,9 +63,8 @@ func run(ctx context.Context, getenv func(string) string, logger *slog.Logger) e
 	logger.Info("starting", "config", cfg)
 
 	srv := api.NewServer(api.Options{
-		Source:    newSource(cfg),
+		Source:    gitlab.New(cfg.GitLabURL, cfg.Token, cfg.Group, cfg.Cadence),
 		Cache:     cache.Options{Interval: cfg.CacheTTL, FetchTimeout: fetchTimeout, MinRefresh: minRefresh},
-		Demo:      cfg.Demo,
 		GitLabURL: cfg.GitLabURL,
 		Group:     cfg.Group,
 		Token:     cfg.Token,
@@ -110,29 +108,4 @@ func run(ctx context.Context, getenv func(string) string, logger *slog.Logger) e
 	}
 	logger.Info("stopped")
 	return nil
-}
-
-// newSource returns the demo dataset or the GitLab client, as configured.
-func newSource(cfg config.Config) api.Source {
-	if cfg.Demo {
-		return demoSource{}
-	}
-	return gitlab.New(cfg.GitLabURL, cfg.Token, cfg.Group, cfg.Cadence)
-}
-
-// demoSource serves the mockup's dataset, placed around today.
-type demoSource struct{}
-
-func (demoSource) Fetch(context.Context) (*board.Raw, error) {
-	return board.DemoRaw(time.Now()), nil
-}
-
-func (demoSource) FetchItems(_ context.Context, groups []string) ([]board.RawItem, error) {
-	items := []board.RawItem{}
-	for _, it := range board.DemoRaw(time.Now()).Items {
-		if board.InScope(board.ItemGroup(it), groups) {
-			items = append(items, it)
-		}
-	}
-	return items, nil
 }
