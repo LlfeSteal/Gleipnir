@@ -21,6 +21,8 @@ export interface BoardCanvasProps {
   revealId: string | null;
   onRevealed(): void;
   criticalPath: boolean;
+  /** The scroll container's inner width, on mount and on every resize: columns fill it. */
+  onViewportWidth?(width: number): void;
 }
 
 const NO_IDS: string[] = [];
@@ -39,14 +41,15 @@ export function BoardCanvas({
   revealId,
   onRevealed,
   criticalPath,
+  onViewportWidth,
 }: BoardCanvasProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const index = itemIndex(data);
 
   // Stable callbacks so the memoized items only re-render when their own state changes.
-  const latest = useRef({ selectedId, onSelect, onRevealed });
+  const latest = useRef({ selectedId, onSelect, onRevealed, onViewportWidth });
   useEffect(() => {
-    latest.current = { selectedId, onSelect, onRevealed };
+    latest.current = { selectedId, onSelect, onRevealed, onViewportWidth };
   });
   const toggle = useCallback((id: string) => {
     const { selectedId: current, onSelect: select } = latest.current;
@@ -70,6 +73,18 @@ export function BoardCanvas({
     }
     return refs;
   }, [view, index]);
+
+  // Reports the width left for the columns: window resize, sidebar or inspector toggled. The
+  // canvas height doesn't depend on it, so widening never brings a scrollbar back and forth.
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    const report = () => latest.current.onViewportWidth?.(scroller.clientWidth);
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(scroller);
+    return () => observer.disconnect();
+  }, []);
 
   // Click on the empty canvas clears the selection.
   const onBackgroundClick = (e: MouseEvent<HTMLDivElement>) => {

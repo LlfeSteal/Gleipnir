@@ -185,6 +185,33 @@ describe('BoardCanvas', () => {
     setup({ view });
     expect(screen.getByText('Aucun élément de ce couloir dans la fenêtre.')).toBeInTheDocument();
   });
+
+  it('reports the width of its scroll container on mount and on resize', () => {
+    const observers: { callback: () => void; disconnect: ReturnType<typeof vi.fn> }[] = [];
+    const original = window.ResizeObserver;
+    window.ResizeObserver = class {
+      disconnect = vi.fn();
+      constructor(public callback: () => void) {
+        observers.push(this);
+      }
+      observe() {}
+      unobserve() {}
+    } as unknown as typeof ResizeObserver;
+    const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1400);
+    try {
+      const onViewportWidth = vi.fn();
+      const { unmount } = setup({ onViewportWidth });
+      expect(onViewportWidth).toHaveBeenLastCalledWith(1400);
+      width.mockReturnValue(1100);
+      observers[0].callback();
+      expect(onViewportWidth).toHaveBeenLastCalledWith(1100);
+      unmount();
+      expect(observers[0].disconnect).toHaveBeenCalled();
+    } finally {
+      width.mockRestore();
+      window.ResizeObserver = original;
+    }
+  });
 });
 
 describe('ItemGlyph and LinkSwatch', () => {

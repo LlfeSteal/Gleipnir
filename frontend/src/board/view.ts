@@ -114,8 +114,6 @@ export function computeBoardView(input: ViewInput, layout: Readonly<BoardLayout>
   const from = win.from;
   const to = count > 0 ? win.to : from - 1;
   const n = Math.max(0, to - from + 1);
-  const colW = n > L.narrowAbove ? L.narrowColumnWidth : L.columnWidth;
-  const colX = (i: number) => L.railWidth + (i - from) * colW;
 
   // Item-level filters and window status, computed once for all lanes.
   const q = input.query.toLowerCase();
@@ -179,6 +177,14 @@ export function computeBoardView(input: ViewInput, layout: Readonly<BoardLayout>
 
   const unplannedColumn =
     options.showUnplanned && contents.some((c) => c.epicsUnplanned.length > 0 || c.issuesUnplanned.length > 0);
+
+  // Columns share the available width equally, never narrower than the layout's width (then
+  // the board scrolls). Floored so the canvas never overflows by a fraction of a pixel.
+  const minW = n > L.narrowAbove ? L.narrowColumnWidth : L.columnWidth;
+  const total = n + (unplannedColumn ? 1 : 0);
+  const fill = total > 0 && input.availableWidth ? Math.floor((input.availableWidth - L.railWidth) / total) : 0;
+  const colW = Math.max(minW, fill);
+  const colX = (i: number) => L.railWidth + (i - from) * colW;
 
   const columns: Column[] = [];
   for (let i = from; i <= to; i++) {

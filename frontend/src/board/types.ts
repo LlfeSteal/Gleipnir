@@ -52,6 +52,8 @@ export interface ViewInput {
   options: DisplayOptions;
   query: string; // search on ref and title, case-insensitive, already trimmed
   collapsed: ReadonlySet<string>; // ids of collapsed lanes
+  /** Inner width of the scroll container (scrollbar excluded): columns widen to fill it. */
+  availableWidth?: number;
 }
 
 export interface Rect {

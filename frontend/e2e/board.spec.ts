@@ -112,6 +112,38 @@ test('a lane collapses and expands, hiding then showing its items', async ({ pag
   await expect(boardItems(page)).toHaveCount(before);
 });
 
+test('the columns share the width of the board, and scroll once below their minimum width', async ({ page }) => {
+  // Geometry of the scroll container and of its last column header (CSS classes: measuring only).
+  const geometry = () =>
+    page.evaluate(() => {
+      const scroller = document.querySelector('.board-scroll')!;
+      const headers = scroller.querySelectorAll('.column-header');
+      const last = headers[headers.length - 1].getBoundingClientRect();
+      const box = scroller.getBoundingClientRect();
+      return {
+        gap: box.left + scroller.clientLeft + scroller.clientWidth - last.right,
+        overflow: scroller.scrollWidth - scroller.clientWidth,
+        widths: [...new Set([...headers].map((h) => Math.round(h.getBoundingClientRect().width)))],
+      };
+    });
+
+  // Wide screen: six columns (five iterations and the unplanned one) reach the right edge.
+  await page.setViewportSize({ width: 1920, height: 900 });
+  await expect.poll(async () => (await geometry()).gap).toBeLessThan(6);
+  expect((await geometry()).gap).toBeGreaterThanOrEqual(0);
+  expect((await geometry()).overflow).toBe(0);
+  // All as wide as each other, wider than their minimum.
+  const { widths } = await geometry();
+  expect(widths).toHaveLength(1);
+  expect(widths[0]).toBeGreaterThan(212);
+
+  // Narrow screen: the columns keep their minimum width and the board scrolls.
+  await page.setViewportSize({ width: 1000, height: 900 });
+  // (The old wide columns overflow too until the deferred layout catches up: wait for it.)
+  await expect.poll(async () => (await geometry()).widths).toEqual([212]);
+  expect((await geometry()).overflow).toBeGreaterThan(0);
+});
+
 test('the unplanned column holds &25 and #132 while "Afficher les non planifiés" is on', async ({ page }) => {
   const unplanned = displaySwitch(page, 'Afficher les non planifiés');
   await expect(unplanned).toHaveAttribute('aria-checked', 'true');

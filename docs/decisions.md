@@ -665,3 +665,21 @@ Une synchro en cours reste partagée par toutes les requêtes. Sans données en 
 - `BASE_URL=http://localhost npm run test:e2e` lance toute la suite de démo sur une pile branchée sur un vrai GitLab rempli. Elle reste valide deux semaines après chaque passage du seeder.
 - Les titres des tests gardent les clés de la maquette : un rapport se lit de la même façon sur les deux environnements.
 - Ajouter un élément au jeu demande d'ajouter son titre dans `e2e/demo.ts`.
+
+## ADR-29 — Colonnes à la largeur du board
+
+*2026-11-24 · Accepté · Amende la spec §4.3*
+
+**Contexte.** Les colonnes avaient une largeur fixe : 212 px, 180 px au-delà de 7 colonnes. Sur un grand écran, avec la fenêtre par défaut de 5 itérations, le board s'arrêtait vers 1 300 px et laissait un vide à droite.
+
+**Décision.**
+
+- `computeBoardView` reçoit la largeur intérieure du conteneur de défilement (`ViewInput.availableWidth`, barre de défilement exclue). Les colonnes, « Non planifié » comprise, s'en partagent la largeur à parts égales, arrondie au pixel inférieur pour ne jamais déborder.
+- Les largeurs fixes deviennent des **minimums** : quand elles ne tiennent pas, le board défile comme avant. Pas de largeur maximale.
+- `BoardCanvas` mesure son conteneur avec un `ResizeObserver` et la remonte à `App`. `App` la passe par `useDeferredValue` : redimensionner la fenêtre ne bloque pas sur un gros board.
+
+**Conséquences.**
+
+- Ouvrir l'inspecteur, replier le panneau latéral ou redimensionner la fenêtre recalcule la mise en page : les éléments se déplacent avec leurs colonnes.
+- Le premier rendu se fait aux largeurs minimales, le suivant à la largeur mesurée.
+- Pas d'oscillation de la barre verticale : la hauteur du canevas ne dépend pas de la largeur des colonnes.

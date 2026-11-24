@@ -110,6 +110,10 @@ export default function App() {
   const searchRef = useRef<HTMLInputElement>(null);
   // Typing stays smooth on a large board: the layout follows the query a bit later.
   const deferredQuery = useDeferredValue(query.trim());
+  // Width of the board's scroll container, measured by the canvas; a resize relays out later
+  // too, so dragging the window edge stays smooth on a large board.
+  const [boardWidth, setBoardWidth] = useState(0);
+  const deferredWidth = useDeferredValue(boardWidth);
 
   // The first time data arrives with nothing valid stored, the default lanes are kept, so
   // their ids (collapsed lanes, selection) stay stable across reloads.
@@ -133,12 +137,12 @@ export default function App() {
     () =>
       data && boardWindow
         ? computeBoardView(
-            { data, lanes, window: boardWindow, options, query: deferredQuery, collapsed },
+            { data, lanes, window: boardWindow, options, query: deferredQuery, collapsed, availableWidth: deferredWidth },
             // Phones: a narrow rail and columns, so the board shows more than the rail.
             layoutFor(compact),
           )
         : null,
-    [data, lanes, boardWindow, options, deferredQuery, collapsed, compact],
+    [data, lanes, boardWindow, options, deferredQuery, collapsed, compact, deferredWidth],
   );
 
   // A selected item that leaves the board (filters, window, lanes, refresh) is deselected. One
@@ -294,6 +298,7 @@ export default function App() {
             revealId={revealId}
             onRevealed={onRevealed}
             criticalPath={options.criticalPath}
+            onViewportWidth={setBoardWidth}
           />
         </div>
       );

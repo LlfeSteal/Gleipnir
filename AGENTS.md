@@ -316,6 +316,7 @@ Ils sont dans `internal/board`. Tous sont couverts par des tests table par table
 - **Logique** :
   - La logique pure va dans `src/board/` (couloirs, fenêtre, format, mise en page, liens, statistiques), sans React ni DOM, avec ses tests `*.test.ts`.
   - Les composants ne calculent pas la mise en page : ils lisent la `BoardView` de `computeBoardView`, mémorisée.
+  - La largeur des colonnes dépend de celle du board : `BoardCanvas` mesure son conteneur de défilement (`ResizeObserver`) et `App` la passe à `computeBoardView` (`availableWidth`). Les largeurs de `LAYOUT` sont des minimums (ADR-29).
 - **CSS** : un fichier par zone.
   - `theme.css` : jetons et contrôles génériques (`.button`, `.menu`, `.pill`…) ;
   - `board.css` : le canevas ;

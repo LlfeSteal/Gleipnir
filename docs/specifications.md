@@ -94,7 +94,7 @@ Chaque type est reconnaissable par sa **forme**, sa **couleur** et son **pictogr
 - Règles d'affichage :
   - un epic est affiché si sa période **chevauche** la fenêtre. Il est alors coupé aux bords ;
   - une issue est affichée si son itération est **dans** la fenêtre.
-- Au-delà de 7 colonnes, les colonnes sont plus étroites (180 px au lieu de 212 px).
+- Les colonnes, « Non planifié » comprise, se partagent à parts égales la largeur disponible du board. Elles ne descendent pas sous 212 px, ou 180 px au-delà de 7 colonnes : en dessous, le board défile horizontalement.
 - La fenêtre est mémorisée.
 
 ### 4.4 Couloirs configurables

@@ -14,6 +14,7 @@ function view(patch: Partial<Omit<ViewInput, 'options'>> & { options?: Partial<D
     options: { ...DEFAULT_OPTIONS, ...patch.options },
     query: patch.query ?? '',
     collapsed: patch.collapsed ?? new Set(),
+    availableWidth: patch.availableWidth,
   });
 }
 
@@ -87,6 +88,32 @@ describe('columns', () => {
     expect(collapsed.lanes[0].height).toBe(COMPACT_LAYOUT.collapsedLaneHeight);
   });
 
+  it('widens columns equally to fill the available width', () => {
+    const v = view({ availableWidth: 1603 });
+    const w = Math.floor((1603 - 220) / 5); // 276
+    expect(v.columns.every((c) => c.width === w)).toBe(true);
+    expect(v.columns.map((c) => c.x)).toEqual([0, 1, 2, 3, 4].map((i) => 220 + i * w));
+    expect(v.width).toBe(220 + 5 * w);
+    expect(v.width).toBeLessThanOrEqual(1603);
+    // items follow the wider columns
+    const e19 = placed(v, '&19')!; // 0..3 in 2..6
+    expect(e19.rect.x + e19.rect.w).toBe(220 + 2 * w - LAYOUT.inset);
+    expect(placed(v, '#107')!.rect).toMatchObject({ x: 220 + 2 * w + LAYOUT.inset, w: w - 2 * LAYOUT.inset });
+  });
+
+  it('keeps the minimum widths when the available width is too small, or unknown', () => {
+    expect(view({ availableWidth: 900 }).columns.every((c) => c.width === 212)).toBe(true);
+    expect(view({ availableWidth: 0 }).columns.every((c) => c.width === 212)).toBe(true);
+    expect(view({ window: { from: 0, to: 9 }, availableWidth: 1600 }).columns.every((c) => c.width === 180)).toBe(true);
+    expect(view({ window: { from: 0, to: 9 }, availableWidth: 2420 }).columns.every((c) => c.width === 220)).toBe(true);
+  });
+
+  it('keeps the compact widths on a phone', () => {
+    const data = mockupBoard();
+    const input = { data, lanes: defaultLanes(data), window: { from: 2, to: 6 }, options: DEFAULT_OPTIONS, query: '', collapsed: new Set<string>(), availableWidth: 390 };
+    expect(computeBoardView(input, COMPACT_LAYOUT).columns.every((c) => c.width === COMPACT_LAYOUT.columnWidth)).toBe(true);
+  });
+
   it('clamps the window to the cadence', () => {
     expect(view({ window: { from: 7, to: 14 } }).columns.map((c) => c.index)).toEqual([2, 3, 4, 5, 6, 7, 8, 9]);
   });
@@ -113,6 +140,16 @@ describe('unplanned column', () => {
     expect(v.links.some((l) => l.source === idOf('#150') && l.target === idOf('&30'))).toBe(true);
     const api = v.lanes.find((l) => l.lane.id === laneId(G.api))!;
     expect(api.counts).toEqual({ epics: 3, issues: 3, outside: 2 });
+  });
+
+  it('shares the available width with the iterations', () => {
+    const v = view({ data: withUnplanned(), availableWidth: 1900 });
+    const w = (1900 - 220) / 6; // 280
+    expect(v.columns).toHaveLength(6);
+    expect(v.columns.every((c) => c.width === w)).toBe(true);
+    expect(v.columns[5].x).toBe(220 + 5 * w);
+    expect(v.width).toBe(1900);
+    expect(placed(v, '&30')!.rect.w).toBe(w - 2 * LAYOUT.inset);
   });
 
   it('can be hidden', () => {
