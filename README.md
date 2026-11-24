@@ -224,4 +224,4 @@ docker-compose.demo.yml  overlay de démo : ajoute le faux GitLab et y branche l
 - [Maquette](docs/mockup.html) : maquette interactive, à ouvrir dans un navigateur.
 - [Charte graphique](docs/style.md) : la charte, transposée des Human Interface Guidelines d'Apple.
 - [Décisions](docs/decisions.md) : les choix d'architecture et les écarts assumés par rapport à la spec.
-- [AGENTS.md](AGENTS.md) : le guide de travail pour les agents et les développeurs. Il couvre les conventions, les pièges GitLab et les invariants métier.
+- [AGENTS.md](AGENTS.md) : le guide de travail pour les agents et les développeurs, en anglais (ADR-33). Il couvre les conventions, les pièges GitLab et les invariants métier.

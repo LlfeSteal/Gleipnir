@@ -1,511 +1,523 @@
 # AGENTS.md — Gleipnir
 
-Ce document sert de référence à tout agent ou développeur qui travaille dans ce dépôt.
+This document is the reference for any agent or developer working in this repository.
 
-- Lisez-le en entier avant de modifier le code.
-- **Tenez-le à jour** (voir « Règles de travail »).
+- Read it in full before changing the code.
+- **Keep it up to date** (see "Working rules").
+- It is written in English, like the code (ADR-33). The user documentation (`README.md`, `docs/`) and the UI are in French: UI texts quoted here stay in French, in quotes, since they are what the tests match.
 
-## Le projet
+## The project
 
-**Gleipnir** affiche les **dépendances** entre les epics et les issues d'un groupe GitLab, sur une frise d'**itérations**. Il est en lecture seule.
+**Gleipnir** shows the **dependencies** between the epics and issues of a GitLab group, on a timeline of **iterations**. It is read only.
 
-- La spec fonctionnelle est `docs/specifications.md`. L'application y porte son nom de travail, « Trame ».
-- La maquette de référence est `docs/mockup.html`.
-- La charte graphique est `docs/style.md`, transposée des HIG Apple.
-- Les choix d'architecture sont dans `docs/decisions.md`.
+- The functional spec is `docs/specifications.md`. The app goes by its working name there, « Trame ».
+- The reference mockup is `docs/mockup.html`.
+- The design guide is `docs/style.md`, adapted from the Apple HIG.
+- Architecture decisions are in `docs/decisions.md`.
 
 **Stack.**
 
-- **Backend** : Go 1.22, **bibliothèque standard uniquement** (module `gleipnir`, `go.mod` sans dépendance).
-  - Le backend lit l'API GraphQL de GitLab avec un jeton serveur `read_api`.
-  - Il applique les règles métier dans `internal/board`.
-  - Il garde le board encodé en mémoire : une synchro complète au démarrage puis toutes les `CACHE_TTL`, et des rafraîchissements ciblés sur les groupes des couloirs actifs (ADR-24).
-  - Il n'a **aucun mode démo** : la démo et les e2e le pointent vers un faux GitLab (ADR-25).
-- **Faux GitLab** (`gitlab-mock/`) : module Go séparé, bibliothèque standard uniquement. Il répond aux seules requêtes GraphQL de Gleipnir avec le jeu de démo. Il n'importe rien de `backend/` et n'est jamais déployé.
-- **Frontend** : React 19, TypeScript 6 et Vite 8, **sans autre dépendance d'exécution** que `react` et `react-dom`.
-  - Le board est dessiné en HTML/CSS.
-  - Les liens sont dans un seul SVG.
-- **Déploiement** : `docker compose`, avec deux images.
-  - Le backend tourne sur Alpine, en utilisateur non-root numérique.
-  - Le frontend tourne sur nginx-unprivileged : il sert le SPA et proxifie `/api/`.
-- **Projets voisins** de même stack et de même charte :
-  - `../Nornir` : Go, GitLab GraphQL, React et `theme.css` ;
-  - `../Odin` : React 19 sans dépendance.
+- **Backend**: Go 1.22, **standard library only** (module `gleipnir`, `go.mod` without dependencies).
+  - The backend reads GitLab's GraphQL API with a server-side `read_api` token.
+  - It applies the business rules in `internal/board`.
+  - It keeps the encoded board in memory: a full sync at startup then every `CACHE_TTL`, and targeted refreshes of the groups of the active lanes (ADR-24).
+  - It has **no demo mode**: the demo and the e2e tests point it at a fake GitLab (ADR-25).
+- **Fake GitLab** (`gitlab-mock/`): a separate Go module, standard library only. It answers only Gleipnir's GraphQL queries, with the demo dataset. It imports nothing from `backend/` and is never deployed.
+- **Frontend**: React 19, TypeScript 6 and Vite 8, **with no runtime dependency** other than `react` and `react-dom`.
+  - The board is drawn in HTML/CSS.
+  - The links are in a single SVG.
+- **Deployment**: `docker compose`, with two images.
+  - The backend runs on Alpine, as a numeric non-root user.
+  - The frontend runs on nginx-unprivileged: it serves the SPA and proxies `/api/`.
+- **Sibling projects** with the same stack and design guide:
+  - `../Nornir`: Go, GitLab GraphQL, React and `theme.css`;
+  - `../Odin`: React 19 without dependencies.
   
-  Avant de réécrire une brique, cherchez si elle existe déjà là-bas.
+  Before rewriting a building block, check whether it already exists there.
 
-## Arborescence
+## Layout
 
 ```
 backend/
-  cmd/server/main.go          serve (signaux, slog, code de sortie) → run(ctx, getenv, logger) : config, serveur, arrêt propre
-  internal/config/            lecture et validation des variables d'environnement
-  internal/gitlab/client.go   doGraphQL + paginate (repris de Nornir), erreurs typées (401 / 404 / Premium / cadence)
+  cmd/server/main.go          serve (signals, slog, exit code) → run(ctx, getenv, logger): config, server, graceful shutdown
+  internal/config/            reads and validates the environment variables
+  internal/gitlab/client.go   doGraphQL + paginate (from Nornir), typed errors (401 / 404 / Premium / cadence)
   internal/gitlab/queries.go  descendantGroups, iterationCadences, iterations, workItems
-  internal/gitlab/structs.go  structures de désérialisation GraphQL
-  internal/board/model.go     modèle JSON servi par GET /api/board (contrat avec le frontend)
-  internal/board/raw.go       entrée de board.Build : les données telles que GitLab les donne
-  internal/board/build.go     raw → Board : groupes, rattachement aux itérations, liens, issues affichées, non planifiés
-  internal/board/merge.go     fusion d'un sous-arbre relu dans les données (MergeScope), portée (NormalizeScope)
-  internal/board/analysis.go  conflits et chemin critique
-  internal/board/demo_fixture_test.go  jeu de la maquette en board.Raw : fixture des tests Go seulement
-  internal/cache/cache.go     board en mémoire : synchro complète périodique (Run), rafraîchissement ciblé (Refresh)
-  internal/api/               handlers GET /api/health et GET /api/board
-gitlab-mock/                  faux GitLab (module gitlab-mock) : démo et e2e, jamais déployé
-  main.go                     PORT, PAGE_SIZE (10 par défaut, pour exercer la pagination), arrêt propre
-  graphql.go                  POST /api/graphql : aiguillage par nom d'opération, pagination, GET /-/health
-  dataset/dataset.go          LE jeu de démo, sémantique et stockable dans un vrai GitLab (noms sans « & », usernames demo-*)
-  render.go                   rendu du jeu en nœuds GraphQL de GitLab (GID, widgets, liens d'un seul côté, lien hors groupe)
-  cmd/seed/                   seeder : écrit le même jeu dans un VRAI GitLab Premium/Ultimate (ADR-27)
-  Dockerfile                  image de la démo (alpine, uid 10001)
+  internal/gitlab/structs.go  GraphQL deserialization structs
+  internal/board/model.go     JSON model served by GET /api/board (the contract with the frontend)
+  internal/board/raw.go       input of board.Build: the data as GitLab gives it
+  internal/board/build.go     raw → Board: groups, iteration placement, links, shown issues, unplanned
+  internal/board/merge.go     merges a re-read subtree into the data (MergeScope), scope (NormalizeScope)
+  internal/board/analysis.go  conflicts and critical path
+  internal/board/demo_fixture_test.go  the mockup dataset as a board.Raw: fixture of the Go tests only
+  internal/cache/cache.go     board in memory: periodic full sync (Run), targeted refresh (Refresh)
+  internal/api/               handlers GET /api/health and GET /api/board
+gitlab-mock/                  fake GitLab (module gitlab-mock): demo and e2e, never deployed
+  main.go                     PORT, PAGE_SIZE (10 by default, to exercise pagination), graceful shutdown
+  graphql.go                  POST /api/graphql: dispatch on the operation name, pagination, GET /-/health
+  dataset/dataset.go          THE demo dataset, semantic and storable in a real GitLab (names without "&", demo-* usernames)
+  render.go                   renders the dataset as GitLab GraphQL nodes (GIDs, widgets, one-sided links, out-of-group link)
+  cmd/seed/                   seeder: writes the same dataset into a REAL Premium/Ultimate GitLab (ADR-27)
+  Dockerfile                  demo image (alpine, uid 10001)
 frontend/
-  index.html                  script de thème inline (avant le premier rendu) — son hash est dans la CSP
-  src/main.tsx, App.tsx       point d'entrée, coquille de l'application (état, préférences)
-  src/api/types.ts            miroir TypeScript de model.go
+  index.html                  inline theme script (before the first render) — its hash is in the CSP
+  src/main.tsx, App.tsx       entry point, app shell (state, preferences)
+  src/api/types.ts            TypeScript mirror of model.go
   src/api/client.ts           fetch + ApiError
-  src/board/                  logique pure : types, couloirs, fenêtre, format, mise en page, recherche, liens, statistiques,
-                              share.ts (la vue dans l'URL, ADR-31)
-  src/components/ui/          primitives : Icons, Popover / MenuItem, SearchField, Switch,
+  src/board/                  pure logic: types, lanes, window, format, layout, search, links, stats,
+                              share.ts (the view in the URL, ADR-31)
+  src/components/ui/          primitives: Icons, Popover / MenuItem, SearchField, Switch,
                               Checkbox, SelectList, SegmentedControl, StateViews, AppearanceMenu, CopyLinkButton
-  src/components/board/       le canevas : BoardCanvas, ItemGlyph, LinkSwatch…
-  src/components/             Toolbar, WindowControl, Sidebar (arbre des groupes, filtres), Inspector, SummaryLine
+  src/components/board/       the canvas: BoardCanvas, ItemGlyph, LinkSwatch…
+  src/components/             Toolbar, WindowControl, Sidebar (group tree, filters), Inspector, SummaryLine
   src/hooks/                  useAppearance, usePreferences (useStoredState), useBoard
-  src/strings/                textes de l'interface (ui.ts, board.ts, app.ts, réexportés par index.ts)
-  src/styles/                 theme.css (jetons + contrôles), board.css (canevas), app.css (coquille)
-  src/test/                   setup Vitest (jsdom), media.ts (matchMedia)
-  e2e/                        tests Playwright (*.spec.ts : faux GitLab ; *.live.spec.ts : @live)
-  nginx.conf.template         nginx de l'image : SPA, gzip, proxy /api, cache, en-têtes de sécurité
-docs/                         specifications.md, mockup.html, style.md, decisions.md
-docker-compose.yml            projet compose « gleipnir » : backend + frontend
-docker-compose.demo.yml       overlay de démo : service gitlab-mock, backend branché dessus avec le jeton de démo
-.env / .env.example           configuration (.env n'est jamais commité)
-README.md                     documentation utilisateur
-CLAUDE.md                     importe ce fichier
+  src/strings/                UI texts (ui.ts, board.ts, app.ts, re-exported by index.ts)
+  src/styles/                 theme.css (tokens + controls), board.css (canvas), app.css (shell)
+  src/test/                   Vitest setup (jsdom), media.ts (matchMedia)
+  e2e/                        Playwright tests (*.spec.ts: fake GitLab; *.live.spec.ts: @live)
+  nginx.conf.template         the image's nginx: SPA, gzip, /api proxy, caching, security headers
+docs/                         specifications.md, mockup.html, style.md, decisions.md (in French)
+docker-compose.yml            compose project "gleipnir": backend + frontend
+docker-compose.demo.yml       demo overlay: gitlab-mock service, backend wired to it with the demo token
+.env / .env.example           configuration (.env is never committed)
+README.md                     user documentation (in French)
+CLAUDE.md                     imports this file
 ```
 
-## Commandes
+## Commands
 
 ```bash
 # Backend
 cd backend && gofmt -l . && go vet ./... && go test -race ./...
-cd backend && go test -coverprofile=cover.out ./... && go tool cover -func=cover.out | tail -1   # couverture (≥ 90 %)
-cd gitlab-mock && PORT=8082 GITLAB_MOCK_TOKEN=DEMO-JETON-TEST go run .   # faux GitLab, puis :
-cd backend && GITLAB_URL=http://localhost:8082 GITLAB_GROUP=plateforme/atlas GITLAB_TOKEN=DEMO-JETON-TEST go run ./cmd/server   # démo, http://localhost:8080
-cd backend && (set -a; . ../.env; set +a; go run ./cmd/server)     # vrai GitLab : le backend ne lit pas .env lui-même
+cd backend && go test -coverprofile=cover.out ./... && go tool cover -func=cover.out | tail -1   # coverage (≥ 90 %)
+cd gitlab-mock && PORT=8082 GITLAB_MOCK_TOKEN=DEMO-JETON-TEST go run .   # fake GitLab, then:
+cd backend && GITLAB_URL=http://localhost:8082 GITLAB_GROUP=plateforme/atlas GITLAB_TOKEN=DEMO-JETON-TEST go run ./cmd/server   # demo, http://localhost:8080
+cd backend && (set -a; . ../.env; set +a; go run ./cmd/server)     # real GitLab: the backend does not read .env itself
 
-# Seeder : remplir un vrai GitLab (Premium/Ultimate) avec le jeu de démo — dry-run par défaut
-cd gitlab-mock && SEED_URL=https://gitlab.interne SEED_TOKEN=… SEED_GROUP=demo/gleipnir go run ./cmd/seed          # lit et affiche le plan
-cd gitlab-mock && SEED_URL=https://gitlab.interne SEED_TOKEN=… SEED_GROUP=demo/gleipnir go run ./cmd/seed -apply   # écrit (idempotent)
+# Seeder: fill a real GitLab (Premium/Ultimate) with the demo dataset — dry run by default
+cd gitlab-mock && SEED_URL=https://gitlab.interne SEED_TOKEN=… SEED_GROUP=demo/gleipnir go run ./cmd/seed          # reads and prints the plan
+cd gitlab-mock && SEED_URL=https://gitlab.interne SEED_TOKEN=… SEED_GROUP=demo/gleipnir go run ./cmd/seed -apply   # writes (idempotent)
 
-# Faux GitLab
+# Fake GitLab
 cd gitlab-mock && gofmt -l . && go vet ./... && go test -race ./...
-cd gitlab-mock && go test -coverprofile=cover.out ./... && go tool cover -func=cover.out | tail -1   # couverture (≥ 90 %)
+cd gitlab-mock && go test -coverprofile=cover.out ./... && go tool cover -func=cover.out | tail -1   # coverage (≥ 90 %)
 
 # Frontend
 cd frontend && npm run build          # tsc -b + vite build
-cd frontend && npm test               # Vitest : logique (node) et composants (jsdom)
-cd frontend && npm run test:coverage  # idem, avec la couverture : échoue sous 90 % de lignes ou de fonctions
-cd frontend && npx vitest run src/board/window.test.ts   # un fichier
-cd frontend && npm run dev            # http://localhost:5173, proxy /api → GLEIPNIR_API_URL (défaut localhost:8080)
+cd frontend && npm test               # Vitest: logic (node) and components (jsdom)
+cd frontend && npm run test:coverage  # same, with coverage: fails below 90 % of lines or functions
+cd frontend && npx vitest run src/board/window.test.ts   # one file
+cd frontend && npm run dev            # http://localhost:5173, proxy /api → GLEIPNIR_API_URL (default localhost:8080)
 
-# Bout en bout (Playwright)
-cd frontend && npx playwright install chromium   # une fois par conteneur
-cd frontend && npm run test:e2e       # tout sauf @live : démarre le faux GitLab (8082), le backend (8081) et Vite (5174)
-cd frontend && E2E_MOCK_PORT=8094 E2E_API_PORT=8093 E2E_WEB_PORT=5193 npm run test:e2e   # sur d'autres ports, en parallèle d'une autre suite
-cd frontend && npm run test:e2e:gitlab-like   # la même suite, faux GitLab numéroté comme un GitLab rempli par le seeder (&1 partout), racine demo/gleipnir
-cd frontend && BASE_URL=http://localhost npm run test:e2e        # la suite de démo sur une pile docker branchée sur un GitLab rempli par le seeder
-cd frontend && BASE_URL=http://localhost npm run test:e2e:live   # @live, contre la pile docker sur un vrai GitLab
+# End to end (Playwright)
+cd frontend && npx playwright install chromium   # once per container
+cd frontend && npm run test:e2e       # everything but @live: starts the fake GitLab (8082), the backend (8081) and Vite (5174)
+cd frontend && E2E_MOCK_PORT=8094 E2E_API_PORT=8093 E2E_WEB_PORT=5193 npm run test:e2e   # on other ports, alongside another suite
+cd frontend && npm run test:e2e:gitlab-like   # the same suite, fake GitLab numbered like a GitLab filled by the seeder (&1 everywhere), root demo/gleipnir
+cd frontend && BASE_URL=http://localhost npm run test:e2e        # the demo suite on a docker stack wired to a GitLab filled by the seeder
+cd frontend && BASE_URL=http://localhost npm run test:e2e:live   # @live, against the docker stack on a real GitLab
 
 # Docker
-docker compose up -d --build                     # vrai GitLab, .env requis — http://localhost
-docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build   # démo (faux GitLab), sans .env
-docker compose -f docker-compose.yml -f docker-compose.demo.yml config          # valide l'overlay
-docker compose config                            # valide le compose
-docker compose down --remove-orphans            # --remove-orphans : arrête aussi le faux GitLab d'une démo
+docker compose up -d --build                     # real GitLab, .env required — http://localhost
+docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build   # demo (fake GitLab), no .env
+docker compose -f docker-compose.yml -f docker-compose.demo.yml config          # validates the overlay
+docker compose config                            # validates the compose file
+docker compose down --remove-orphans            # --remove-orphans: also stops a demo's fake GitLab
 ```
 
 ## Configuration
 
-Toutes les variables sont lues par le backend, via `internal/config`.
+Every variable is read by the backend, through `internal/config`.
 
-| Variable | Rôle |
+| Variable | Role |
 |---|---|
-| `GITLAB_URL` | Instance GitLab. Défaut : `https://gitlab.com`. |
-| `GITLAB_TOKEN` | Jeton `read_api`. Il n'est jamais journalisé ni renvoyé par l'API. Le backend démarre sans jeton (avertissement), mais GitLab répondra 401 sur un groupe privé. Avec un jeton, un `GITLAB_URL` en `http://` hors loopback donne un avertissement : le jeton circule en clair. |
-| `GITLAB_GROUP` | Chemin complet du groupe racine. **Obligatoire** : sans lui, le backend refuse de démarrer. |
-| `GITLAB_CADENCE` | Cadence d'itérations, par titre ou par id. Défaut : celle qui contient l'itération en cours. |
-| `PORT` | Port du backend, 8080 par défaut. À ne pas changer sous compose : nginx proxifie vers `backend:8080` et le healthcheck vise 8080. |
-| `CACHE_TTL` | Durée Go, `5m` par défaut : délai entre la fin d'une synchro complète et le début de la suivante. |
-| `GLEIPNIR_DEMO` | **Supprimée** (ADR-25). Si elle est encore définie : avertissement, et sans `GITLAB_GROUP`, l'erreur de démarrage renvoie vers `docker-compose.demo.yml`. |
-| `TZ` | Fuseau horaire. Il décide de l'itération en cours. Compose le règle par défaut à `Europe/Paris` et l'image embarque `tzdata`. |
-| `GLEIPNIR_PORT` | Compose uniquement : port de l'hôte qui publie le frontend, 80 par défaut. |
-| `GLEIPNIR_DEMO_TOKEN` | Overlay de démo uniquement : jeton envoyé par le backend et exigé par le faux GitLab, `DEMO-JETON-TEST` par défaut. |
-| `GITLAB_MOCK_TOKEN` | Faux GitLab uniquement, **obligatoire** : le jeton exigé (`Authorization: Bearer` ou `PRIVATE-TOKEN`). Tout autre jeton reçoit un 401, comme sur GitLab. |
-| `GLEIPNIR_BACKEND_URL` | Image frontend uniquement : cible du proxy `/api/`, `http://backend:8080` par défaut. |
+| `GITLAB_URL` | GitLab instance. Default: `https://gitlab.com`. |
+| `GITLAB_TOKEN` | `read_api` token. Never logged nor returned by the API. The backend starts without a token (warning), but GitLab answers 401 on a private group. With a token, a `GITLAB_URL` in `http://` outside loopback gives a warning: the token travels in clear. |
+| `GITLAB_GROUP` | Full path of the root group. **Required**: without it, the backend refuses to start. |
+| `GITLAB_CADENCE` | Iteration cadence, by title or by id. Default: the one holding the current iteration. |
+| `PORT` | Backend port, 8080 by default. Do not change it under compose: nginx proxies to `backend:8080` and the healthcheck targets 8080. |
+| `CACHE_TTL` | Go duration, `5m` by default: the delay between the end of a full sync and the start of the next. |
+| `GLEIPNIR_DEMO` | **Removed** (ADR-25). If still set: a warning, and without `GITLAB_GROUP`, the startup error points to `docker-compose.demo.yml`. |
+| `TZ` | Time zone. It decides the current iteration. Compose sets it to `Europe/Paris` by default and the image ships `tzdata`. |
+| `GLEIPNIR_PORT` | Compose only: the host port publishing the frontend, 80 by default. |
+| `GLEIPNIR_DEMO_TOKEN` | Demo overlay only: the token sent by the backend and required by the fake GitLab, `DEMO-JETON-TEST` by default. |
+| `GITLAB_MOCK_TOKEN` | Fake GitLab only, **required**: the token it expects (`Authorization: Bearer` or `PRIVATE-TOKEN`). Any other token gets a 401, as on GitLab. |
+| `GLEIPNIR_BACKEND_URL` | Frontend image only: target of the `/api/` proxy, `http://backend:8080` by default. |
 
 **Compose.**
 
-- `env_file` est **optionnel** (`required: false`).
-- `TZ` passe par `environment`, interpolé depuis le shell puis depuis `.env` : le shell gagne.
-- **Overlay de démo** (`docker-compose.demo.yml`) : il ajoute `gitlab-mock` (aucun port publié) et impose au backend `GITLAB_URL=http://gitlab-mock:8080`, `GITLAB_GROUP=plateforme/atlas`, `GITLAB_CADENCE=""` et **`GITLAB_TOKEN=${GLEIPNIR_DEMO_TOKEN:-DEMO-JETON-TEST}`**, la même valeur que le `GITLAB_MOCK_TOKEN` du faux GitLab. `environment` l'emporte sur `env_file` : le jeton du `.env` n'atteint jamais le faux GitLab. Le backend avertit que le jeton circule en `http://` : c'est attendu, il est factice.
-- Après une modification de `.env` : `docker compose up -d --force-recreate backend`, puis `docker compose up -d`.
+- `env_file` is **optional** (`required: false`).
+- `TZ` goes through `environment`, interpolated from the shell then from `.env`: the shell wins.
+- **Demo overlay** (`docker-compose.demo.yml`): it adds `gitlab-mock` (no published port) and forces on the backend `GITLAB_URL=http://gitlab-mock:8080`, `GITLAB_GROUP=plateforme/atlas`, `GITLAB_CADENCE=""` and **`GITLAB_TOKEN=${GLEIPNIR_DEMO_TOKEN:-DEMO-JETON-TEST}`**, the same value as the fake GitLab's `GITLAB_MOCK_TOKEN`. `environment` wins over `env_file`: the `.env` token never reaches the fake GitLab. The backend warns that the token travels over `http://`: expected, it is a dummy.
+- After changing `.env`: `docker compose up -d --force-recreate backend`, then `docker compose up -d`.
 
-## API backend
+## Backend API
 
-- `GET /api/health` → `{"status":"ok","gitlabUrl":"…","group":"…"}`. Jamais de jeton. Le healthcheck Docker s'en sert.
-- `GET /api/board` → le `Board` de `internal/board/model.go`, déjà normalisé. Le frontend ne fait que la mise en page.
-  - **Paramètres** : `?refresh=1&groups=a/b,a/c` relit les work items des sous-arbres de ces groupes, les fusionne dans le board, puis le sert (ADR-24).
-    - Les groupes inconnus sont ignorés ; sans groupe connu, la réponse est 400 `invalid_scope`.
-    - Si tous ces groupes ont été relus depuis moins de 10 s, le cache répond (ADR-20).
-    - Aucune requête ne lance de synchro complète, sauf quand le backend n'a encore aucune donnée.
-  - **Données par groupe** : `groups[].id` est le GID du groupe (`gid://gitlab/Group/N`) : l'URL d'une vue désigne les groupes par son dernier segment (ADR-31). `groups[].syncedAt` (RFC 3339) dit quand les éléments du groupe ont été lus. Le « Mis à jour il y a… » de la barre d'outils est la plus ancienne de ces dates parmi les groupes des couloirs actifs (`scopeSyncedAt`).
-  - **En-têtes** :
-    - `X-Fetched-At` (RFC 3339) : la lecture la plus ancienne parmi les groupes du board.
-    - `X-Cache` : `HIT` (servi depuis le cache) ou `MISS` (lu pour cette requête).
-- **Erreurs** : corps `{"error": "message", "code": "…"}`. Le frontend choisit son message à partir de `code`, jamais de `error`.
+- `GET /api/health` → `{"status":"ok","gitlabUrl":"…","group":"…"}`. Never a token. The Docker healthcheck uses it.
+- `GET /api/board` → the `Board` of `internal/board/model.go`, already normalized. The frontend only does the layout.
+  - **Parameters**: `?refresh=1&groups=a/b,a/c` re-reads the work items of these groups' subtrees, merges them into the board, then serves it (ADR-24).
+    - Unknown groups are ignored; without a known group, the answer is 400 `invalid_scope`.
+    - If all these groups were read less than 10 s ago, the cache answers (ADR-20).
+    - No request starts a full sync, except when the backend has no data yet.
+  - **Per-group data**: `groups[].id` is the group's GID (`gid://gitlab/Group/N`): the URL of a view names groups by its last segment (ADR-31). `groups[].syncedAt` (RFC 3339) says when the group's items were read. The toolbar's « Mis à jour il y a… » is the oldest of these dates among the groups of the active lanes (`scopeSyncedAt`).
+  - **Headers**:
+    - `X-Fetched-At` (RFC 3339): the oldest read among the board's groups.
+    - `X-Cache`: `HIT` (served from the cache) or `MISS` (read for this request).
+- **Errors**: body `{"error": "message", "code": "…"}`. The frontend picks its message from `code`, never from `error`.
 
   | `code` | HTTP | Cause |
   |---|---|---|
-  | `unauthorized` | 401 | Jeton refusé par GitLab, ou sans la portée `read_api` (403 `insufficient_scope`) |
-  | `group_not_found` | 404 | Groupe absent ou invisible pour le jeton |
-  | `premium_required` | 502 | Epics, itérations ou liens « bloque » indisponibles : édition Free |
-  | `cadence_not_found` | 502 | `GITLAB_CADENCE` introuvable, ou aucune cadence |
-  | `invalid_scope` | 400 | `?refresh=1` sans groupe connu dans `groups` |
-  | `gitlab_unreachable` | 502 | GitLab ne répond pas, ou répond une erreur inattendue |
+  | `unauthorized` | 401 | Token refused by GitLab, or without the `read_api` scope (403 `insufficient_scope`) |
+  | `group_not_found` | 404 | Group missing or invisible to the token |
+  | `premium_required` | 502 | Epics, iterations or "blocks" links unavailable: Free edition |
+  | `cadence_not_found` | 502 | `GITLAB_CADENCE` not found, or no cadence |
+  | `invalid_scope` | 400 | `?refresh=1` without a known group in `groups` |
+  | `gitlab_unreachable` | 502 | GitLab does not answer, or answers an unexpected error |
   | `internal` | 500 | Bug |
 
-- **Cache** (`internal/cache`, ADR-24) :
-  - il garde les données brutes (`board.Raw`), le board **encodé** et, par groupe, l'heure de début de la lecture dont viennent ses éléments ;
-  - **synchro complète** (`Run`) : au démarrage, puis `CACHE_TTL` après la fin de la précédente. Le board en cache reste servi pendant ce temps. En cas d'échec, l'ancien board reste servi ;
-  - **rafraîchissement ciblé** (`Refresh`) : il relit les sous-arbres demandés, jusqu'à 4 en parallèle (`gitlab.FetchItems`), les fusionne (`board.MergeScope`), puis reconstruit et réencode le board entier ;
-  - une synchro complète et un rafraîchissement peuvent se croiser : pour chaque groupe, la lecture **commencée le plus tard** l'emporte. La fusion et l'encodage se font sous le verrou ;
-  - une seule synchro complète à la fois ; les rafraîchissements de même portée partagent leur lecture ;
-  - les lectures tournent sur leur propre contexte, avec un délai maximal, et non sur celui de la requête : un onglet fermé ne les gaspille pas ;
-  - les erreurs ne sont pas mises en cache ;
-  - **intervalle minimal de 10 s par groupe** (`MinRefresh`, ADR-20), compté depuis la fin de la lecture ;
-  - plus de purge après 24 h : l'âge de chaque groupe est affiché.
-- **Client GitLab** : une réponse est limitée à 64 Mo et un parcours à 1 000 pages ; au-delà, la synchro échoue (`gitlab_unreachable`).
-- **En-têtes** : toutes les réponses de l'API portent `X-Content-Type-Options: nosniff` et `Cache-Control: no-store`.
-- **nginx** :
-  - il compresse le JSON en gzip ;
-  - il attend le backend jusqu'à 300 s (`proxy_read_timeout`, pour une synchro à froid) ;
-  - il échoue en 5 s si le backend est arrêté (`proxy_connect_timeout`).
+- **Cache** (`internal/cache`, ADR-24):
+  - it keeps the raw data (`board.Raw`), the **encoded** board and, per group, the start time of the read its items come from;
+  - **full sync** (`Run`): at startup, then `CACHE_TTL` after the end of the previous one. The cached board keeps being served meanwhile. On failure, the old board keeps being served;
+  - **targeted refresh** (`Refresh`): it re-reads the requested subtrees, up to 4 in parallel (`gitlab.FetchItems`), merges them (`board.MergeScope`), then rebuilds and re-encodes the whole board;
+  - a full sync and a refresh may overlap: for each group, the read **started last** wins. Merging and encoding happen under the lock;
+  - one full sync at a time; refreshes of the same scope share their read;
+  - reads run on their own context, with a deadline, not on the request's: a closed tab does not waste them;
+  - errors are not cached;
+  - **minimum interval of 10 s per group** (`MinRefresh`, ADR-20), counted from the end of the read;
+  - no more purge after 24 h: each group's age is shown.
+- **GitLab client**: a response is capped at 64 MB and a walk at 1,000 pages; beyond that, the sync fails (`gitlab_unreachable`).
+- **Headers**: every API response carries `X-Content-Type-Options: nosniff` and `Cache-Control: no-store`.
+- **nginx**:
+  - it gzips JSON;
+  - it waits for the backend up to 300 s (`proxy_read_timeout`, for a cold sync);
+  - it fails within 5 s if the backend is down (`proxy_connect_timeout`).
 
-## Pièges du GraphQL GitLab
+## GitLab GraphQL pitfalls
 
-La plupart viennent de Nornir, où ils ont été appris à la dure.
+Most come from Nornir, where they were learned the hard way.
 
-- **Widgets** : on les distingue par **`__typename`** (`WorkItemWidgetHierarchy`, `WorkItemWidgetIteration`, `WorkItemWidgetStartAndDueDate`, `WorkItemWidgetLinkedItems`…). Le champ `type` renvoie une valeur d'énumération (`HIERARCHY`…) : ne pas s'en servir pour discriminer.
-- **`includeDescendants: true`** : `group.workItems` en a besoin pour inclure les issues des projets et des sous-groupes.
-- **Pagination** : `after` doit valoir **`null`**, pas `""`, à la première page.
-- **Erreurs GraphQL** : elles arrivent en **HTTP 200**, dans `errors[]`. Il faut les détecter dans le corps, puis les traduire en erreurs typées. Exemples : un champ Premium absent du schéma donne `ErrPremiumRequired` ; un groupe `null` donne `ErrGroupNotFound`.
-- **Liens** : ils viennent de `WorkItemWidgetLinkedItems`, interrogé **trois fois avec des alias** et un filtre chacun : `blocks: linkedItems(filter: BLOCKS)`, `blockedBy: linkedItems(filter: BLOCKED_BY)` et `related: linkedItems(filter: RELATED)`.
-  - Avec ces filtres, le champ `linkType` est inutile.
-  - Les deux sens d'un même lien reviennent : `board.Build` les normalise.
-  - Un élément lié peut se trouver **hors du groupe** : le lien est alors ignoré.
-  - Au-delà de `first: 100` liens par élément et par sens, les liens sont coupés.
-- **Éléments imbriqués** (`workItem` d'un lien, `parent` de la hiérarchie) : on garde **`onlyTypes`** sur leurs `widgets`, ou on n'y demande que `id`. Sans ce filtre, chaque élément lié ramène ses ~26 widgets.
-- **Édition Premium** : les epics, les itérations, les cadences et les liens « bloque » sont des fonctions **Premium/Ultimate**. Sur une édition Free ou CE, le schéma n'a pas ces types ou ces champs : la requête entière échoue, au lieu de renvoyer une liste vide. Ce cas doit donner `premium_required`, pas une erreur générique.
-- **Namespace** : la place d'un work item vient de `namespace { id fullPath }`.
-  - Pour un **epic**, c'est le groupe (`gid://gitlab/Group/…`).
-  - Pour une **issue**, c'est le **projet** (`gid://gitlab/Namespaces::ProjectNamespace/…`, `fullPath` = chemin du projet). Le groupe de l'issue est ce chemin moins son dernier segment.
-  - Distinguez les deux cas par le GID, pas par la forme du chemin.
-- **Sous-groupes** : `group.descendantGroups` les liste à tous les niveaux, avec pagination. Le groupe racine n'en fait pas partie : il faut l'ajouter.
-- **Dates** : beaucoup d'éléments n'ont pas de dates (`startDate` / `dueDate` à `null`). C'est normal, voir les invariants. Une itération a toujours `startDate` et `dueDate`.
-- **Itérations** : `iterationCadences(includeAncestorGroups: true)`, puis `iterations(iterationCadenceIds: […], includeAncestors: true, sort: CADENCE_AND_DUE_DATE_ASC)`. Une itération de cadence automatique peut ne pas avoir de titre : on affiche alors « Itération {sequence} ».
-- **Groupes trop gros** : gitlab.com répond « Request timed out » sur `workItems` pour les groupes géants (`gitlab-org`). Validez sur un groupe public de taille moyenne.
-- **Validation** : **tout changement de requête doit être validé sur un vrai GitLab**, avec le test `@live` ou un `curl` sur `https://gitlab.com/api/graphql`. Un mock local a déjà accepté un champ qui n'existait pas. Le faux GitLab (`gitlab-mock/`) ne valide pas non plus le schéma : il aiguille sur le nom de l'opération et ignore la sélection de champs. Une nouvelle requête (nom d'opération) doit y être ajoutée, sinon il répond `unsupported query`.
-- **Schéma validé** sur gitlab.com le 2026-11-23, avec des `curl` anonymes et le test `live`, sur `gitlab-org/security-products` et `gitlab-org/ruby` :
-  - **Énumérations** : le filtre des liens est de type `WorkItemRelatedLinkType` (`RELATED`, `BLOCKED_BY`, `BLOCKS`). `types: [EPIC, ISSUE]` est de type `IssueType`.
-  - **Variable de cadence** : `$cadenceId` doit être typée **`IterationsCadenceID!`**.
-  - **Itération en cours** : `iterations(timeframe: {start, end})` inclut ses bornes. On s'en sert pour trouver la cadence qui contient aujourd'hui. On n'utilise pas `state: current`, mis à jour par un job quotidien.
-  - **`widgets(onlyTypes: [...])`** sur les work items : sans ce filtre, chaque élément ramène ~35 widgets.
-  - **Complexité** : une page de 100 work items coûte environ 86, pour une limite anonyme de 200 ; comptez 3 à 8 s par page.
-- **Introspection** : gitlab.com répond à **toute** introspection, même `__type(name:…)`, par le `__schema` complet (~8,8 Mo). Sauvegardez-le, puis cherchez dedans avec `jq`.
-- **Dates d'itération** : elles sont typées `Time`, mais gitlab.com envoie « YYYY-MM-DD ». Le client ne garde que les 10 premiers caractères.
-- **Titres** :
-  - les itérations de cadence automatique ont `title: null` ;
-  - les titres de cadence peuvent porter des espaces parasites (« AI Engineering ») : le client les supprime.
-- **GID** :
-  - cadence : `gid://gitlab/Iterations::Cadence/N` ;
-  - itération : `gid://gitlab/Iteration/N`.
-  - `GITLAB_CADENCE` accepte le titre (sans tenir compte de la casse), le GID complet ou son numéro.
-- **`webUrl` des work items** : `…/-/work_items/N`, issues comprises. Pour les epics, c'est `/groups/…/-/work_items/N`.
-- **Élément lié invisible** : son `workItem` peut être `null` quand le jeton ne le voit pas. Le lien est alors ignoré.
-- **Erreurs Premium**, reconnues par `isPremiumError` :
-  - sur un groupe Free de gitlab.com : « The resource that you are attempting to access does not exist or you don't have permission… », sur le chemin `["group","iterationCadences"]` ;
-  - certains groupes renvoient simplement `nodes: []`, qui devient `ErrNoCadence` ;
-  - sur CE ou sans licence : « Field 'X' doesn't exist on type 'Group' », « No such type WorkItemWidgetLinkedItems… », « Argument 'types' on Field 'workItems' has an invalid value », « IterationsCadenceID isn't a defined input type ».
-  - Ces derniers messages ont été reconstitués à partir de vraies erreurs de gitlab.com : ils n'ont pas été observés sur une instance CE.
-- **Limite de débit anonyme** de gitlab.com : quelques parcours complets suffisent à recevoir des HTTP 429 pendant environ 30 min. Pour des tests live répétés, utilisez un jeton. Une 429 devient `gitlab_unreachable` (message « rate limited », avec le `Retry-After`), sans nouvel essai.
-- **Écriture (seeder, `gitlab-mock/cmd/seed`)** :
-  - **Noms** : les groupes et projets n'acceptent que lettres, chiffres, emoji, `_`, `.`, `(`, `)`, `-` et espaces. Pas de « & » : le jeu de démo dit « API et intégrations ».
-  - **Work items** : `workItemCreate(namespacePath, workItemTypeId, …Widget)` crée epics (dans un groupe) et issues (dans un projet). Les GID de type viennent de `namespace.workItemTypes`. L'état se change par `workItemUpdate(stateEvent: CLOSE | REOPEN)`, les dates d'epic par `startAndDueDateWidget { isFixed: true … }`.
-  - **Liens** : `workItemAddLinkedItems(linkType: BLOCKS | RELATED)`. Un lien n'existe qu'une fois et se lit des deux côtés.
-  - **Itérations titrées avec un trou** : seule une cadence **manuelle** (`automatic: false`) le permet ; `iterationCreate` prend des dates `String`. GitLab refuse deux itérations qui se chevauchent : pour décaler, déplacer la dernière d'abord en avançant, la première d'abord en reculant.
-  - **Labels** : `labelCreate` ne fixe pas de couleur après coup (`labelUpdate` n'a que `archived`) : le recoloriage passe par REST `PUT /groups/:id/labels/:label_id`.
-  - **Groupes imbriqués** : `Group.Slug` peut contenir un `/` (`api/partenaires`) ; le seeder crée le groupe sous son parent (`parent_id`), qui le précède dans `Dataset.Groups`.
-  - **Utilisateurs** : seul un admin peut en créer (`POST /users`). Un assigné doit être membre : le seeder ajoute les `demo-*` en Reporter du groupe cible.
-  - Les mutations `workItem*` sont marquées « Experiment » dans le schéma : elles peuvent changer d'une version à l'autre.
-  - **Non validé en live** (2026-11-24) : noms, arguments et types vérifiés sur l'introspection de gitlab.com seulement, faute d'instance Premium en écriture. Premier passage sur une vraie instance : `-apply` puis relancer, la deuxième exécution doit afficher `0 to create`.
-- **Test live Go** : `GITLAB_URL=https://gitlab.com GITLAB_GROUP=gitlab-org/security-products go test -tags live -run Live -v ./internal/gitlab/`.
+- **Widgets**: tell them apart by **`__typename`** (`WorkItemWidgetHierarchy`, `WorkItemWidgetIteration`, `WorkItemWidgetStartAndDueDate`, `WorkItemWidgetLinkedItems`…). The `type` field returns an enum value (`HIERARCHY`…): do not use it to discriminate.
+- **`includeDescendants: true`**: `group.workItems` needs it to include the issues of projects and subgroups.
+- **Pagination**: `after` must be **`null`**, not `""`, on the first page.
+- **GraphQL errors**: they come with **HTTP 200**, in `errors[]`. Detect them in the body, then turn them into typed errors. Examples: a Premium field missing from the schema gives `ErrPremiumRequired`; a `null` group gives `ErrGroupNotFound`.
+- **Links**: they come from `WorkItemWidgetLinkedItems`, queried **three times with aliases**, one filter each: `blocks: linkedItems(filter: BLOCKS)`, `blockedBy: linkedItems(filter: BLOCKED_BY)` and `related: linkedItems(filter: RELATED)`.
+  - With these filters, the `linkType` field is useless.
+  - Both directions of a link come back: `board.Build` normalizes them.
+  - A linked item may be **outside the group**: the link is then ignored.
+  - Beyond `first: 100` links per item and per direction, links are cut.
+- **Nested items** (a link's `workItem`, the hierarchy's `parent`): keep **`onlyTypes`** on their `widgets`, or ask for `id` only. Without that filter, each linked item brings its ~26 widgets.
+- **Premium edition**: epics, iterations, cadences and "blocks" links are **Premium/Ultimate** features. On a Free or CE edition, the schema lacks these types or fields: the whole query fails instead of returning an empty list. That case must give `premium_required`, not a generic error.
+- **Namespace**: a work item's place comes from `namespace { id fullPath }`.
+  - For an **epic**, it is the group (`gid://gitlab/Group/…`).
+  - For an **issue**, it is the **project** (`gid://gitlab/Namespaces::ProjectNamespace/…`, `fullPath` = the project's path). The issue's group is that path minus its last segment.
+  - Tell the two cases apart by the GID, not by the shape of the path.
+- **Subgroups**: `group.descendantGroups` lists them at every level, with pagination. The root group is not among them: add it.
+- **Dates**: many items have no dates (`startDate` / `dueDate` `null`). That is normal, see the invariants. An iteration always has `startDate` and `dueDate`.
+- **Iterations**: `iterationCadences(includeAncestorGroups: true)`, then `iterations(iterationCadenceIds: […], includeAncestors: true, sort: CADENCE_AND_DUE_DATE_ASC)`. An iteration of an automatic cadence may have no title: « Itération {sequence} » is shown instead.
+- **Groups too large**: gitlab.com answers "Request timed out" on `workItems` for huge groups (`gitlab-org`). Validate on a medium-sized public group.
+- **Validation**: **every query change must be validated on a real GitLab**, with the `@live` test or a `curl` on `https://gitlab.com/api/graphql`. A local mock once accepted a field that did not exist. The fake GitLab (`gitlab-mock/`) does not validate the schema either: it dispatches on the operation name and ignores the field selection. A new query (operation name) must be added to it, otherwise it answers `unsupported query`.
+- **Schema validated** on gitlab.com on 2026-11-23, with anonymous `curl`s and the `live` test, on `gitlab-org/security-products` and `gitlab-org/ruby`:
+  - **Enums**: the link filter has type `WorkItemRelatedLinkType` (`RELATED`, `BLOCKED_BY`, `BLOCKS`). `types: [EPIC, ISSUE]` has type `IssueType`.
+  - **Cadence variable**: `$cadenceId` must be typed **`IterationsCadenceID!`**.
+  - **Current iteration**: `iterations(timeframe: {start, end})` includes its bounds. It is used to find the cadence that holds today. `state: current` is not used: a daily job updates it.
+  - **`widgets(onlyTypes: [...])`** on work items: without that filter, each item brings ~35 widgets.
+  - **Complexity**: a page of 100 work items costs about 86, against an anonymous limit of 200; count 3 to 8 s per page.
+  - **Group ids** (2026-11-24): `group { id }` and `descendantGroups { nodes { id } }` give `gid://gitlab/Group/N`.
+- **Introspection**: gitlab.com answers **any** introspection, even `__type(name:…)`, with the full `__schema` (~8.8 MB). Save it, then search it with `jq`.
+- **Iteration dates**: typed `Time`, but gitlab.com sends "YYYY-MM-DD". The client keeps the first 10 characters only.
+- **Titles**:
+  - iterations of an automatic cadence have `title: null`;
+  - cadence titles may carry stray spaces ("AI Engineering"): the client trims them.
+- **GIDs**:
+  - cadence: `gid://gitlab/Iterations::Cadence/N`;
+  - iteration: `gid://gitlab/Iteration/N`.
+  - `GITLAB_CADENCE` accepts the title (case-insensitive), the full GID or its number.
+- **Work items' `webUrl`**: `…/-/work_items/N`, issues included. For epics, it is `/groups/…/-/work_items/N`.
+- **Invisible linked item**: its `workItem` may be `null` when the token cannot see it. The link is then ignored.
+- **Premium errors**, recognized by `isPremiumError`:
+  - on a Free group of gitlab.com: "The resource that you are attempting to access does not exist or you don't have permission…", on the path `["group","iterationCadences"]`;
+  - some groups simply return `nodes: []`, which becomes `ErrNoCadence`;
+  - on CE or without a license: "Field 'X' doesn't exist on type 'Group'", "No such type WorkItemWidgetLinkedItems…", "Argument 'types' on Field 'workItems' has an invalid value", "IterationsCadenceID isn't a defined input type".
+  - These last messages were rebuilt from real gitlab.com errors: they were not observed on a CE instance.
+- **Anonymous rate limit** of gitlab.com: a few full walks are enough to get HTTP 429s for about 30 min. For repeated live tests, use a token. A 429 becomes `gitlab_unreachable` (message "rate limited", with the `Retry-After`), without retry.
+- **Writing (seeder, `gitlab-mock/cmd/seed`)**:
+  - **Names**: groups and projects accept only letters, digits, emoji, `_`, `.`, `(`, `)`, `-` and spaces. No "&": the demo dataset says « API et intégrations ».
+  - **Work items**: `workItemCreate(namespacePath, workItemTypeId, …Widget)` creates epics (in a group) and issues (in a project). Type GIDs come from `namespace.workItemTypes`. The state changes with `workItemUpdate(stateEvent: CLOSE | REOPEN)`, epic dates with `startAndDueDateWidget { isFixed: true … }`.
+  - **Links**: `workItemAddLinkedItems(linkType: BLOCKS | RELATED)`. A link exists once and reads from both sides.
+  - **Titled iterations with a gap**: only a **manual** cadence (`automatic: false`) allows it; `iterationCreate` takes `String` dates. GitLab refuses two overlapping iterations: to shift them, move the last one first when moving forward, the first one first when moving back.
+  - **Labels**: `labelCreate` does not set a color afterwards (`labelUpdate` only has `archived`): recoloring goes through REST `PUT /groups/:id/labels/:label_id`.
+  - **Nested groups**: `Group.Slug` may hold a `/` (`api/partenaires`); the seeder creates the group under its parent (`parent_id`), which comes before it in `Dataset.Groups`.
+  - **Users**: only an admin can create them (`POST /users`). An assignee must be a member: the seeder adds the `demo-*` users as Reporters of the target group.
+  - The `workItem*` mutations are marked "Experiment" in the schema: they may change from one version to the next.
+  - **Not validated live** (2026-11-24): names, arguments and types checked against gitlab.com's introspection only, for lack of a writable Premium instance. First run on a real instance: `-apply` then run again, the second run must print `0 to create`.
+- **Go live test**: `GITLAB_URL=https://gitlab.com GITLAB_GROUP=gitlab-org/security-products go test -tags live -run Live -v ./internal/gitlab/`.
 
-## Invariants métier
+## Business invariants
 
-Ils sont dans `internal/board`. Tous sont couverts par des tests table par table : un changement de comportement s'accompagne d'un test.
+They live in `internal/board`. All are covered by table-driven tests: a behavior change comes with a test.
 
-1. **Identité** : un élément est identifié par le **GID de son work item** (`gid://gitlab/WorkItem/…`), partout : `Link.source/target`, `parentEpic`, `blocksEpics`, `criticalPath` et les clés côté frontend.
-   - Les références `&18` / `#110` servent **à l'affichage seulement** : les IID d'issues se répètent d'un projet à l'autre.
-2. **Issues affichées** (§5.1) : une issue est gardée si elle a au moins un lien `blocks` **vers un epic** du jeu de données.
-   - Les autres sont seulement comptées (`ignoredIssues`).
-   - Elles servent quand même au calcul des dates héritées des epics (invariant 4).
-   - `blocksEpics` n'est jamais vide.
-3. **Groupe d'un élément** (§5.3) :
-   - epic : le groupe qui le porte ;
-   - issue : le namespace de son projet moins le dernier segment.
-4. **Rattachement d'un epic aux itérations** (§5.2). Les itérations sont triées par date de début ; `start` et `end` sont des index inclusifs.
-   - **Début** : l'itération qui contient la date de début. Si la date tombe entre deux itérations, la **suivante**.
-   - **Fin** : l'itération qui contient la date de fin. Si la date tombe entre deux itérations, la **précédente**.
-   - **Sans dates** : le min et le max des itérations de ses issues enfants, toutes issues confondues (pas seulement celles affichées). L'epic porte alors `datesFromChildren`.
-   - **Sinon** : `unplanned`, avec `start` et `end` à `null`.
-   - Cas limites : voir l'ADR-19 dans `docs/decisions.md`.
-5. **Itération en cours** : celle qui contient « aujourd'hui », selon une **horloge injectée** (`Build(raw, now)`) et `TZ`. `current` vaut -1 quand aucune itération ne contient la date. Les dates d'itération sont inclusives.
-6. **Normalisation des liens** (§5.4) :
-   - `blocks` et `is_blocked_by` donnent **un seul** lien orienté, bloquant → bloqué, sans doublon ;
-   - `relates` est rangé par paire triée (`source < target`), sans doublon ;
-   - `parent` va de l'epic parent vers l'issue ;
-   - un lien dont une extrémité est hors du jeu de données, ou non affichée, est ignoré.
-7. **Conflit** : un lien `blocks` dont le bloqueur est **ouvert** et finit dans une itération **strictement postérieure** à l'itération de début de l'élément bloqué.
-   - Même itération : pas de conflit.
-   - Bloqueur fermé : jamais de conflit.
-   - Élément non planifié d'un côté ou de l'autre : pas de conflit.
-   - La fin d'un epic est `end`, son début `start` ; pour une issue, c'est son itération.
-8. **Chemin critique** : la plus longue chaîne de liens `blocks` entre éléments **ouverts**, dans le graphe orienté.
-   - Les cycles sont détectés, cassés et signalés dans les logs.
-   - À longueur égale, on garde la chaîne qui finit le plus tard, puis celle qui commence le plus tôt, puis la plus petite liste d'IDs.
-   - `criticalPath` liste les IDs, du premier bloqueur au dernier bloqué ; il est vide sans lien « bloque ».
-9. **Non planifié** : un epic sans dates ni enfant planifié, ou une issue affichée sans itération de la cadence. Le frontend les montre dans la colonne « Non planifié », en fin de board.
-10. **Ordre déterministe** :
-    - itérations par date de début ;
-    - groupes par chemin, racine en tête ;
-    - labels par titre ;
-    - epics, issues et liens dans un ordre stable.
+1. **Identity**: an item is identified by the **GID of its work item** (`gid://gitlab/WorkItem/…`), everywhere: `Link.source/target`, `parentEpic`, `blocksEpics`, `criticalPath` and the keys on the frontend side.
+   - The `&18` / `#110` references are **for display only**: issue IIDs repeat from one project to the next.
+2. **Shown issues** (§5.1): an issue is kept if it has at least one `blocks` link **to an epic** of the dataset.
+   - The others are only counted (`ignoredIssues`).
+   - They still count for the dates epics inherit (invariant 4).
+   - `blocksEpics` is never empty.
+3. **Group of an item** (§5.3):
+   - epic: the group that holds it;
+   - issue: its project's namespace minus the last segment.
+4. **Placing an epic on the iterations** (§5.2). Iterations are sorted by start date; `start` and `end` are inclusive indexes.
+   - **Start**: the iteration that holds the start date. If the date falls between two iterations, the **next** one.
+   - **End**: the iteration that holds the end date. If the date falls between two iterations, the **previous** one.
+   - **No dates**: the min and max of the iterations of its child issues, all issues counted (not only the shown ones). The epic then carries `datesFromChildren`.
+   - **Otherwise**: `unplanned`, with `start` and `end` set to `null`.
+   - Edge cases: see ADR-19 in `docs/decisions.md`.
+5. **Current iteration**: the one holding "today", according to an **injected clock** (`Build(raw, now)`) and `TZ`. `current` is -1 when no iteration holds the date. Iteration dates are inclusive.
+6. **Link normalization** (§5.4):
+   - `blocks` and `is_blocked_by` give **one** directed link, blocker → blocked, without duplicates;
+   - `relates` is stored as a sorted pair (`source < target`), without duplicates;
+   - `parent` goes from the parent epic to the issue;
+   - a link with an end outside the dataset, or not shown, is ignored.
+7. **Conflict**: a `blocks` link whose blocker is **open** and ends in an iteration **strictly later** than the start iteration of the blocked item.
+   - Same iteration: no conflict.
+   - Closed blocker: never a conflict.
+   - Unplanned item on either side: no conflict.
+   - An epic's end is `end`, its start `start`; for an issue, it is its iteration.
+8. **Critical path**: the longest chain of `blocks` links between **open** items, in the directed graph.
+   - Cycles are detected, broken and reported in the logs.
+   - On equal length, keep the chain that ends last, then the one that starts first, then the smallest list of IDs.
+   - `criticalPath` lists the IDs, from the first blocker to the last blocked; it is empty without a "blocks" link.
+9. **Unplanned**: an epic with neither dates nor a planned child, or a shown issue without an iteration of the cadence. The frontend shows them in the « Non planifié » column, at the end of the board.
+10. **Deterministic order**:
+    - iterations by start date;
+    - groups by path, root first;
+    - labels by title;
+    - epics, issues and links in a stable order.
     
-    **Ne jamais itérer sur une map pour produire une sortie** : la même donnée GitLab doit donner le même JSON.
-11. **Une seule cadence** : les itérations d'autres cadences sont ignorées. Une issue dans une autre cadence est traitée comme sans itération.
-12. **Fusion d'un rafraîchissement ciblé** (`MergeScope`, ADR-24) :
-    - les éléments dont le groupe (invariant 3) est dans la portée sont remplacés par les éléments relus ; un élément relu remplace aussi sa copie hors portée (élément déplacé) ;
-    - les liens des éléments hors portée qui pointent dans la portée sont retirés : le côté relu fait foi ;
-    - un élément sorti de la portée disparaît jusqu'à la lecture de son nouveau groupe ;
-    - `prev` n'est jamais modifié.
+    **Never iterate over a map to produce output**: the same GitLab data must give the same JSON.
+11. **One cadence**: iterations of other cadences are ignored. An issue in another cadence is treated as having no iteration.
+12. **Merging a targeted refresh** (`MergeScope`, ADR-24):
+    - items whose group (invariant 3) is in the scope are replaced by the items read again; an item read again also replaces its copy outside the scope (a moved item);
+    - the links of items outside the scope that point into the scope are removed: the side read again is authoritative;
+    - an item that left the scope disappears until its new group is read;
+    - `prev` is never modified.
 
 ## Frontend
 
-- **Dépendances** : aucune dépendance d'exécution autre que `react` et `react-dom`. Pas de routeur, pas de bibliothèque d'état ou de données : `fetch` et des hooks maison suffisent. N'ajoutez **aucune** dépendance, même de développement, sans décision consignée dans `docs/decisions.md`.
-- **Couleurs** :
-  - Les jetons (noms de `docs/style.md` §2) sont définis **uniquement** dans `src/styles/theme.css`, avec leurs valeurs claires et sombres (`:root[data-theme='dark']`). `board.css` et `app.css` ne font que les utiliser.
-  - **Aucune couleur en dur** dans les composants ni dans le TypeScript. Un composant expose ses états en attributs `data-*` (`data-kind`, `data-closed`, `data-conflict`, `data-lane-color`…), que le CSS traduit en jetons.
-  - Seule exception : la couleur d'un label GitLab, qui est une donnée. Elle passe par la propriété `--label-color` dans un `style` inline.
-- **Couloirs** (ADR-32) : les groupes cochés de l'arbre GitLab (`src/board/lanes.ts` : `groupTree`, `defaultChecked`, `lanesOf`, `laneOf`). **Lecture seule** : aucun couloir ne se crée, ne se renomme ni ne s'édite. Un élément va dans le couloir de son groupe coché le plus proche, et dans aucun autre. Types et labels sont des filtres globaux (`DisplayOptions`).
-- **Couleurs des couloirs** : celle du sous-groupe de premier niveau dont descend le groupe (`laneColor`), stable quand on coche ou décoche. Une palette fixe de jetons de couleurs système Apple (`--lane-indigo`, `--lane-blue`, `--lane-cyan`, `--lane-mint`, `--lane-yellow`, `--lane-orange`, `--lane-pink`, `--lane-brown`). Le CSS les expose par `[data-lane-color='x'] { --lane: … }`.
-  - Pas de rouge : il est réservé aux conflits.
-  - Pas de vert, de violet ni de teal : ils sont pris par d'autres sens (violet = epic, teal = issue).
-- **Textes** : tous les textes de l'interface sont en français et vivent dans `src/strings/` :
-  - `ui.ts` → `UI`, `board.ts` → `BOARD`, `app.ts` → `APP`, tous réexportés par `index.ts` ;
-  - format `export const X = { … } as const` ;
-  - des fonctions pour les pluriels et les textes paramétrés.
+- **Dependencies**: no runtime dependency other than `react` and `react-dom`. No router, no state or data library: `fetch` and home-made hooks are enough. Add **no** dependency, not even a dev one, without a decision recorded in `docs/decisions.md`.
+- **Colors**:
+  - Tokens (names from `docs/style.md` §2) are defined **only** in `src/styles/theme.css`, with their light and dark values (`:root[data-theme='dark']`). `board.css` and `app.css` only use them.
+  - **No hard-coded color** in components nor in TypeScript. A component exposes its states as `data-*` attributes (`data-kind`, `data-closed`, `data-conflict`, `data-lane-color`…), which CSS maps to tokens.
+  - Only exception: a GitLab label's color, which is data. It goes through the `--label-color` property in an inline `style`.
+- **Lanes** (ADR-32): the checked groups of the GitLab group tree (`src/board/lanes.ts`: `groupTree`, `defaultChecked`, `lanesOf`, `laneOf`). **Read only**: no lane is created, renamed or edited. An item goes to the lane of its closest checked group, and to no other. Item types and labels are board-wide filters (`DisplayOptions`).
+- **Lane colors**: the color of the first-level subgroup the group descends from (`laneColor`), stable when groups are checked or unchecked. A fixed palette of Apple system color tokens (`--lane-indigo`, `--lane-blue`, `--lane-cyan`, `--lane-mint`, `--lane-yellow`, `--lane-orange`, `--lane-pink`, `--lane-brown`). CSS exposes them through `[data-lane-color='x'] { --lane: … }`.
+  - No red: it is reserved for conflicts.
+  - No green, purple or teal: they already carry a meaning (purple = epic, teal = issue).
+- **Texts**: every UI text is in French and lives in `src/strings/`:
+  - `ui.ts` → `UI`, `board.ts` → `BOARD`, `app.ts` → `APP`, all re-exported by `index.ts`;
+  - format `export const X = { … } as const`;
+  - functions for plurals and parameterized texts.
   
-  Aucune chaîne visible en dur dans un composant.
-- **Logique** :
-  - La logique pure va dans `src/board/` (couloirs, fenêtre, format, mise en page, liens, statistiques), sans React ni DOM, avec ses tests `*.test.ts`.
-  - Les composants ne calculent pas la mise en page : ils lisent la `BoardView` de `computeBoardView`, mémorisée.
-  - La recherche (`src/board/search.ts`) garde les résultats et toute leur chaîne de dépendances (amont et aval séparés, types de lien cochés) ; les dépendances sont marquées `searchContext` et voilées (ADR-30).
-  - La largeur des colonnes dépend de celle du board : `BoardCanvas` mesure son conteneur de défilement (`ResizeObserver`) et `App` la passe à `computeBoardView` (`availableWidth`). Les largeurs de `LAYOUT` sont des minimums (ADR-29).
-- **CSS** : un fichier par zone.
-  - `theme.css` : jetons et contrôles génériques (`.button`, `.menu`, `.pill`…) ;
-  - `board.css` : le canevas ;
-  - `app.css` : la coquille.
+  No visible string hard-coded in a component.
+- **Logic**:
+  - Pure logic goes in `src/board/` (lanes, window, format, layout, links, stats), without React or DOM, with its `*.test.ts` tests.
+  - Components do not compute the layout: they read the `BoardView` from `computeBoardView`, memoized.
+  - The search (`src/board/search.ts`) keeps the matches and their whole dependency chain (upstream and downstream walked separately, checked link types); the dependencies are flagged `searchContext` and veiled (ADR-30).
+  - Column widths depend on the board's: `BoardCanvas` measures its scroll container (`ResizeObserver`) and `App` passes it to `computeBoardView` (`availableWidth`). `LAYOUT` widths are minimums (ADR-29).
+- **CSS**: one file per area.
+  - `theme.css`: tokens and generic controls (`.button`, `.menu`, `.pill`…);
+  - `board.css`: the canvas;
+  - `app.css`: the shell.
   
-  `main.tsx` importe les trois. Pas de framework CSS ni de police externe : l'application marche hors ligne.
-- **La vue est dans l'URL** (`src/board/share.ts`, ADR-31) : groupes cochés, couloirs repliés, fenêtre, types, labels, options d'affichage, recherche, sélection. Groupes, itérations et éléments y sont désignés par le dernier segment de leur GID.
-  - `App` la lit une fois (`decodeView`), la résout au rendu des premières données (`resolveGroups`, `resolveWindow`, `resolveItem`), puis la réécrit avec `history.replaceState` (`encodeView`, valeurs par défaut omises). L'URL n'est pas touchée avant le chargement du board.
-  - **Rien de la vue n'est sauvegardé** ailleurs : deux onglets, deux vues. Le futur portfolio de vues enregistrées s'appuiera sur ce format.
-  - Le bouton **Copier le lien** (`CopyLinkButton`) écrit toujours la fenêtre (`fixedWindow`). Sur téléphone, il est dans l'en-tête du panneau Filtres : la barre compacte n'a pas la place.
-  - Tout paramètre inconnu ou invalide retombe sur sa valeur par défaut, champ par champ : ajoutez un cas à `share.test.ts` pour tout nouveau paramètre.
-- **Préférences** (`localStorage`, lues avec validation et try/catch partout) : seulement `gleipnir.appearance` et `gleipnir.sidebar`, qui ne disent pas ce qu'on voit.
-- **Thème** :
-  - Le script inline de `index.html` applique l'apparence **avant le premier rendu**, pour éviter un flash. Gardez-le synchronisé avec `resolveScheme` (`src/hooks/useAppearance.ts`).
-  - **Toute modification de ce script change son hash** : recalculez-le et mettez à jour la CSP de `frontend/nginx.conf.template` (voir Sécurité), sinon le script est bloqué en production.
-- **TypeScript** : mode `strict`, `import type` pour les types (`verbatimModuleSyntax`).
-- **Accessibilité** :
-  - tout élément cliquable est un vrai `<button>`, avec `aria-pressed` pour la sélection ;
-  - les boutons-icônes ont un `aria-label` ;
-  - le contrôle segmenté utilise `role="radio"` ;
-  - l'anneau de focus est visible ;
-  - Échap ferme les menus, les pop-ups et l'inspecteur ;
-  - le contraste est d'au moins 4,5:1 ;
-  - les types se distinguent par la forme, pas seulement par la couleur ;
-  - `prefers-reduced-motion` est respecté.
+  `main.tsx` imports all three. No CSS framework and no external font: the app works offline.
+- **The view is in the URL** (`src/board/share.ts`, ADR-31): checked groups, collapsed lanes, window, item types, labels, display options, search, selection. Groups, iterations and items are named there by the last segment of their GID.
+  - `App` reads it once (`decodeView`), resolves it while rendering the first data (`resolveGroups`, `resolveWindow`, `resolveItem`), then rewrites it with `history.replaceState` (`encodeView`, defaults left out). The URL is not touched before the board has loaded.
+  - **Nothing of the view is saved** anywhere else: two tabs, two views. The future portfolio of saved views will build on this format.
+  - The « Copier le lien » button (`CopyLinkButton`) always writes the window (`fixedWindow`). On a phone, it sits in the header of the « Filtres » panel: the compact toolbar has no room.
+  - Any unknown or invalid parameter falls back to its default, field by field: add a case to `share.test.ts` for any new parameter.
+- **Preferences** (`localStorage`, read with validation and try/catch everywhere): only `gleipnir.appearance` and `gleipnir.sidebar`, which do not say what is shown.
+- **Theme**:
+  - The inline script of `index.html` applies the appearance **before the first render**, to avoid a flash. Keep it in sync with `resolveScheme` (`src/hooks/useAppearance.ts`).
+  - **Any change to that script changes its hash**: recompute it and update the CSP in `frontend/nginx.conf.template` (see Security), or the script is blocked in production.
+- **TypeScript**: `strict` mode, `import type` for types (`verbatimModuleSyntax`).
+- **Accessibility**:
+  - every clickable element is a real `<button>`, with `aria-pressed` for selection;
+  - icon buttons have an `aria-label`;
+  - the segmented control uses `role="radio"`;
+  - the focus ring is visible;
+  - Escape closes menus, pop-ups and the inspector;
+  - contrast is at least 4.5:1;
+  - types are told apart by shape, not by color alone;
+  - `prefers-reduced-motion` is honored.
   
-  Les tests sélectionnent par rôle et par libellé.
+  Tests select by role and by label.
 
 ## Tests
 
-- **Couverture** (ADR-23) : au moins **90 % des lignes et 90 % des fonctions**, côté Go comme côté frontend.
-  - Testez les **cas limites** : bornes, valeurs vides ou `null`, doublons, erreurs, ordre des égalités.
-  - Côté frontend, les seuils sont dans `vitest.config.ts` : `npm run test:coverage` échoue en dessous.
-  - Côté Go, `go tool cover -func` donne le total. Une fonction couverte est une fonction à plus de 0 %. Seul `main` reste à 0 %.
-- **Go** : tests table par table.
-  - Les règles métier sont dans `internal/board` : rattachement, liens, conflits, chemin critique avec cycle, non planifiés, ordre.
-  - Le cache se teste avec `-race`.
-  - Le client GitLab et les handlers se testent face à un **faux GitLab `httptest`**.
-  - L'horloge est toujours injectée.
-  - `cmd/server` se teste par `run` et `serve`, sur un port libre. Un test n'envoie SIGTERM au processus qu'**après** que `serve` écoute (`waitHealthy`) : sinon le signal tue le binaire de test.
-- **Vitest** (`vitest.config.ts`, setup `src/test/setup.ts`) :
-  - `src/**/*.test.ts` : la logique pure, en node ;
-  - `src/**/*.test.tsx` : les composants avec Testing Library. Leur **première ligne** est `// @vitest-environment jsdom`.
-  - **Pièges** :
-    - avec `vi.useFakeTimers({ toFake: ['setInterval', …] })`, le `waitFor` de Testing Library ne sonde plus, et `vi.waitFor` avance l'horloge factice à chaque essai. Videz plutôt les promesses avec `await act(async () => {})` ;
-    - React lit un `timeStamp` de 0 comme absent et le remplace par `Date.now()` : un événement simulé part de 1 ;
-    - jsdom n'a pas de `PointerEvent` : un `MouseEvent` auquel on ajoute `pointerId` et `pointerType` le remplace ;
-    - `getByTitle` et `getByText` normalisent les espaces : pour un texte qui commence ou finit par une espace, lisez l'attribut directement.
-    - l'application écrit sa vue dans l'URL : `setup.ts` remet `/` après chaque test. Pour ouvrir l'application sur une vue, `window.history.replaceState(null, '', '/?…')` avant le rendu.
-- **Playwright** (`frontend/e2e/`, `playwright.config.ts`) :
-  - `*.spec.ts` tournent contre le **backend réel, branché sur le faux GitLab** : `webServer` démarre `gitlab-mock` (8082), le backend (8081) et Vite (5174), ou les ports donnés par `E2E_MOCK_PORT` / `E2E_API_PORT` / `E2E_WEB_PORT` (voir ADR-22). Le client GitLab, la pagination et le rafraîchissement ciblé sont donc couverts de bout en bout.
-  - Le jeu de démo vit dans `gitlab-mock/dataset/dataset.go`. Les assertions des e2e (couloirs, « Itération 15 » en cours, liens, comptes) en dépendent : changez-les ensemble.
-  - **Agnostiques** (ADR-28) : la même suite tourne sur le faux GitLab et sur un vrai GitLab rempli par le seeder.
-    - Un élément se désigne par sa **clé** du jeu (`'&18'`) : `item(page, key)` et `boardItem(page, key)` le trouvent par son **titre**, jamais par sa ref (sur un vrai GitLab, `&1` existe dans chaque groupe).
-    - Tout texte qui montre une ref, une itération, un chemin, la racine ou un assigné passe par `e2e/demo.ts` : `ref('&21')`, `title('#101')`, `it(14)` (« It. 14 »), `itTitle(15)`, `group('api')`, `root()`, `cadence()`, `assignee('#110')`. Ils lisent le board que `e2e/global-setup.ts` charge une fois (variable `E2E_DEMO_BOARD`) ; les titres des tests gardent les clés.
-    - `ref()` d'une issue ignorée (non affichée) échoue : désignez-la par `title()`.
-    - Une recherche par ref vérifie que tout élément affiché comme **résultat** correspond (`shownKeys(page, true)`, sans `data-search-context`), pas un compte : sur un vrai GitLab, `#1` trouve aussi `#10`.
-    - La recherche ramène la chaîne de dépendances des résultats (ADR-30) : pour une assertion sur la chaîne exacte, cherchez par **titre**. Par ref, chaque groupe a son `&1` et la chaîne grossit.
-    - Le `globalSetup` exige `current === 3` (« Itération 15 ») : sur un GitLab rempli, relancer le seeder recale les dates.
-  - Une URL de vue désigne groupes, itérations et éléments par le dernier segment de leur GID : lisez-les dans `board()` (`e2e/demo.ts`, `groupKey('api')`), jamais en dur.
-  - Le jeu de démo a un groupe imbriqué, `api/partenaires` (« Partenaires », &22), décoché par défaut : &22 s'affiche dans le couloir « API et intégrations ».
-    - `npm run test:e2e:gitlab-like` (`E2E_GITLAB_LIKE=1`) le vérifie sans instance : `GITLAB_MOCK_NUMBERING=gitlab` et `GITLAB_MOCK_ROOT=demo/gleipnir`.
-  - `webServer` donne `DEMO-JETON-TEST` au faux GitLab (`GITLAB_MOCK_TOKEN`) et au backend (`GITLAB_TOKEN`) : le chargement du board prouve que le jeton passe, et un jeton exporté dans le shell n'est pas envoyé au faux GitLab.
-  - En développement, React `StrictMode` lance puis annule une première requête `/api/board` : un mock d'erreur ne doit pas compter les appels, mais rester actif jusqu'à ce que le test le retire.
-  - Vite surveille les fichiers par polling (le montage WSL du devcontainer rate les événements inotify). Un état d'erreur se simule avec `page.route` (401, 502).
-  - `*.live.spec.ts` sont marqués `@live` : ils tournent contre un vrai GitLab via `BASE_URL`, et ne supposent rien du contenu du groupe.
-  - Locale `fr-FR`, fuseau `Europe/Paris`.
-  - Les tests utilisent les rôles et les libellés, pas les classes CSS, sauf pour mesurer la géométrie.
-- **Tout nouveau test Playwright est gardé dans le projet**, jamais jeté.
+- **Coverage** (ADR-23): at least **90 % of lines and 90 % of functions**, on the Go side as on the frontend.
+  - Test the **edge cases**: bounds, empty or `null` values, duplicates, errors, tie ordering.
+  - On the frontend, the thresholds are in `vitest.config.ts`: `npm run test:coverage` fails below them.
+  - On the Go side, `go tool cover -func` gives the total. A covered function is one above 0 %. Only `main` stays at 0 %.
+- **Go**: table-driven tests.
+  - Business rules live in `internal/board`: placement, links, conflicts, critical path with a cycle, unplanned, order.
+  - The cache is tested with `-race`.
+  - The GitLab client and the handlers are tested against a **fake `httptest` GitLab**.
+  - The clock is always injected.
+  - `cmd/server` is tested through `run` and `serve`, on a free port. A test sends SIGTERM to the process only **after** `serve` listens (`waitHealthy`): otherwise the signal kills the test binary.
+- **Vitest** (`vitest.config.ts`, setup `src/test/setup.ts`):
+  - `src/**/*.test.ts`: pure logic, in node;
+  - `src/**/*.test.tsx`: components with Testing Library. Their **first line** is `// @vitest-environment jsdom`.
+  - **Pitfalls**:
+    - with `vi.useFakeTimers({ toFake: ['setInterval', …] })`, Testing Library's `waitFor` no longer polls, and `vi.waitFor` advances the fake clock on each try. Flush promises with `await act(async () => {})` instead;
+    - React reads a `timeStamp` of 0 as missing and replaces it with `Date.now()`: a simulated event starts at 1;
+    - jsdom has no `PointerEvent`: a `MouseEvent` with `pointerId` and `pointerType` added stands in for it;
+    - `getByTitle` and `getByText` normalize whitespace: for a text that starts or ends with a space, read the attribute directly;
+    - the app writes its view in the URL: `setup.ts` resets it to `/` after each test. To open the app on a view, call `window.history.replaceState(null, '', '/?…')` before rendering.
+- **Playwright** (`frontend/e2e/`, `playwright.config.ts`):
+  - `*.spec.ts` run against the **real backend, wired to the fake GitLab**: `webServer` starts `gitlab-mock` (8082), the backend (8081) and Vite (5174), or the ports given by `E2E_MOCK_PORT` / `E2E_API_PORT` / `E2E_WEB_PORT` (see ADR-22). The GitLab client, pagination and targeted refresh are thus covered end to end.
+  - The demo dataset lives in `gitlab-mock/dataset/dataset.go`. The e2e assertions (lanes, « Itération 15 » current, links, counts) depend on it: change them together.
+    - It has a nested group, `api/partenaires` (« Partenaires », &22), unchecked by default: &22 shows in the « API et intégrations » lane.
+  - **Agnostic** (ADR-28): the same suite runs on the fake GitLab and on a real GitLab filled by the seeder.
+    - An item is named by its dataset **key** (`'&18'`): `item(page, key)` and `boardItem(page, key)` find it by its **title**, never by its ref (on a real GitLab, `&1` exists in every group).
+    - Any text showing a ref, an iteration, a path, the root or an assignee goes through `e2e/demo.ts`: `ref('&21')`, `title('#101')`, `it(14)` (« It. 14 »), `itTitle(15)`, `group('api')`, `groupKey('api')`, `root()`, `cadence()`, `assignee('#110')`. They read the board that `e2e/global-setup.ts` loads once (variable `E2E_DEMO_BOARD`); test titles keep the keys.
+    - A view URL names groups, iterations and items by the last segment of their GID: read them from `board()` (`groupKey('api')`…), never hard-code them.
+    - `ref()` of an ignored (not shown) issue fails: name it with `title()`.
+    - A search by ref checks that every item shown as a **match** fits (`shownKeys(page, true)`, without `data-search-context`), not a count: on a real GitLab, `#1` also finds `#10`.
+    - The search brings back the dependency chain of the matches (ADR-30): for an assertion on the exact chain, search by **title**. By ref, each group has its `&1` and the chain grows.
+    - The `globalSetup` requires `current === 3` (« Itération 15 »): on a filled GitLab, running the seeder again realigns the dates.
+    - `npm run test:e2e:gitlab-like` (`E2E_GITLAB_LIKE=1`) checks this without an instance: `GITLAB_MOCK_NUMBERING=gitlab` and `GITLAB_MOCK_ROOT=demo/gleipnir`.
+  - `webServer` gives `DEMO-JETON-TEST` to the fake GitLab (`GITLAB_MOCK_TOKEN`) and to the backend (`GITLAB_TOKEN`): loading the board proves the token goes through, and a token exported in the shell is not sent to the fake GitLab.
+  - In development, React `StrictMode` starts then aborts a first `/api/board` request: an error mock must not count calls, but stay active until the test removes it.
+  - Vite watches files by polling (the devcontainer's WSL mount misses inotify events). An error state is simulated with `page.route` (401, 502).
+  - `*.live.spec.ts` are tagged `@live`: they run against a real GitLab through `BASE_URL`, and assume nothing about the group's content.
+  - Locale `fr-FR`, time zone `Europe/Paris`.
+  - Tests use roles and labels, not CSS classes, except to measure geometry.
+  - A test that opens a second page or browser context is heavy: mark it `test.slow()`, or it times out when both suites run side by side.
+- **Every new Playwright test is kept in the project**, never thrown away.
 
-## Déploiement (Docker)
+## Deployment (Docker)
 
-- **Image backend** :
-  - build `golang:1.22-alpine` (`CGO_ENABLED=0`, `-trimpath -ldflags="-s -w"`), puis `alpine:3.20` avec `ca-certificates` et `tzdata` ;
-  - `USER 10001:10001` est **numérique** exprès : Kubernetes peut ainsi vérifier `runAsNonRoot` ;
-  - `HEALTHCHECK` avec `wget` sur `/api/health`.
+- **Backend image**:
+  - build `golang:1.22-alpine` (`CGO_ENABLED=0`, `-trimpath -ldflags="-s -w"`), then `alpine:3.20` with `ca-certificates` and `tzdata`;
+  - `USER 10001:10001` is **numeric** on purpose: Kubernetes can then check `runAsNonRoot`;
+  - `HEALTHCHECK` with `wget` on `/api/health`.
   
-  `go.mod` n'a pas de dépendance, donc pas de `go.sum` : ne pas en copier.
-- **Image du faux GitLab** (`gitlab-mock/Dockerfile`, démo seulement) : même schéma, sans `ca-certificates`, `HEALTHCHECK` sur `/-/health`. Seul `docker-compose.demo.yml` la construit ; elle tourne en `read_only`, `cap_drop: [ALL]`, sans port publié.
-- **Image frontend** :
-  - build `node:22-alpine` (`npm ci`, `npm run build`), puis `nginxinc/nginx-unprivileged:alpine` (uid 101), qui **écoute sur 8080** ;
-  - `nginx.conf.template` est copié dans `/etc/nginx/templates/`, et l'entrypoint de l'image y applique `envsubst` au démarrage. Seules les variables définies sont substituées (`GLEIPNIR_BACKEND_URL`), donc `$uri` et `$host` restent intacts.
+  `go.mod` has no dependency, hence no `go.sum`: do not copy one.
+- **Fake GitLab image** (`gitlab-mock/Dockerfile`, demo only): the same scheme, without `ca-certificates`, `HEALTHCHECK` on `/-/health`. Only `docker-compose.demo.yml` builds it; it runs `read_only`, `cap_drop: [ALL]`, with no published port.
+- **Frontend image**:
+  - build `node:22-alpine` (`npm ci`, `npm run build`), then `nginxinc/nginx-unprivileged:alpine` (uid 101), which **listens on 8080**;
+  - `nginx.conf.template` is copied to `/etc/nginx/templates/`, and the image's entrypoint runs `envsubst` on it at startup. Only defined variables are substituted (`GLEIPNIR_BACKEND_URL`), so `$uri` and `$host` stay intact.
   
-  **N'ajoutez pas de variable d'environnement qui porte le nom d'une variable nginx.**
-- **nginx** :
-  - repli SPA vers `index.html` ;
-  - `/assets/` (noms hachés par Vite) en cache long, `index.html` en `no-cache` ;
-  - gzip sur JSON, JS, CSS et SVG.
-  - Les en-têtes de sécurité sont posés au niveau `server` : n'ajoutez **pas** d'`add_header` dans une `location`, sinon elle perdrait ces en-têtes. Pour le cache, utilisez `expires`.
-- **Compose** : le frontend attend que le backend soit `healthy` (`depends_on: condition: service_healthy`).
+  **Do not add an environment variable named like an nginx variable.**
+- **nginx**:
+  - SPA fallback to `index.html`;
+  - `/assets/` (names hashed by Vite) cached long, `index.html` `no-cache`;
+  - gzip on JSON, JS, CSS and SVG.
+  - Security headers are set at `server` level: do **not** add an `add_header` in a `location`, or it would lose them. For caching, use `expires`.
+- **Compose**: the frontend waits for the backend to be `healthy` (`depends_on: condition: service_healthy`).
 
-## Sécurité
+## Security
 
-- **Jeton** : en lecture seule (`read_api`), **côté serveur uniquement**.
-  - Il n'est jamais envoyé au navigateur, jamais renvoyé par l'API, **jamais journalisé** : la config se journalise avec `tokenSet: bool`.
-  - Il n'est jamais commité : `.env` est dans `.gitignore`.
-- **Visibilité** : un seul jeton pour tous. Chaque utilisateur voit ce que le jeton voit, ni plus ni moins.
-- **Contenu GitLab** : il n'est **jamais interprété comme du HTML**.
-  - Pas de `dangerouslySetInnerHTML`, pas d'`innerHTML`.
-  - Titres, labels et noms passent par le texte React.
-  - Les URL ouvertes viennent de `webUrl` et s'ouvrent avec `rel="noopener noreferrer"`.
-  - La couleur d'un label n'est posée que dans `--label-color`.
-- **CSP** (`frontend/nginx.conf.template`) :
-  - `default-src 'self'` ;
-  - `script-src 'self' 'sha256-…'` : le hash du **seul** script inline, celui du thème de `index.html` ;
-  - `style-src 'self' 'unsafe-inline'` : React pose des attributs `style` ;
-  - `img-src 'self' data:` : le favicon est en `data:` ;
+- **Token**: read only (`read_api`), **server side only**.
+  - It is never sent to the browser, never returned by the API, **never logged**: the config is logged with `tokenSet: bool`.
+  - It is never committed: `.env` is in `.gitignore`.
+- **Visibility**: one token for everyone. Every user sees what the token sees, no more, no less.
+- **GitLab content**: it is **never interpreted as HTML**.
+  - No `dangerouslySetInnerHTML`, no `innerHTML`.
+  - Titles, labels and names go through React text.
+  - Opened URLs come from `webUrl` and open with `rel="noopener noreferrer"`.
+  - A label's color is only set in `--label-color`.
+- **CSP** (`frontend/nginx.conf.template`):
+  - `default-src 'self'`;
+  - `script-src 'self' 'sha256-…'`: the hash of the **only** inline script, the theme script of `index.html`;
+  - `style-src 'self' 'unsafe-inline'`: React sets `style` attributes;
+  - `img-src 'self' data:`: the favicon is a `data:` URL;
   - `connect-src 'self'`, `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`, `frame-ancestors 'none'`.
   
-  Les autres en-têtes sont `X-Content-Type-Options: nosniff` et `Referrer-Policy: same-origin`.
-- **Recalculer le hash** après toute modification du script inline (espaces compris) :
+  The other headers are `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`.
+- **Recompute the hash** after any change to the inline script (whitespace included):
 
   ```bash
   cd frontend && python3 -c "import re,hashlib,base64;s=re.search(r'<script>(.*?)</script>',open('index.html').read(),re.S).group(1);print(base64.b64encode(hashlib.sha256(s.encode()).digest()).decode())"
   ```
 
-  Vérifiez ensuite dans `dist/index.html` que Vite a laissé le script intact. N'ajoutez pas d'autre script inline.
+  Then check in `dist/index.html` that Vite left the script intact. Do not add another inline script.
 
-## Règles de travail
+## Working rules
 
-### Langue
+### Language
 
-- **Code, identifiants et commentaires** : en anglais. Les commentaires sont courts et expliquent le *pourquoi*.
-- **Interface** : en français, dans `src/strings/`.
-- **Documentation** : en français (`README.md`, `AGENTS.md`, `docs/`).
-- **Titres de commit** : en anglais.
-- Les sélecteurs Playwright reprennent les textes de l'interface : mettez à jour les tests quand un texte change.
+- **Code, identifiers, comments and this file**: in English. Comments are short and explain the *why*.
+- **UI**: in French, in `src/strings/`.
+- **User documentation**: in French (`README.md`, `docs/`).
+- **Commit titles**: in English.
+- Playwright selectors repeat the UI texts: update the tests when a text changes.
 
 ### Commits
 
-- Format **[Conventional Commits](https://www.conventionalcommits.org/)** : `type(scope): description`, à l'impératif.
-  - **Le message est le titre seul** : pas de corps, pas de pied de page ni de trailer (`Co-Authored-By`, `Signed-off-by`…).
-  - Le titre est compréhensible par quelqu'un qui ne connaît pas le projet.
-  - Types : `feat`, `fix`, `refactor`, `perf`, `test`, `docs`, `build`, `ci`, `chore`.
-  - Scopes : `backend`, `frontend`, `mock`, `e2e`, `docker`, `docs`.
-  - Exemples :
+- **[Conventional Commits](https://www.conventionalcommits.org/)** format: `type(scope): description`, in the imperative.
+  - **The message is the title only**: no body, no footer nor trailer (`Co-Authored-By`, `Signed-off-by`…).
+  - The title is understandable by someone who does not know the project.
+  - Types: `feat`, `fix`, `refactor`, `perf`, `test`, `docs`, `build`, `ci`, `chore`.
+  - Scopes: `backend`, `frontend`, `mock`, `e2e`, `docker`, `docs`.
+  - Examples:
     - `feat(frontend): dim unrelated items when one is selected`
     - `fix(backend): pick the next iteration when an epic starts between two`
     - `test(e2e): check the window recenters on an off-window dependency`
     - `docs: document the GITLAB_CADENCE variable`
-- Un commit = un changement cohérent.
-- Ne jamais committer `.env`, `node_modules/`, `dist/`, ni les rapports Playwright.
+- One commit = one coherent change.
+- Never commit `.env`, `node_modules/`, `dist/`, nor the Playwright reports.
 
-### Avant de committer
+### Before committing
 
-1. `cd backend && gofmt -l . && go vet ./... && go test -race ./...`. `gofmt -l` ne doit rien lister. La couverture reste ≥ 90 %. Idem dans `gitlab-mock/` s'il a changé.
+1. `cd backend && gofmt -l . && go vet ./... && go test -race ./...`. `gofmt -l` must list nothing. Coverage stays ≥ 90 %. Same in `gitlab-mock/` if it changed.
 2. `cd frontend && npm run build && npm run test:coverage && npm run test:e2e && npm run test:e2e:gitlab-like`.
-3. Si le client GitLab ou une requête GraphQL a changé : `npm run test:e2e:live` contre un vrai GitLab.
-4. Si un Dockerfile, le compose ou `nginx.conf.template` a changé : `docker compose config` (et avec `-f docker-compose.demo.yml`), puis `docker compose up -d --build` et un contrôle de `/api/health` et de la page (CSP : aucune erreur dans la console).
+3. If the GitLab client or a GraphQL query changed: `npm run test:e2e:live` against a real GitLab.
+4. If a Dockerfile, the compose files or `nginx.conf.template` changed: `docker compose config` (and with `-f docker-compose.demo.yml`), then `docker compose up -d --build` and a check of `/api/health` and of the page (CSP: no error in the console).
 
 ### Documentation
 
-- **`README.md`** : à mettre à jour pour tout changement visible de l'utilisateur (configuration, commandes, comportement).
-- **Ce fichier** : à mettre à jour à chaque nouvelle convention, nouveau piège, invariant, commande ou limite connue, ou quand quelque chose ici devient faux.
-- **`docs/decisions.md`** : un nouvel ADR pour toute décision d'architecture ou tout écart à la spec.
-- Ces mises à jour vont **dans le même commit** que le changement qu'elles décrivent.
+- **`README.md`**: update it for any change the user can see (configuration, commands, behavior).
+- **This file**: update it with every new convention, pitfall, invariant, command or known limit, or when something here becomes false.
+- **`docs/decisions.md`**: a new ADR for any architecture decision or any departure from the spec.
+- These updates go **in the same commit** as the change they describe.
 
-### Toujours à jour : documentation et tests
+### Always up to date: spec, documentation and tests
 
-**Toute modification laisse la documentation et les tests à jour.** Ce n'est pas facultatif, et ce n'est pas pour plus tard.
+**Every change leaves the spec, the documentation and the tests up to date and aligned.** This is not optional, and not for later.
 
-- **Documentation** :
-  - relire **tout ce qui décrit le comportement touché**, pas seulement la section évidente : `docs/specifications.md` (vocabulaire, règles métier, modèle de données compris), les ADR existants de `docs/decisions.md`, ce fichier et `README.md` ;
-  - corriger chaque phrase devenue fausse. Un ADR remplacé est marqué comme tel, et renvoie au nouveau ;
-  - un `grep` des anciens termes (noms de fonctions, libellés d'interface, options supprimées) doit ne plus rien trouver de périmé.
-- **Tests** :
-  - chaque fonctionnalité ajoutée ou modifiée a ses tests, à tous les niveaux concernés : Go, Vitest, Playwright, et `@live` si une requête GraphQL change ;
-  - un test devenu sans objet est réécrit ou supprimé, pas laissé de côté ;
-  - le code mort laissé par le changement (composant, CSS, texte, helper) est supprimé avec ses tests.
-- **Un test qui passe au rouge après une modification n'est jamais corrigé à l'aveugle.** Avant de toucher au test, déterminez la cause :
-  - **changement voulu** (le comportement attendu a changé) : mettez le test à jour, et dites dans le résumé du travail ce qui a changé et pourquoi ;
-  - **régression** : corrigez le code, pas le test ;
-  - **fragilité** (minuterie, charge, ordre) : reproduisez le test seul puis en charge, trouvez ce qui le ralentit ou le rend instable, et corrigez-le de façon ciblée (`test.slow()` pour un test lourd, attente sur un état plutôt qu'un délai). Ne vous contentez jamais d'une relance qui passe.
+- **The spec is the reference; the tests check it.**
+  - The spec (`docs/specifications.md`) and the ADRs (`docs/decisions.md`) describe the behavior. Tests check that the code does what they say.
+  - Every rule of the spec or of an ADR has at least one test, at the lowest level that holds it: Go for business rules, Vitest for frontend logic and components, Playwright for user flows.
+  - The test's name or a comment cites the section (`§4.4`, `ADR-32`) when the link is not obvious.
+  - **Changing a behavior starts with the spec** (or an ADR), then the tests that check it, then the code, all in the same commit.
+- **Spec unchanged, a test turns red**:
+  - a **behavior test** (a rule of the spec or of an ADR, a result the user sees, an e2e flow) does **not** change. Red means a regression: fix the code, not the test;
+  - an **implementation test** (a signature, an internal structure, a function or module name, how the code is split) may be adapted to the new implementation, **without weakening what it checks**: the same cases, the same expected results;
+  - when in doubt, it is a behavior test.
+- **Spec changed**: the tests of the old rule are rewritten for the new one, with its edge cases (bounds, empty, duplicates, order), like every other rule. A test that no longer has a purpose is rewritten or removed, not left behind.
+- **Documentation**:
+  - reread **everything that describes the behavior touched**, not only the obvious section: `docs/specifications.md` (vocabulary, business rules, data model included), the existing ADRs of `docs/decisions.md`, this file and `README.md`;
+  - fix every sentence that became false. A replaced ADR is marked as such, and points to the new one;
+  - a `grep` for the old terms (function names, UI labels, removed options) must find nothing stale.
+- **Tests**:
+  - every feature added or changed has its tests, at every level concerned: Go, Vitest, Playwright, and `@live` if a GraphQL query changes;
+  - the dead code a change leaves behind (component, CSS, text, helper) is removed along with its tests.
+- **A test that turns red after a change is never fixed blindly.** Before touching the test, find the cause:
+  - **intended change**, meaning a change written in the spec or an ADR: update the test, and say in the summary of the work what changed and why;
+  - **regression**: fix the code, not the test;
+  - **flakiness** (timers, load, order): run the test alone, then under load, find what slows it down or makes it unstable, and fix it in a targeted way (`test.slow()` for a heavy test, waiting on a state rather than a delay). Never settle for a rerun that passes.
   
-  Assouplir une assertion, augmenter un seuil ou supprimer un test pour retrouver le vert demande la même justification.
+  Loosening an assertion, raising a threshold or deleting a test to get back to green needs the same justification.
 
-## Limites connues
+## Known limits
 
-- **Une seule cadence** par board, choisie par `GITLAB_CADENCE` ou celle de l'itération en cours. Les éléments planifiés dans une autre cadence apparaissent sans itération.
-- **Un seul jeton serveur**, sans OAuth : tout le monde voit ce que le jeton voit. Les permissions GitLab individuelles ne sont pas appliquées.
-- **Pas de synchro incrémentale** (`updatedAfter`) : la synchro de fond relit tout. Le bouton Synchroniser ne relit que les sous-arbres des couloirs actifs, mais avec tous les couloirs actifs, il relit presque tout.
-- **Données d'âges différents** : après un rafraîchissement ciblé, les autres groupes gardent leurs données jusqu'à la synchro complète suivante. Un élément déplacé hors du sous-arbre relu disparaît jusque-là.
-- **Liens** : plus de 100 par élément et par sens sont coupés (`linkedItems(first: 100)`).
-- **Pas de chart Helm** en v1 : uniquement Docker et compose. Le cache est en mémoire, donc une instance par backend.
-- **Vue sans sauvegarde** : groupes cochés, fenêtre et filtres ne vivent que dans l'URL de l'onglet (ADR-31). Pas de vues nommées ni de préférences côté serveur. Un lien est propre à une instance GitLab (GID de groupe, d'itération et d'élément).
-- **Couloirs = groupes GitLab** (ADR-32) : pas de couloir transverse (deux groupes, un label) ; un élément n'est que dans un couloir.
-- **Lecture seule** : on ne peut ni créer ni supprimer un lien depuis le board.
-- **Seeder non validé en live** : ses mutations n'ont été vérifiées que contre le schéma de gitlab.com et un faux GitLab à état (ADR-27).
+- **One cadence** per board, chosen by `GITLAB_CADENCE` or the one of the current iteration. Items planned in another cadence show without an iteration.
+- **One server token**, without OAuth: everyone sees what the token sees. Individual GitLab permissions are not applied.
+- **No incremental sync** (`updatedAfter`): the background sync reads everything again. The Synchroniser button only re-reads the subtrees of the active lanes, but with every lane active, it re-reads almost everything.
+- **Data of different ages**: after a targeted refresh, the other groups keep their data until the next full sync. An item moved out of the re-read subtree disappears until then.
+- **Links**: more than 100 per item and per direction are cut (`linkedItems(first: 100)`).
+- **No Helm chart** in v1: Docker and compose only. The cache is in memory, hence one instance per backend.
+- **View without saving**: checked groups, window and filters live only in the tab's URL (ADR-31). No named views nor server-side preferences. A link belongs to one GitLab instance (group, iteration and item GIDs).
+- **Lanes = GitLab groups** (ADR-32): no cross-cutting lane (two groups, a label); an item is in one lane only.
+- **Read only**: a link can be neither created nor deleted from the board.
+- **Seeder not validated live**: its mutations were only checked against gitlab.com's schema and a stateful fake GitLab (ADR-27).

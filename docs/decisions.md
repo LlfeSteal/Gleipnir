@@ -352,14 +352,14 @@ Les erreurs sont typées : `ErrUnauthorized`, `ErrGroupNotFound`, `ErrPremiumReq
 
 ## ADR-16 — Documentation en français, code en anglais
 
-*2026-11-23 · Accepté*
+*2026-11-23 · Accepté · Amendé par l'ADR-33 : `AGENTS.md` est en anglais*
 
 **Contexte.** L'équipe écrit en français et les utilisateurs sont francophones. Le code, lui, suit les conventions de l'écosystème et des projets voisins.
 
 **Décision.**
 
 - En **français** :
-  - la documentation (`README.md`, `AGENTS.md`, `docs/`) ;
+  - la documentation (`README.md`, `docs/`) ; `AGENTS.md` l'était jusqu'à l'ADR-33 ;
   - l'interface, centralisée dans `src/strings/`.
 - En **anglais** :
   - le code, les identifiants et les commentaires ;
@@ -764,3 +764,20 @@ Une synchro en cours reste partagée par toutes les requêtes. Sans données en 
 
 - Plus de couloir transverse (deux groupes, ou un label) : le filtre de labels global le remplace en partie.
 - Le faux GitLab gagne un groupe imbriqué (`api/partenaires`, qui porte &22) pour exercer l'arbre ; le seeder crée un groupe imbriqué sous son parent.
+
+## ADR-33 — `AGENTS.md` en anglais
+
+*2026-11-24 · Accepté · Amende l'ADR-16*
+
+**Contexte.** `AGENTS.md` est le guide de travail des agents et des développeurs : conventions, commandes, pièges GitLab, invariants. Il parle du code (identifiants, fonctions, fichiers), qui est en anglais, et il est chargé tel quel par les agents (`CLAUDE.md` l'importe). En français, il mêlait deux langues à chaque ligne.
+
+**Décision.**
+
+- `AGENTS.md` est en **anglais**, comme le code, les identifiants, les commentaires et les titres de commit.
+- `README.md`, `docs/` (spec, ADR, charte) et l'interface restent en **français**.
+- Les textes d'interface cités dans `AGENTS.md` (sélecteurs Playwright, exemples) restent en français, entre guillemets : ce sont eux que les tests reconnaissent.
+
+**Conséquences.**
+
+- Une règle de travail s'écrit en anglais dans `AGENTS.md`, une décision en français ici.
+- `AGENTS.md` renvoie aux sections de la spec et aux ADR par leur numéro (`§4.4`, `ADR-32`), pas par leur titre.
