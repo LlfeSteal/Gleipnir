@@ -64,8 +64,12 @@ func TestStorableInGitLab(t *testing.T) {
 			t.Errorf("epic %+v: duplicate title or key, or unknown group", e)
 		}
 		titles[e.Title], keys[e.Key] = true, e.Group
-		if (e.StartDate == "") != (e.DueDate == "") || e.StartDate > e.DueDate {
-			t.Errorf("epic %s: dates %q – %q", e.Key, e.StartDate, e.DueDate)
+		if (e.First < 0) != (e.Last < 0) || e.First > e.Last || e.Last >= len(d.Iterations) {
+			t.Errorf("epic %s: iterations %d – %d", e.Key, e.First, e.Last)
+		}
+		if e.First >= 0 && (e.StartDate != d.Iterations[e.First].StartDate || e.DueDate != d.Iterations[e.Last].DueDate) ||
+			e.First < 0 && (e.StartDate != "" || e.DueDate != "") {
+			t.Errorf("epic %s: dates %q – %q do not match its iterations", e.Key, e.StartDate, e.DueDate)
 		}
 		checkLabels(e.Key, e.Labels)
 	}

@@ -33,6 +33,7 @@ Ce fichier consigne les choix qui structurent Gleipnir, sous forme de courts ADR
 | 24 | Synchro complète périodique et rafraîchissement ciblé | 2026-11-23 |
 | 25 | Faux GitLab pour la démo et les e2e | 2026-11-24 |
 | 26 | Jeton de démo vérifié par le faux GitLab | 2026-11-24 |
+| 27 | Seeder : le jeu de démo dans un vrai GitLab | 2026-11-24 |
 
 ---
 
@@ -607,3 +608,38 @@ Une synchro en cours reste partagée par toutes les requêtes. Sans données en 
 - Chaque chargement du board en démo et en e2e prouve que le backend envoie bien son jeton. Un test Go de `cmd/server` vérifie qu'un jeton refusé donne 401 `unauthorized`, sans fuite du jeton.
 - En démo, le backend avertit que le jeton circule en `http://` : c'est voulu, il est factice.
 - `go run .` dans `gitlab-mock/` demande `GITLAB_MOCK_TOKEN`.
+
+## ADR-27 — Seeder : le jeu de démo dans un vrai GitLab
+
+*2026-11-24 · Accepté*
+
+**Contexte.** Le faux GitLab (ADR-25) ne valide ni le schéma ni le comportement de GitLab. On veut faire tourner la pile entière, et ses e2e, sur une vraie instance Premium/Ultimate remplie avec **les mêmes données**.
+
+**Décision.**
+
+- **Un seul jeu de démo**, `gitlab-mock/dataset`, sémantique et **stockable dans GitLab** :
+  - noms de groupe sans « & » ;
+  - usernames `demo-*`, pour ne jamais tomber sur un vrai compte ;
+  - titres uniques ;
+  - parents dans le groupe du projet ;
+  - un seul lien par paire.
+  
+  Un test vérifie ces contraintes. Le faux GitLab le rend en GraphQL ; le seeder l'écrit.
+- **Seeder** `gitlab-mock/cmd/seed`, bibliothèque standard uniquement, REST + GraphQL.
+  - **Sous un groupe existant** (`SEED_GROUP`) : il ne crée pas de groupe de premier niveau.
+  - **Dry-run par défaut** : sans `-apply`, il lit et affiche ce qu'il ferait.
+  - **Idempotent** : il retrouve par chemin (groupes, projets) ou par titre (labels, cadence, itérations, work items) ce qu'une exécution précédente a créé. Il ne crée que ce qui manque et corrige ce qui a dérivé : nom, couleur, état, itération, parent, assigné, labels manquants, liens manquants.
+  - **Recalage** : les itérations et les dates d'epic suivent aujourd'hui, pour que « Itération 15 » reste en cours. Les itérations sont déplacées dans l'ordre qui évite tout chevauchement.
+  - **Aucune suppression**, jamais.
+  - **Cadence manuelle** par défaut (titres et trou de vacances). `-cadence=auto` crée une cadence automatique si l'instance refuse les manuelles : les epics sont alors datés d'après les itérations générées.
+  - **Utilisateurs** : créés seulement si le jeton est admin, puis ajoutés en Reporter. Sinon, les éléments restent sans assigné, avec un avertissement.
+- **Sécurité** :
+  - le jeton d'écriture (`api`) vient de `SEED_TOKEN`, **jamais d'un flag**, et n'est jamais affiché ; il est distinct du jeton `read_api` de Gleipnir ;
+  - `http://` est refusé hors boucle locale, sauf avec `-insecure-http` ;
+  - les mots de passe des utilisateurs créés sont aléatoires et jamais affichés ; leurs e-mails sont en `@gitlab.example.com`.
+
+**Conséquences.**
+
+- Les tests du seeder tournent contre un **faux GitLab à état** qui refuse ce que GitLab refuse : noms avec « & », chevauchement d'itérations, parent non-epic, assigné non membre, lien en double. Ils vérifient la création, la deuxième exécution sans écriture, le recalage dans les deux sens, la correction des dérives, le dry-run et le cas non-admin.
+- Noms, arguments, inputs et énumérations ont été **vérifiés sur l'introspection de gitlab.com** (2026-11-24). Le seeder n'a **pas encore tourné sur une vraie instance** : c'est une limite connue jusqu'au premier passage sur l'instance Ultimate auto-hébergée.
+- Les mutations `workItem*` sont « Experiment » dans GitLab : une mise à jour de l'instance peut casser le seeder, pas Gleipnir.

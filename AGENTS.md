@@ -56,6 +56,7 @@ gitlab-mock/                  faux GitLab (module gitlab-mock) : démo et e2e, j
   graphql.go                  POST /api/graphql : aiguillage par nom d'opération, pagination, GET /-/health
   dataset/dataset.go          LE jeu de démo, sémantique et stockable dans un vrai GitLab (noms sans « & », usernames demo-*)
   render.go                   rendu du jeu en nœuds GraphQL de GitLab (GID, widgets, liens d'un seul côté, lien hors groupe)
+  cmd/seed/                   seeder : écrit le même jeu dans un VRAI GitLab Premium/Ultimate (ADR-27)
   Dockerfile                  image de la démo (alpine, uid 10001)
 frontend/
   index.html                  script de thème inline (avant le premier rendu) — son hash est dans la CSP
@@ -90,6 +91,10 @@ cd backend && go test -coverprofile=cover.out ./... && go tool cover -func=cover
 cd gitlab-mock && PORT=8082 GITLAB_MOCK_TOKEN=DEMO-JETON-TEST go run .   # faux GitLab, puis :
 cd backend && GITLAB_URL=http://localhost:8082 GITLAB_GROUP=plateforme/atlas GITLAB_TOKEN=DEMO-JETON-TEST go run ./cmd/server   # démo, http://localhost:8080
 cd backend && (set -a; . ../.env; set +a; go run ./cmd/server)     # vrai GitLab : le backend ne lit pas .env lui-même
+
+# Seeder : remplir un vrai GitLab (Premium/Ultimate) avec le jeu de démo — dry-run par défaut
+cd gitlab-mock && SEED_URL=https://gitlab.interne SEED_TOKEN=… SEED_GROUP=demo/gleipnir go run ./cmd/seed          # lit et affiche le plan
+cd gitlab-mock && SEED_URL=https://gitlab.interne SEED_TOKEN=… SEED_GROUP=demo/gleipnir go run ./cmd/seed -apply   # écrit (idempotent)
 
 # Faux GitLab
 cd gitlab-mock && gofmt -l . && go vet ./... && go test -race ./...
@@ -230,6 +235,15 @@ La plupart viennent de Nornir, où ils ont été appris à la dure.
   - sur CE ou sans licence : « Field 'X' doesn't exist on type 'Group' », « No such type WorkItemWidgetLinkedItems… », « Argument 'types' on Field 'workItems' has an invalid value », « IterationsCadenceID isn't a defined input type ».
   - Ces derniers messages ont été reconstitués à partir de vraies erreurs de gitlab.com : ils n'ont pas été observés sur une instance CE.
 - **Limite de débit anonyme** de gitlab.com : quelques parcours complets suffisent à recevoir des HTTP 429 pendant environ 30 min. Pour des tests live répétés, utilisez un jeton. Une 429 devient `gitlab_unreachable` (message « rate limited », avec le `Retry-After`), sans nouvel essai.
+- **Écriture (seeder, `gitlab-mock/cmd/seed`)** :
+  - **Noms** : les groupes et projets n'acceptent que lettres, chiffres, emoji, `_`, `.`, `(`, `)`, `-` et espaces. Pas de « & » : le jeu de démo dit « API et intégrations ».
+  - **Work items** : `workItemCreate(namespacePath, workItemTypeId, …Widget)` crée epics (dans un groupe) et issues (dans un projet). Les GID de type viennent de `namespace.workItemTypes`. L'état se change par `workItemUpdate(stateEvent: CLOSE | REOPEN)`, les dates d'epic par `startAndDueDateWidget { isFixed: true … }`.
+  - **Liens** : `workItemAddLinkedItems(linkType: BLOCKS | RELATED)`. Un lien n'existe qu'une fois et se lit des deux côtés.
+  - **Itérations titrées avec un trou** : seule une cadence **manuelle** (`automatic: false`) le permet ; `iterationCreate` prend des dates `String`. GitLab refuse deux itérations qui se chevauchent : pour décaler, déplacer la dernière d'abord en avançant, la première d'abord en reculant.
+  - **Labels** : `labelCreate` ne fixe pas de couleur après coup (`labelUpdate` n'a que `archived`) : le recoloriage passe par REST `PUT /groups/:id/labels/:label_id`.
+  - **Utilisateurs** : seul un admin peut en créer (`POST /users`). Un assigné doit être membre : le seeder ajoute les `demo-*` en Reporter du groupe cible.
+  - Les mutations `workItem*` sont marquées « Experiment » dans le schéma : elles peuvent changer d'une version à l'autre.
+  - **Non validé en live** (2026-11-24) : noms, arguments et types vérifiés sur l'introspection de gitlab.com seulement, faute d'instance Premium en écriture. Premier passage sur une vraie instance : `-apply` puis relancer, la deuxième exécution doit afficher `0 to create`.
 - **Test live Go** : `GITLAB_URL=https://gitlab.com GITLAB_GROUP=gitlab-org/security-products go test -tags live -run Live -v ./internal/gitlab/`.
 
 ## Invariants métier
@@ -453,3 +467,4 @@ Ils sont dans `internal/board`. Tous sont couverts par des tests table par table
 - **Pas de chart Helm** en v1 : uniquement Docker et compose. Le cache est en mémoire, donc une instance par backend.
 - **Couloirs, fenêtre et panneau latéral** sont mémorisés **par navigateur** (`localStorage`) : pas de vues partagées ni de préférences côté serveur.
 - **Lecture seule** : on ne peut ni créer ni supprimer un lien depuis le board.
+- **Seeder non validé en live** : ses mutations n'ont été vérifiées que contre le schéma de gitlab.com et un faux GitLab à état (ADR-27).

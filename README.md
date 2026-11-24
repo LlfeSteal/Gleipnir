@@ -73,6 +73,26 @@ Aucun fichier `.env` n'est nécessaire. Un **faux GitLab** (`gitlab-mock/`) sert
 
 Pour revenir au vrai GitLab : `docker compose up -d --build`, sans l'overlay. `docker compose down --remove-orphans` arrête aussi le faux GitLab.
 
+### Sur un vrai GitLab rempli avec le jeu de démo
+
+Le seeder `gitlab-mock/cmd/seed` écrit le jeu de démo dans une instance **Premium ou Ultimate**, sous un groupe **existant**. Il faut un jeton à portée `api` (écriture), distinct du jeton `read_api` de Gleipnir. Avec un jeton admin, il crée aussi les six utilisateurs `demo-*` ; sinon, les éléments restent sans assigné.
+
+```bash
+cd gitlab-mock
+export SEED_URL=https://gitlab.interne SEED_GROUP=demo/gleipnir
+read -rs SEED_TOKEN && export SEED_TOKEN     # le jeton ne passe ni par un argument ni par l'historique
+go run ./cmd/seed            # dry-run : lit et affiche ce qu'il ferait
+go run ./cmd/seed -apply     # écrit
+```
+
+- **Idempotent** : relancé, il ne crée que ce qui manque, et recale les itérations et les dates d'epic autour d'aujourd'hui. Il ne supprime jamais rien.
+- `-cadence=auto` crée une cadence automatique, si l'instance refuse les cadences manuelles.
+- Il refuse `http://` hors `localhost`, sauf avec `-insecure-http`.
+
+Pointez ensuite Gleipnir sur ce groupe : `GITLAB_URL` et `GITLAB_GROUP=demo/gleipnir` dans `.env`, avec un jeton `read_api`.
+
+**Pas encore validé sur une vraie instance** : ses requêtes ont été vérifiées contre le schéma de gitlab.com et un faux GitLab à état (ADR-27).
+
 ## Développement natif
 
 Deux terminaux.

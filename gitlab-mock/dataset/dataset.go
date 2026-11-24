@@ -65,12 +65,15 @@ type Person struct {
 
 // Epic lives in a group. Key is its reference in the mockup ("&18"); titles are unique.
 type Epic struct {
-	Key       string
-	Group     string // Group.Slug
-	Title     string
-	StartDate string // "" when unset
-	DueDate   string
-	Labels    []string
+	Key   string
+	Group string // Group.Slug
+	Title string
+	// First and Last are the indexes of the iterations it spans, -1 when it has no dates. A
+	// GitLab whose iterations differ (automatic cadence) dates it from its own iterations.
+	First, Last int
+	StartDate   string // Iterations[First].StartDate, "" when unset
+	DueDate     string
+	Labels      []string
 }
 
 // Issue lives in a project, in an iteration of the cadence or none.
@@ -159,7 +162,7 @@ func New(now time.Time) *Dataset {
 
 	// epic spans iterations first..last (indexes, -1: no date).
 	epic := func(key, group, title string, first, last int, labels ...string) {
-		e := Epic{Key: key, Group: group, Title: title, Labels: labels}
+		e := Epic{Key: key, Group: group, Title: title, First: first, Last: last, Labels: labels}
 		if first >= 0 {
 			e.StartDate = its[first].StartDate
 		}
