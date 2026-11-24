@@ -38,6 +38,7 @@ export const EpicBar = memo(function EpicBar({ placed, epic, data, selected, rel
       data-closed={closed || undefined}
       data-related={related || undefined}
       data-critical={critical || undefined}
+      data-search-context={placed.searchContext || undefined}
       aria-pressed={selected}
       aria-label={BOARD.epicLabel(epic.ref, epic.title, closed)}
       aria-description={offWindowRefs.length ? BOARD.offWindowTitle(offWindowRefs) : undefined}

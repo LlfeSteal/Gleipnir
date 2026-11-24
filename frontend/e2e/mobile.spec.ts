@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { boardItem, inspector, openBoard, sidebar } from './helpers2';
-import { it, ref } from './demo';
+import { it, ref, title } from './demo';
 
 // Phone layout (≤ 760 px, spec §4.6 and §4.8): the sidebar is a "Filtres" overlay, the
 // inspector a bottom sheet, and the board scrolls sideways under a fixed lane rail.
@@ -110,10 +110,11 @@ test('the toolbar controls are reachable', async ({ page }) => {
   const search = page.getByRole('searchbox', { name: 'Rechercher un epic ou une issue' });
   await expect(search).toBeFocused();
   await expect(search).toBeInViewport({ ratio: 1 });
-  await search.fill(ref('&21'));
+  await search.fill(title('&21'));
   await expect(boardItem(page, '&21')).toBeVisible();
-  await expect(boardItem(page, '&18')).toHaveCount(0);
+  // &18 blocks &21: it stays, as a dependency; &15 is no part of the chain.
+  await expect(boardItem(page, '&15')).toHaveCount(0);
   await page.getByRole('banner').getByRole('button', { name: 'Annuler' }).tap();
   await expect(search).toHaveCount(0);
-  await expect(boardItem(page, '&18')).toBeVisible();
+  await expect(boardItem(page, '&15')).toBeVisible();
 });

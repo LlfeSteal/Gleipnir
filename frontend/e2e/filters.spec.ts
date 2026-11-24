@@ -5,6 +5,7 @@ import {
   drawnLinks,
   expectWindow,
   isDimmed,
+  isSearchContext,
   item,
   linkTypeCheckbox,
   openBoard,
@@ -15,7 +16,7 @@ import {
   summaryLine,
   summaryPart,
 } from './helpers';
-import { it, ref } from './demo';
+import { it, ref, title } from './demo';
 
 // Search, display options, link types, critical path and conflicts (spec §4.5, §4.7). Counts
 // are those of the default window It. 14 – It. 18.
@@ -24,40 +25,75 @@ test.beforeEach(async ({ page }) => {
   await openBoard(page);
 });
 
-/** Every item drawn matches the query, in its reference or its title, case-insensitive. On a
- * real GitLab references repeat across projects ("#3") and match longer ones ("#31"): the
- * search keeps all of them. */
+/** Every item drawn as a match holds the query, in its reference or its title,
+ * case-insensitive; the others are dependencies of a match. On a real GitLab references repeat
+ * across projects ("#3") and match longer ones ("#31"): the search keeps all of them. */
 async function expectOnlyMatches(page: import('@playwright/test').Page, query: string) {
   await expect
-    .poll(async () => (await shownLabels(page)).filter((label) => !label.toLowerCase().includes(query.toLowerCase())))
+    .poll(async () => (await shownLabels(page, true)).filter((label) => !label.toLowerCase().includes(query.toLowerCase())))
     .toEqual([]);
 }
 
+/** The item is drawn, as a dependency of a match: marked and veiled. */
+async function expectDependency(page: import('@playwright/test').Page, key: string) {
+  await expect(item(page, key)).toBeVisible();
+  expect(await isSearchContext(item(page, key))).toBe(true);
+  await expect.poll(() => isDimmed(item(page, key))).toBe(true);
+}
+
 test.describe('search', () => {
-  test('by issue reference', async ({ page }) => {
+  test('by issue reference, with the chain it blocks', async ({ page }) => {
     const all = await boardItems(page).count();
     await searchField(page).fill(ref('#110'));
     await expect(item(page, '#110')).toBeVisible();
+    expect(await isSearchContext(item(page, '#110'))).toBe(false);
+    await expect.poll(() => isDimmed(item(page, '#110'))).toBe(false);
     await expectOnlyMatches(page, ref('#110'));
+    // #110 blocks &21; it is related to #107, which blocks &15.
+    await expectDependency(page, '&21');
+    await expectDependency(page, '#107');
+    await expectDependency(page, '&15');
     expect(await boardItems(page).count()).toBeLessThan(all);
   });
 
-  test('by epic reference', async ({ page }) => {
+  test('by epic reference, with its blockers and what it blocks, transitively', async ({ page }) => {
     const all = await boardItems(page).count();
     await searchField(page).fill(ref('&18'));
     await expect(item(page, '&18')).toBeVisible();
     await expectOnlyMatches(page, ref('&18'));
+    // Upstream &12, &19, #114; downstream &21.
+    for (const key of ['&12', '&19', '#114', '&21']) await expectDependency(page, key);
     expect(await boardItems(page).count()).toBeLessThan(all);
   });
 
+  test('the chain leaves out the other branches of its items', async ({ page }) => {
+    // By title, unique: on a real GitLab "&1" exists in every group. &12 blocks &18, and &13
+    // too: &13 is no part of &18's chain.
+    await searchField(page).fill(title('&18'));
+    await expect.poll(() => shownKeys(page, true)).toEqual(['&18']);
+    await expectDependency(page, '&12');
+    await expect(item(page, '&13')).toHaveCount(0);
+  });
+
   test('by title words, case-insensitive, in every lane', async ({ page }) => {
+    // "kafka": the closed issue #131, and &21 it blocks (&23 after it lies outside the window).
     await searchField(page).fill('kafka');
-    await expect(boardItems(page)).toHaveCount(1);
-    await expect(item(page, '#131')).toBeVisible();
+    await expect(boardItems(page)).toHaveCount(2);
+    await expect.poll(() => shownKeys(page, true)).toEqual(['#131']);
+    await expectDependency(page, '&21');
+    await expect(item(page, '&15')).toHaveCount(0);
 
     // "export": the epic &18 (API et intégrations) and the issue #110 of its project.
     await searchField(page).fill('EXPORT');
-    await expect.poll(() => shownKeys(page)).toEqual(['#110', '&18']);
+    await expect.poll(() => shownKeys(page, true)).toEqual(['#110', '&18']);
+  });
+
+  test('the chain follows the link types shown', async ({ page }) => {
+    await searchField(page).fill(title('#107'));
+    // #107 blocks &15 and is related to #110, which blocks &21.
+    await expect.poll(() => shownKeys(page)).toEqual(['#107', '#110', '&15', '&17', '&21']);
+    await linkTypeCheckbox(page, 'Lié à').click();
+    await expect.poll(() => shownKeys(page)).toEqual(['#107', '&15']);
   });
 
   test('clearing the search brings everything back', async ({ page }) => {

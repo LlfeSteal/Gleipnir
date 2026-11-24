@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Epic, Issue, LinkType } from '../../api/types';
 import { epicId, issueId, mockupBoard } from '../../board/fixtures';
@@ -30,6 +30,7 @@ function placed(over: Partial<PlacedItem> = {}): PlacedItem {
     clippedEnd: false,
     unplanned: false,
     offWindow: [],
+    searchContext: false,
     ...over,
   };
 }
@@ -48,6 +49,13 @@ describe('EpicBar', () => {
     expect(bar.style.width).toBe('300px');
     expect(bar.querySelector('.epic-clip')).toBeNull();
     expect(bar.querySelector('.off-pill')).toBeNull();
+  });
+
+  it('marks a dependency brought in by the search, not a match', () => {
+    const { rerender } = render(<EpicBar {...common} placed={placed({ searchContext: true })} epic={baseEpic} onToggle={vi.fn()} />);
+    expect(screen.getByRole('button')).toHaveAttribute('data-search-context', 'true');
+    rerender(<EpicBar {...common} placed={placed()} epic={baseEpic} onToggle={vi.fn()} />);
+    expect(screen.getByRole('button')).not.toHaveAttribute('data-search-context');
   });
 
   it('clipped on both sides: chevrons give the real start and end', () => {
@@ -122,6 +130,14 @@ describe('IssueCard', () => {
     expect(button.querySelector('.avatar')).toBeNull();
     expect(button.querySelector('.issue-blocks')).toBeNull();
     expect(button.querySelector('.issue-labels')).toBeNull();
+  });
+
+  it('marks a dependency brought in by the search', () => {
+    render(<IssueCard {...common} placed={placed({ kind: 'issue', searchContext: true })} issue={baseIssue} onToggle={vi.fn()} />);
+    expect(screen.getByRole('button')).toHaveAttribute('data-search-context', 'true');
+    cleanup();
+    card(baseIssue);
+    expect(screen.getByRole('button')).not.toHaveAttribute('data-search-context');
   });
 
   it('shows two labels at most, then +N; an unknown label has no color', () => {

@@ -63,7 +63,7 @@ frontend/
   src/main.tsx, App.tsx       point d'entrée, coquille de l'application (état, préférences)
   src/api/types.ts            miroir TypeScript de model.go
   src/api/client.ts           fetch + ApiError
-  src/board/                  logique pure : types, couloirs, fenêtre, format, mise en page, liens, statistiques
+  src/board/                  logique pure : types, couloirs, fenêtre, format, mise en page, recherche, liens, statistiques
   src/components/ui/          primitives : Icons, Popover / MenuItem, Sheet (<dialog>), SearchField, Switch,
                               Checkbox, SelectList, SegmentedControl, StateViews, AppearanceMenu
   src/components/board/       le canevas : BoardCanvas, ItemGlyph, LinkSwatch…
@@ -316,6 +316,7 @@ Ils sont dans `internal/board`. Tous sont couverts par des tests table par table
 - **Logique** :
   - La logique pure va dans `src/board/` (couloirs, fenêtre, format, mise en page, liens, statistiques), sans React ni DOM, avec ses tests `*.test.ts`.
   - Les composants ne calculent pas la mise en page : ils lisent la `BoardView` de `computeBoardView`, mémorisée.
+  - La recherche (`src/board/search.ts`) garde les résultats et toute leur chaîne de dépendances (amont et aval séparés, types de lien cochés) ; les dépendances sont marquées `searchContext` et voilées (ADR-30).
   - La largeur des colonnes dépend de celle du board : `BoardCanvas` mesure son conteneur de défilement (`ResizeObserver`) et `App` la passe à `computeBoardView` (`availableWidth`). Les largeurs de `LAYOUT` sont des minimums (ADR-29).
 - **CSS** : un fichier par zone.
   - `theme.css` : jetons et contrôles génériques (`.button`, `.menu`, `.pill`…) ;
@@ -369,7 +370,8 @@ Ils sont dans `internal/board`. Tous sont couverts par des tests table par table
     - Un élément se désigne par sa **clé** du jeu (`'&18'`) : `item(page, key)` et `boardItem(page, key)` le trouvent par son **titre**, jamais par sa ref (sur un vrai GitLab, `&1` existe dans chaque groupe).
     - Tout texte qui montre une ref, une itération, un chemin, la racine ou un assigné passe par `e2e/demo.ts` : `ref('&21')`, `title('#101')`, `it(14)` (« It. 14 »), `itTitle(15)`, `group('api')`, `root()`, `cadence()`, `assignee('#110')`. Ils lisent le board que `e2e/global-setup.ts` charge une fois (variable `E2E_DEMO_BOARD`) ; les titres des tests gardent les clés.
     - `ref()` d'une issue ignorée (non affichée) échoue : désignez-la par `title()`.
-    - Une recherche par ref vérifie que tout ce qui reste affiché correspond, pas un compte : sur un vrai GitLab, `#1` trouve aussi `#10`.
+    - Une recherche par ref vérifie que tout élément affiché comme **résultat** correspond (`shownKeys(page, true)`, sans `data-search-context`), pas un compte : sur un vrai GitLab, `#1` trouve aussi `#10`.
+    - La recherche ramène la chaîne de dépendances des résultats (ADR-30) : pour une assertion sur la chaîne exacte, cherchez par **titre**. Par ref, chaque groupe a son `&1` et la chaîne grossit.
     - Le `globalSetup` exige `current === 3` (« Itération 15 ») : sur un GitLab rempli, relancer le seeder recale les dates.
     - `npm run test:e2e:gitlab-like` (`E2E_GITLAB_LIKE=1`) le vérifie sans instance : `GITLAB_MOCK_NUMBERING=gitlab` et `GITLAB_MOCK_ROOT=demo/gleipnir`.
   - `webServer` donne `DEMO-JETON-TEST` au faux GitLab (`GITLAB_MOCK_TOKEN`) et au backend (`GITLAB_TOKEN`) : le chargement du board prouve que le jeton passe, et un jeton exporté dans le shell n'est pas envoyé au faux GitLab.

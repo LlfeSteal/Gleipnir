@@ -225,6 +225,12 @@
 .board-canvas[data-critical-path] .board-item:not([data-critical]):not(:hover, :focus-visible),
 .board-canvas[data-selection] .board-item:not([data-related]):not(:hover, :focus-visible) { box-shadow: none; }
 
+/* Search: the dependencies a match brings in are veiled, the matches stay plain. The selection
+   and the critical path take over the fading when on. */
+.board-canvas:not([data-selection], [data-critical-path]) .board-item[data-search-context]::after { opacity: 0.5; }
+.board-canvas:not([data-selection], [data-critical-path]) .board-item[data-search-context]:is(:hover, :focus-visible)::after { opacity: 0; }
+.board-canvas:not([data-selection], [data-critical-path]) .board-item[data-search-context]:not(:hover, :focus-visible) { box-shadow: none; }
+
 /* Critical path: everything off the path fades (no hue of its own). */
 .board-canvas[data-critical-path] .link:not([data-critical]) { opacity: 0.35; }
 

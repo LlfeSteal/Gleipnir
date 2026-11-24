@@ -683,3 +683,28 @@ Une synchro en cours reste partagée par toutes les requêtes. Sans données en 
 - Ouvrir l'inspecteur, replier le panneau latéral ou redimensionner la fenêtre recalcule la mise en page : les éléments se déplacent avec leurs colonnes.
 - Le premier rendu se fait aux largeurs minimales, le suivant à la largeur mesurée.
 - Pas d'oscillation de la barre verticale : la hauteur du canevas ne dépend pas de la largeur des colonnes.
+
+## ADR-30 — La recherche montre la chaîne de dépendances des résultats
+
+*2026-11-24 · Accepté · Amende la spec §4.7 et §5.1*
+
+**Contexte.** La recherche ne gardait que les éléments dont la référence ou le titre contient le texte. Un résultat apparaissait seul, sans ce qui le bloque ni ce qu'il bloque : on perdait justement ce que le board sert à montrer.
+
+**Décision.**
+
+- La recherche garde les éléments trouvés et **toute leur chaîne de dépendances** (`src/board/search.ts`, `searchItems`).
+- **Deux parcours séparés** depuis les éléments trouvés :
+  - l'amont remonte les liens (bloqueurs, bloqueurs des bloqueurs…) ;
+  - l'aval les descend (bloqués, bloqués des bloqués…).
+  
+  Ils ne se mélangent pas : un autre bloqueur d'un élément bloqué n'est pas ramené, sinon la chaîne s'étendrait à presque tout le board.
+- Seuls les **types de lien cochés** sont suivis, comme pour le dessin. `relates`, sans direction, se suit dans les deux sens dans chacun des parcours. `parent` va de l'epic vers l'issue.
+- Le parcours traverse aussi les éléments masqués (issues fermées avec « Masquer les issues fermées ») : la chaîne existe, ils ne sont juste pas dessinés.
+- Couloirs, fenêtre et « Masquer les issues fermées » s'appliquent ensuite comme avant. Une dépendance hors fenêtre donne la pastille « › N ».
+- Les dépendances ajoutées portent `data-search-context` et sont **voilées** comme les éléments atténués de la sélection. La sélection et le chemin critique, quand ils sont actifs, reprennent la main sur l'atténuation.
+
+**Conséquences.**
+
+- Une recherche qui touche un élément très connecté peut ramener une grande partie du board.
+- Les compteurs comptent aussi les dépendances affichées.
+- E2E : une recherche par ref ne vérifie plus que les éléments affichés comme résultats. Une assertion sur la chaîne exacte cherche par titre, car sur un vrai GitLab `&1` existe dans chaque groupe.

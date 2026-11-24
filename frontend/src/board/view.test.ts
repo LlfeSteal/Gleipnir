@@ -249,11 +249,36 @@ describe('lanes and items', () => {
     expect(v.lanes[1].empty).toBe(false);
   });
 
-  it('searches refs and titles, case-insensitive', () => {
-    expect(placedRefs(view({ query: '#110' }))).toEqual(new Set([idOf('#110')]));
-    expect(placedRefs(view({ query: 'sso' }))).toEqual(new Set([idOf('&12'), idOf('#114')]));
-    expect(placedRefs(view({ query: 'export' }))).toEqual(new Set([idOf('&18'), idOf('#110')]));
-    expect(placedRefs(view({ query: '&1' })).size).toBe(6); // &12 &13 &15 &17 &18 &19, not &16 (out)
+  it('searches refs and titles, case-insensitive, and keeps the dependency chain of the matches', () => {
+    const context = (v: BoardView) => new Set(v.items.filter((p) => p.searchContext).map((p) => p.itemId));
+    const matched = (v: BoardView) => new Set(v.items.filter((p) => !p.searchContext).map((p) => p.itemId));
+    // #131 blocks &21 (in the window), which blocks &23 (after it: a pill on &21).
+    const kafka = view({ query: 'KAFKA' });
+    expect(matched(kafka)).toEqual(new Set([idOf('#131')]));
+    expect(context(kafka)).toEqual(new Set([idOf('&21')]));
+    expect(placed(kafka, '&21')!.offWindow).toEqual([idOf('&23')]);
+    // &18: its blockers (&12, &19, #114 in the window; #140 before it) and what it blocks
+    // (&21; &22 after it), not &13 nor #110 (other branches of &12 and &21).
+    const e18 = view({ query: '&18' });
+    expect(matched(e18)).toEqual(new Set([idOf('&18')]));
+    expect(context(e18)).toEqual(new Set(['&12', '&19', '#114', '&21'].map(idOf)));
+    expect(new Set(placed(e18, '&18')!.offWindow)).toEqual(new Set([idOf('&22'), idOf('#140')]));
+    expect(matched(view({ query: 'export' }))).toEqual(new Set([idOf('&18'), idOf('#110')]));
+    expect(matched(view({ query: '&1' })).size).toBe(6); // &12 &13 &15 &17 &18 &19, not &16 (out)
+    // Only the link types shown: without "relates", #107 keeps &15 but loses #110.
+    expect(placedRefs(view({ query: '#107' })).has(idOf('#110'))).toBe(true);
+    expect(placedRefs(view({ query: '#107', options: { linkTypes: { blocks: true, relates: false, parent: false } } }))).toEqual(
+      new Set([idOf('#107'), idOf('&15')]),
+    );
+    // Without query, nothing is a search dependency.
+    expect(context(view())).toEqual(new Set());
+  });
+
+  it('hides the closed issues of a search chain with "Masquer les issues fermées"', () => {
+    expect(placedRefs(view({ query: 'pipeline' })).has(idOf('#131'))).toBe(true); // blocks &21
+    const hidden = placedRefs(view({ query: 'pipeline', options: { hideClosed: true } }));
+    expect(hidden.has(idOf('#131'))).toBe(false);
+    expect(hidden.has(idOf('&21'))).toBe(true);
   });
 
   it('hides closed issues only', () => {

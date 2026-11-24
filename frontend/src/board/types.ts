@@ -85,6 +85,8 @@ export interface PlacedItem {
   unplanned: boolean; // placed in the unplanned column
   /** Ids of linked items that match the lane filters but sit outside the window (badge "› N"). */
   offWindow: string[];
+  /** Brought in by the search as a dependency of a match, not a match itself (dimmed). */
+  searchContext: boolean;
 }
 
 export interface LaneBlock {

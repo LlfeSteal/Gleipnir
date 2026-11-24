@@ -6,6 +6,7 @@
 import type { Epic, Issue, LinkType } from '../api/types';
 import { isEpicUnplanned, isIssueUnplanned } from './items';
 import { matchLane } from './lanes';
+import { searchItems } from './search';
 import type {
   BoardStats,
   BoardView,
@@ -115,10 +116,10 @@ export function computeBoardView(input: ViewInput, layout: Readonly<BoardLayout>
   const to = count > 0 ? win.to : from - 1;
   const n = Math.max(0, to - from + 1);
 
-  // Item-level filters and window status, computed once for all lanes.
-  const q = input.query.toLowerCase();
-  const textOk = (it: Epic | Issue) =>
-    !q || it.ref.toLowerCase().includes(q) || it.title.toLowerCase().includes(q);
+  // Item-level filters and window status, computed once for all lanes. The search keeps its
+  // matches and their dependency chains.
+  const search = searchItems(data, input.query, options.linkTypes);
+  const inSearch = (id: string) => !search || search.matches.has(id) || search.chain.has(id);
   const status = new Map<string, Status>();
   const epics: EpicEntry[] = [];
   data.epics.forEach((epic, order) => {
@@ -132,14 +133,14 @@ export function computeBoardView(input: ViewInput, layout: Readonly<BoardLayout>
       e = Math.min(epic.end as number, to);
     } else st = 'out';
     status.set(epic.id, st);
-    if (textOk(epic)) epics.push({ epic, order, status: st, s, e });
+    if (inSearch(epic.id)) epics.push({ epic, order, status: st, s, e });
   });
   const issues: Issue[] = [];
   for (const issue of data.issues) {
     const it = issue.iteration;
     const st: Status = isIssueUnplanned(issue) ? 'unplanned' : (it as number) >= from && (it as number) <= to ? 'in' : 'out';
     status.set(issue.id, st);
-    if (textOk(issue) && !(options.hideClosed && issue.state === 'closed')) issues.push(issue);
+    if (inSearch(issue.id) && !(options.hideClosed && issue.state === 'closed')) issues.push(issue);
   }
 
   const activeLanes = input.lanes.filter((l) => l.active);
@@ -211,6 +212,7 @@ export function computeBoardView(input: ViewInput, layout: Readonly<BoardLayout>
       clippedEnd: false,
       unplanned: false,
       offWindow: [],
+      searchContext: !!search && !search.matches.has(id),
       ...extra,
     };
     items.push(p);

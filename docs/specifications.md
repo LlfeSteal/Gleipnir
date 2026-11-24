@@ -162,6 +162,12 @@ Les couloirs peuvent se **recouper**. Un élément qui correspond à plusieurs c
 ### 4.7 Filtres et options globales
 
 - **Recherche** sur la référence (`#110`, `&18`) et sur le titre, dans tous les couloirs.
+  - Elle affiche les éléments trouvés **et toute leur chaîne de dépendances**, même si celles-ci ne contiennent pas le texte cherché :
+    - en amont, ce qui les bloque, de proche en proche ;
+    - en aval, ce qu'ils bloquent, de proche en proche.
+  - Les deux sens sont parcourus séparément : un autre bloqueur d'un élément bloqué n'est pas ramené.
+  - Seuls les types de lien cochés sont suivis. Un lien « lié à » se suit dans les deux sens.
+  - Les dépendances ajoutées sont atténuées ; les éléments trouvés restent pleins.
 - **Masquer les issues fermées**.
 - **Types de lien** (voir 4.5).
 - **Compteurs** en haut du board : couloirs actifs, epics, issues bloquantes et blocages visibles. Un élément présent dans plusieurs couloirs n'est compté qu'une fois.
@@ -187,7 +193,8 @@ Sur mobile (largeur ≤ 760 px), il est masqué et s'ouvre avec le bouton « Fil
 Une issue est affichable si **elle a au moins un lien `blocks` dont la cible est un epic**. Ensuite :
 - elle doit correspondre au couloir (groupe, type « issues » activé, labels) ;
 - son itération doit être dans la fenêtre ;
-- elle doit passer la recherche et l'option « Masquer les issues fermées ».
+- elle doit correspondre à la recherche, ou appartenir à la chaîne de dépendances d'un élément qui y correspond (§4.7) ;
+- elle doit passer l'option « Masquer les issues fermées ».
 
 Les autres issues synchronisées sont ignorées. Le panneau de gauche en indique le nombre.
 

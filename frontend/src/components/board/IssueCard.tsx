@@ -35,6 +35,7 @@ export const IssueCard = memo(function IssueCard({ placed, issue, data, selected
       data-closed={closed || undefined}
       data-related={related || undefined}
       data-critical={critical || undefined}
+      data-search-context={placed.searchContext || undefined}
       aria-pressed={selected}
       aria-label={BOARD.issueLabel(issue.ref, issue.title, closed)}
       aria-description={offWindowRefs.length ? BOARD.offWindowTitle(offWindowRefs) : undefined}

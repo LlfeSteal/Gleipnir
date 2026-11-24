@@ -33,17 +33,33 @@ export function boardItems(page: Page): Locator {
   return page.getByRole('button', { name: /^(Epic &|Issue #)\d+/ });
 }
 
-/** The keys of the items drawn ("&18"), sorted and without duplicates. */
-export async function shownKeys(page: Page): Promise<string[]> {
-  const names = await boardItems(page).evaluateAll((els) => els.map((el) => el.getAttribute('aria-label') ?? ''));
+/** The accessible names of the items drawn; with matchesOnly, only the search matches, not the
+ * dependencies a match brings in (data-search-context). */
+function itemNames(page: Page, matchesOnly: boolean): Promise<string[]> {
+  return boardItems(page).evaluateAll(
+    (els, only) => els.filter((el) => !only || !el.hasAttribute('data-search-context')).map((el) => el.getAttribute('aria-label') ?? ''),
+    matchesOnly,
+  );
+}
+
+/** The keys of the items drawn ("&18"), sorted and without duplicates; with matchesOnly, the
+ * search matches only. */
+export async function shownKeys(page: Page, matchesOnly = false): Promise<string[]> {
+  const names = await itemNames(page, matchesOnly);
   const titles = names.map((name) => /^(?:Epic|Issue) [&#]\d+ (.*?)(?:, fermée?)?$/.exec(name)?.[1] ?? '').filter(Boolean);
   return [...new Set(titles.map(keyOf))].sort();
 }
 
-/** The references and titles of the items drawn ("#110 Endpoint…"), for the search. */
-export async function shownLabels(page: Page): Promise<string[]> {
-  const names = await boardItems(page).evaluateAll((els) => els.map((el) => el.getAttribute('aria-label') ?? ''));
+/** The references and titles of the items drawn ("#110 Endpoint…"); with matchesOnly, the
+ * search matches only. */
+export async function shownLabels(page: Page, matchesOnly = false): Promise<string[]> {
+  const names = await itemNames(page, matchesOnly);
   return names.map((name) => name.replace(/^(Epic|Issue) /, '').replace(/, fermée?$/, ''));
+}
+
+/** True when the item is drawn as a dependency brought in by the search, not as a match. */
+export function isSearchContext(locator: Locator): Promise<boolean> {
+  return locator.first().evaluate((el) => el.hasAttribute('data-search-context'));
 }
 
 /** The window pop-up button of the toolbar: "Fenêtre : It. 14 – It. 18". */
