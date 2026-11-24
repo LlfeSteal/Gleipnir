@@ -38,7 +38,7 @@ L'application est en **lecture seule** : elle ne modifie jamais GitLab.
 - Une instance GitLab en édition **Premium ou Ultimate** : les epics, les itérations et les liens « bloque » en dépendent.
 - Un jeton d'accès GitLab avec la portée **`read_api`**. Un jeton de groupe ou de compte de service convient.
 - Docker avec Compose v2, inclus dans le devcontainer du projet.
-- Pour développer hors Docker : Go 1.22+ et Node 22+.
+- Pour développer hors Docker : Go 1.27+ et Node 22+.
 
 ## Démarrage rapide (Docker)
 

@@ -1,12 +1,12 @@
 # Stage 1: build a static binary. go.mod has no dependencies (standard library only), so there
 # is no go.sum to copy and nothing to download.
-FROM golang:1.22-alpine AS builder
+FROM golang:1.27-alpine AS builder
 WORKDIR /src
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/server
 
 # Stage 2: minimal runtime
-FROM alpine:3.20
+FROM alpine:3.24
 # ca-certificates: HTTPS to GitLab. tzdata: TZ decides which iteration is the current one.
 RUN apk --no-cache add ca-certificates tzdata \
     && adduser -D -H -u 10001 app

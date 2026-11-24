@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/devcontainers/go:1-1.22-bookworm
+FROM mcr.microsoft.com/devcontainers/go:1.27-bookworm
 
 # Drop the Yarn APT repo shipped by the base image (unused, and its GPG key is missing)
 RUN rm -f /etc/apt/sources.list.d/yarn.list

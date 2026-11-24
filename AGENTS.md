@@ -17,7 +17,7 @@ This document is the reference for any agent or developer working in this reposi
 
 **Stack.**
 
-- **Backend**: Go 1.22, **standard library only** (module `gleipnir`, `go.mod` without dependencies).
+- **Backend**: Go 1.27, **standard library only** (module `gleipnir`, `go.mod` without dependencies). The devcontainer (`mcr.microsoft.com/devcontainers/go:1.27-bookworm`) sets `GOTOOLCHAIN=local`: in an older container, `go` refuses the modules (`go.mod requires go >= 1.27`). Rebuild the container, or run with `GOTOOLCHAIN=go1.27.4`.
   - The backend reads GitLab's GraphQL API with a server-side `read_api` token.
   - It applies the business rules in `internal/board`.
   - It keeps the encoded board in memory: a full sync at startup then every `CACHE_TTL`, and targeted refreshes of the groups of the active lanes (ADR-24).
@@ -397,7 +397,8 @@ They live in `internal/board`. All are covered by table-driven tests: a behavior
 ## Deployment (Docker)
 
 - **Backend image**:
-  - build `golang:1.22-alpine` (`CGO_ENABLED=0`, `-trimpath -ldflags="-s -w"`), then `alpine:3.20` with `ca-certificates` and `tzdata`;
+  - build `golang:1.27-alpine` (`CGO_ENABLED=0`, `-trimpath -ldflags="-s -w"`), then `alpine:3.24` (the Alpine release `golang:1.27-alpine` is built on) with `ca-certificates` and `tzdata`;
+  - the Go version is set in three places that move together: `go.mod` (`go 1.27`, backend and fake GitLab), the `golang:` image of both Dockerfiles, and `.devcontainer/Dockerfile`;
   - `USER 10001:10001` is **numeric** on purpose: Kubernetes can then check `runAsNonRoot`;
   - `HEALTHCHECK` with `wget` on `/api/health`.
   

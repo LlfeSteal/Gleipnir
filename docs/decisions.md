@@ -48,7 +48,7 @@ Ce fichier consigne les choix qui structurent Gleipnir, sous forme de courts ADR
 - appliquer des règles métier ;
 - servir deux routes JSON.
 
-Go 1.22 apporte le routage par méthode dans `net/http.ServeMux` (`"GET /api/board"`) et `log/slog`. Nornir utilise Gin et godotenv, qui n'apportent rien d'essentiel ici.
+Depuis Go 1.22, `net/http.ServeMux` route par méthode (`"GET /api/board"`), et `log/slog` existe. Le projet est en Go 1.27 depuis le 2026-11-24. Nornir utilise Gin et godotenv, qui n'apportent rien d'essentiel ici.
 
 **Décision.**
 
@@ -193,8 +193,8 @@ Les erreurs sont typées : `ErrUnauthorized`, `ErrGroupNotFound`, `ErrPremiumReq
 **Décision.**
 
 - **Image backend** :
-  - build `golang:1.22-alpine`, binaire statique (`CGO_ENABLED=0`) ;
-  - exécution sur `alpine:3.20` avec `ca-certificates` et `tzdata` ;
+  - build `golang:1.27-alpine`, binaire statique (`CGO_ENABLED=0`) ;
+  - exécution sur `alpine:3.24` avec `ca-certificates` et `tzdata` (Go 1.22 et `alpine:3.20` jusqu'au 2026-11-24 ; `alpine:3.20` n'était plus maintenue) ;
   - utilisateur non-root **numérique** `10001` ;
   - healthcheck sur `/api/health`.
 - **Image frontend** :
