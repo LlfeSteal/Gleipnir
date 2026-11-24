@@ -28,6 +28,9 @@ type Board struct {
 }
 
 type Group struct {
+	// ID is the group's global ID (gid://gitlab/Group/N): the frontend names groups by it in
+	// the URL of a view, shorter than a full path.
+	ID   string `json:"id"`
 	Path string `json:"path"`
 	Name string `json:"name"`
 	// SyncedAt is when the group's items were read from GitLab. Groups are refreshed one

@@ -100,9 +100,9 @@ func (c *Client) fetchGroups(ctx context.Context) (board.Group, []board.Group, e
 	var root board.Group
 	var groups []board.Group
 	err := c.paginate(ctx, "Groups", groupsQuery, c.group, nil, func(g *groupData) pageInfo {
-		root = board.Group{Path: g.FullPath, Name: g.Name}
+		root = board.Group{ID: g.ID, Path: g.FullPath, Name: g.Name}
 		for _, n := range g.DescendantGroups.Nodes {
-			groups = append(groups, board.Group{Path: n.FullPath, Name: n.Name})
+			groups = append(groups, board.Group{ID: n.ID, Path: n.FullPath, Name: n.Name})
 		}
 		return g.DescendantGroups.PageInfo
 	})

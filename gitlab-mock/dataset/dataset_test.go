@@ -22,8 +22,17 @@ func TestStorableInGitLab(t *testing.T) {
 	d := New(now)
 	groups := map[string]bool{}
 	for _, g := range d.Groups {
-		if !gitlabName.MatchString(g.Name) || !gitlabPath.MatchString(g.Slug) {
-			t.Errorf("group %+v: GitLab refuses this name or path", g)
+		// A nested group: each segment is a GitLab path, and its parent comes first.
+		segments := strings.Split(g.Slug, "/")
+		valid := gitlabName.MatchString(g.Name)
+		for _, s := range segments {
+			valid = valid && gitlabPath.MatchString(s)
+		}
+		if parent := strings.Join(segments[:len(segments)-1], "/"); parent != "" && !groups[parent] {
+			valid = false
+		}
+		if !valid {
+			t.Errorf("group %+v: GitLab refuses this name or path, or its parent comes later", g)
 		}
 		groups[g.Slug] = true
 	}

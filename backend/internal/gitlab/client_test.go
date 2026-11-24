@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"gleipnir/internal/board"
 )
 
 // gqlRequest is what the fake GitLab receives.
@@ -98,8 +100,8 @@ const lastPage = `"pageInfo":{"hasNextPage":false,"endCursor":"end"}`
 // healthy returns handlers for a small, valid root group.
 func healthy() map[string]func(gqlRequest) (int, string) {
 	return map[string]func(gqlRequest) (int, string){
-		"Groups": ok(group(`"fullPath":"root","name":"Root","descendantGroups":{` + lastPage +
-			`,"nodes":[{"fullPath":"root/a","name":"A"}]}`)),
+		"Groups": ok(group(`"id":"gid://gitlab/Group/1","fullPath":"root","name":"Root","descendantGroups":{` + lastPage +
+			`,"nodes":[{"id":"gid://gitlab/Group/9","fullPath":"root/a","name":"A"}]}`)),
 		"Cadences": ok(group(`"iterationCadences":{` + lastPage + `,"nodes":[` +
 			`{"id":"gid://gitlab/Iterations::Cadence/1","title":"Old","active":false},` +
 			`{"id":"gid://gitlab/Iterations::Cadence/2","title":"Sprints ","active":true}]}`)),
@@ -123,10 +125,10 @@ func TestFetchHappyPath(t *testing.T) {
 	if raw.GitLabURL != c.baseURL || strings.HasSuffix(raw.GitLabURL, "/") {
 		t.Errorf("GitLabURL = %q", raw.GitLabURL)
 	}
-	if raw.RootGroup.Path != "root" || raw.RootGroup.Name != "Root" {
+	if raw.RootGroup != (board.Group{ID: "gid://gitlab/Group/1", Path: "root", Name: "Root"}) {
 		t.Errorf("RootGroup = %+v", raw.RootGroup)
 	}
-	if len(raw.Groups) != 1 || raw.Groups[0].Path != "root/a" {
+	if len(raw.Groups) != 1 || raw.Groups[0] != (board.Group{ID: "gid://gitlab/Group/9", Path: "root/a", Name: "A"}) {
 		t.Errorf("Groups = %+v", raw.Groups)
 	}
 	if raw.Cadence.ID != "gid://gitlab/Iterations::Cadence/2" || raw.Cadence.Title != "Sprints" {

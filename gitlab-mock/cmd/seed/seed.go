@@ -145,7 +145,12 @@ func (s *seeder) seedGroups(ctx context.Context) error {
 		switch {
 		case err == errNotFound:
 			if s.change(true, "create group %s (%s)", path, g.Name) {
-				body := map[string]any{"name": g.Name, "path": g.Slug, "parent_id": s.rootID}
+				// A nested group goes under its parent, created just before it.
+				parentID, slug := s.rootID, g.Slug
+				if i := strings.LastIndex(g.Slug, "/"); i >= 0 {
+					parentID, slug = s.groupIDs[g.Slug[:i]], g.Slug[i+1:]
+				}
+				body := map[string]any{"name": g.Name, "path": slug, "parent_id": parentID}
 				if err := s.c.rest(ctx, http.MethodPost, "/groups", body, &got); err != nil {
 					return fmt.Errorf("creating group %s: %w", path, err)
 				}

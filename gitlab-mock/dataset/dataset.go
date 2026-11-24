@@ -26,10 +26,10 @@ type Dataset struct {
 	Links      []Link
 }
 
-// Group is a subgroup of the root. GitLab group names allow letters, digits, emoji, "_", ".",
-// "(", ")", "-" and spaces: no "&".
+// Group is a group below the root, at any depth: its parent comes first in Dataset.Groups.
+// GitLab group names allow letters, digits, emoji, "_", ".", "(", ")", "-" and spaces: no "&".
 type Group struct {
-	Slug string // path segment under the root
+	Slug string // path under the root ("api", or "api/partenaires" for a nested group)
 	Name string
 }
 
@@ -134,6 +134,9 @@ func New(now time.Time) *Dataset {
 			{"experience", "Expérience produit"},
 			{"api", "API et intégrations"},
 			{"data", "Data"},
+			// Nested: lanes follow the group tree (ADR-32). Unchecked by default, so its
+			// items show in the API et intégrations lane.
+			{"api/partenaires", "Partenaires"},
 		},
 		Projects: []Project{
 			{"identite", "sso", "SSO"},
@@ -185,7 +188,7 @@ func New(now time.Time) *Dataset {
 	epic("&17", "experience", "Mode hors ligne mobile", 6, 8, "mobile", "frontend")
 	epic("&19", "api", "Webhooks sortants", 0, 3, "API", "backend")
 	epic("&18", "api", "API d'export des données", 4, 6, "API", "backend")
-	epic("&22", "api", "Portail développeur", 7, 9, "API", "UX")
+	epic("&22", "api/partenaires", "Portail développeur", 7, 9, "API", "UX")
 	epic("&21", "data", "Pipeline analytique", 5, 7, "data", "backend")
 	epic("&23", "data", "Modèles prédictifs", 8, 9, "data")
 	// Extra cases: dates inherited from children, and no date nor child at all.

@@ -218,9 +218,9 @@ func TestBuildEpicPlacement(t *testing.T) {
 
 func TestBuildGroups(t *testing.T) {
 	b := Build(&Raw{
-		RootGroup: Group{Path: "root", Name: "Root"},
+		RootGroup: Group{ID: "gid://gitlab/Group/1", Path: "root", Name: "Root"},
 		Groups: []Group{
-			{Path: "root/zeta", Name: "Z"}, {Path: "root/Beta", Name: "B"}, {Path: "root/alpha", Name: "A"},
+			{Path: "root/zeta", Name: "Z"}, {Path: "root/Beta", Name: "B"}, {ID: "gid://gitlab/Group/7", Path: "root/alpha", Name: "A"},
 			{Path: "root/alpha/sub", Name: "AS"}, {Path: "root/alpha", Name: "dup"}, {Path: "root", Name: "self"},
 		},
 	}, testNow)
@@ -234,6 +234,14 @@ func TestBuildGroups(t *testing.T) {
 	}
 	if b.Groups[0].Name != "Root" || b.Groups[1].Name != "A" {
 		t.Errorf("names = %+v", b.Groups)
+	}
+	if b.Groups[0].ID != "gid://gitlab/Group/1" || b.Groups[1].ID != "gid://gitlab/Group/7" {
+		t.Errorf("ids = %+v", b.Groups)
+	}
+	// The JSON contract: every group carries its id.
+	out, err := json.Marshal(b.Groups[1])
+	if err != nil || string(out) != `{"id":"gid://gitlab/Group/7","path":"root/alpha","name":"A"}` {
+		t.Errorf("group JSON = %s (%v)", out, err)
 	}
 }
 

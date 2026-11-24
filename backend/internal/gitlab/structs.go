@@ -17,6 +17,7 @@ type gqlError struct {
 }
 
 type groupData struct {
+	ID                string        `json:"id"`
 	FullPath          string        `json:"fullPath"`
 	Name              string        `json:"name"`
 	DescendantGroups  groupConn     `json:"descendantGroups"`
@@ -36,6 +37,7 @@ type groupConn struct {
 }
 
 type groupNode struct {
+	ID       string `json:"id"`
 	FullPath string `json:"fullPath"`
 	Name     string `json:"name"`
 }

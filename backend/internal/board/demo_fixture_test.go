@@ -205,12 +205,12 @@ func DemoRaw(now time.Time) *Raw {
 
 	return &Raw{
 		GitLabURL: demoURL,
-		RootGroup: Group{Path: "plateforme/atlas", Name: "Atlas"},
+		RootGroup: Group{ID: "gid://gitlab/Group/100", Path: "plateforme/atlas", Name: "Atlas"},
 		Groups: []Group{
-			{Path: identite, Name: "Identité & sécurité"},
-			{Path: xp, Name: "Expérience produit"},
-			{Path: api, Name: "API & intégrations"},
-			{Path: data, Name: "Data"},
+			{ID: "gid://gitlab/Group/101", Path: identite, Name: "Identité & sécurité"},
+			{ID: "gid://gitlab/Group/102", Path: xp, Name: "Expérience produit"},
+			{ID: "gid://gitlab/Group/103", Path: api, Name: "API & intégrations"},
+			{ID: "gid://gitlab/Group/104", Path: data, Name: "Data"},
 		},
 		Cadence:    Cadence{ID: "gid://gitlab/Iterations::Cadence/1", Title: "Sprints produit"},
 		Iterations: its,

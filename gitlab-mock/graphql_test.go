@@ -195,17 +195,26 @@ func TestUnknownGroupIsNull(t *testing.T) {
 func TestGroups(t *testing.T) {
 	h := newServer(3, nil)
 	nodes := walk[groupNode](t, h, qGroups, "descendantGroups", map[string]any{"fullPath": "plateforme/atlas"})
-	if len(nodes) != 4 {
-		t.Fatalf("got %d descendant groups, want 4: %v", len(nodes), nodes)
+	if len(nodes) != 5 {
+		t.Fatalf("got %d descendant groups, want 5: %v", len(nodes), nodes)
+	}
+	for _, n := range nodes {
+		if !strings.HasPrefix(n.ID, "gid://gitlab/Group/") {
+			t.Fatalf("group without a GID: %+v", n)
+		}
 	}
 	_, res := post(t, h, qGroups, map[string]any{"fullPath": "plateforme/atlas"}, nil)
 	var root groupNode
 	_ = json.Unmarshal(res.Data.Group, &root)
-	if root != (groupNode{FullPath: "plateforme/atlas", Name: "Atlas"}) {
+	if root != (groupNode{ID: "gid://gitlab/Group/40", FullPath: "plateforme/atlas", Name: "Atlas"}) {
 		t.Fatalf("root group: %+v", root)
 	}
-	if sub := walk[groupNode](t, h, qGroups, "descendantGroups", map[string]any{"fullPath": "plateforme/atlas/api"}); len(sub) != 0 {
-		t.Fatalf("a leaf group has no descendants, got %v", sub)
+	sub := walk[groupNode](t, h, qGroups, "descendantGroups", map[string]any{"fullPath": "plateforme/atlas/api"})
+	if len(sub) != 1 || sub[0].FullPath != "plateforme/atlas/api/partenaires" {
+		t.Fatalf("api has one nested group, got %v", sub)
+	}
+	if leaf := walk[groupNode](t, h, qGroups, "descendantGroups", map[string]any{"fullPath": "plateforme/atlas/data"}); len(leaf) != 0 {
+		t.Fatalf("a leaf group has no descendants, got %v", leaf)
 	}
 }
 

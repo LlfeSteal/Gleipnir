@@ -28,6 +28,7 @@ type dataset struct {
 }
 
 type groupNode struct {
+	ID       string `json:"id"`
 	FullPath string `json:"fullPath"`
 	Name     string `json:"name"`
 }
@@ -162,12 +163,12 @@ func newDataset(now time.Time, lay layout) *dataset {
 		counters[namespace]++
 		return strconv.Itoa(counters[namespace])
 	}
-	d := &dataset{root: groupNode{FullPath: rootPath, Name: rootName}, cadence: ds.Cadence}
+	d := &dataset{root: groupNode{ID: "gid://gitlab/Group/40", FullPath: rootPath, Name: rootName}, cadence: ds.Cadence}
 	groupIDs := map[string]int{rootPath: 40}
 	for i, g := range ds.Groups {
 		path := rootPath + "/" + g.Slug
-		d.groups = append(d.groups, groupNode{FullPath: path, Name: g.Name})
 		groupIDs[path] = 41 + i
+		d.groups = append(d.groups, groupNode{ID: fmt.Sprintf("gid://gitlab/Group/%d", 41+i), FullPath: path, Name: g.Name})
 	}
 	projectIDs := map[string]int{}
 	for i, p := range ds.Projects {

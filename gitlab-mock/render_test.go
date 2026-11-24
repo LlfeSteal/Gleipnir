@@ -92,7 +92,7 @@ func TestOptional(t *testing.T) {
 // seeder numbers them, under the chosen root.
 func TestGitLabLayout(t *testing.T) {
 	d := newDataset(now, layout{root: "demo/gleipnir", rootName: "Gleipnir", gitlabIIDs: true})
-	if d.root != (groupNode{FullPath: "demo/gleipnir", Name: "Gleipnir"}) || !d.knows("demo/gleipnir/api") {
+	if d.root != (groupNode{ID: "gid://gitlab/Group/40", FullPath: "demo/gleipnir", Name: "Gleipnir"}) || !d.knows("demo/gleipnir/api") {
 		t.Fatalf("root %+v", d.root)
 	}
 	iids := map[string][]string{}

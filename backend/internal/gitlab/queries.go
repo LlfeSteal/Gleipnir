@@ -6,11 +6,12 @@ package gitlab
 // Descendant groups at every level (the root itself is not listed).
 const groupsQuery = `query Groups($fullPath: ID!, $after: String) {
   group(fullPath: $fullPath) {
+    id
     fullPath
     name
     descendantGroups(first: 100, after: $after) {
       pageInfo { hasNextPage endCursor }
-      nodes { fullPath name }
+      nodes { id fullPath name }
     }
   }
 }`
