@@ -22,14 +22,6 @@ if (typeof window !== 'undefined') {
   window.ResizeObserver ??= ResizeObserverStub;
   Element.prototype.scrollTo ??= function () {};
   Element.prototype.scrollIntoView ??= function () {};
-  // jsdom has no <dialog> methods.
-  HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
-    this.setAttribute('open', '');
-  };
-  HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
-    this.removeAttribute('open');
-    this.dispatchEvent(new Event('close'));
-  };
 
   beforeEach(() => installMatchMedia());
   afterEach(() => {
