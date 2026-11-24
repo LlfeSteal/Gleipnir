@@ -208,7 +208,7 @@ gitlab-mock/             faux GitLab de la démo et des tests e2e (module Go sé
 frontend/                application React + Vite + TypeScript
   src/api/               client HTTP et types de l'API
   src/board/             logique pure du board (couloirs, fenêtre, mise en page, liens), testée
-  src/components/        interface : barre d'outils, panneau latéral, board, inspecteur, réglages
+  src/components/        interface : barre d'outils, panneau latéral (arbre des groupes, filtres), board, inspecteur
   src/strings/           tous les textes de l'interface, en français
   src/styles/            theme.css (jetons), board.css, app.css
   e2e/                   tests Playwright

@@ -342,7 +342,7 @@ Les erreurs sont typées : `ErrUnauthorized`, `ErrGroupNotFound`, `ErrPremiumReq
 
 - Un couloir choisit parmi **8 couleurs système Apple**, définies en jetons clair et sombre : indigo, bleu, cyan, menthe, jaune, orange, rose et brun (`--lane-*`).
 - Rouge, vert, violet et teal sont exclus : ils portent déjà un sens.
-- Les nouveaux couloirs prennent la couleur libre suivante.
+- La couleur d'un couloir est celle du sous-groupe de premier niveau dont descend son groupe, dans l'ordre de l'arbre (ADR-32) : stable, et partagée par un sous-couloir et son parent. Elle n'était, avant l'ADR-32, que la couleur libre suivante d'un nouveau couloir.
 - Le composant n'expose que `data-lane-color` ; le CSS en déduit `--lane`.
 
 **Conséquences.**

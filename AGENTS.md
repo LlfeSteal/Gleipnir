@@ -65,7 +65,7 @@ frontend/
   src/api/client.ts           fetch + ApiError
   src/board/                  logique pure : types, couloirs, fenêtre, format, mise en page, recherche, liens, statistiques,
                               share.ts (la vue dans l'URL, ADR-31)
-  src/components/ui/          primitives : Icons, Popover / MenuItem, Sheet (<dialog>), SearchField, Switch,
+  src/components/ui/          primitives : Icons, Popover / MenuItem, SearchField, Switch,
                               Checkbox, SelectList, SegmentedControl, StateViews, AppearanceMenu, CopyLinkButton
   src/components/board/       le canevas : BoardCanvas, ItemGlyph, LinkSwatch…
   src/components/             Toolbar, WindowControl, Sidebar (arbre des groupes, filtres), Inspector, SummaryLine
@@ -342,7 +342,7 @@ Ils sont dans `internal/board`. Tous sont couverts par des tests table par table
   - les boutons-icônes ont un `aria-label` ;
   - le contrôle segmenté utilise `role="radio"` ;
   - l'anneau de focus est visible ;
-  - Échap ferme les feuilles, les menus et l'inspecteur ;
+  - Échap ferme les menus, les pop-ups et l'inspecteur ;
   - le contraste est d'au moins 4,5:1 ;
   - les types se distinguent par la forme, pas seulement par la couleur ;
   - `prefers-reduced-motion` est respecté.
@@ -477,6 +477,25 @@ Ils sont dans `internal/board`. Tous sont couverts par des tests table par table
 - **Ce fichier** : à mettre à jour à chaque nouvelle convention, nouveau piège, invariant, commande ou limite connue, ou quand quelque chose ici devient faux.
 - **`docs/decisions.md`** : un nouvel ADR pour toute décision d'architecture ou tout écart à la spec.
 - Ces mises à jour vont **dans le même commit** que le changement qu'elles décrivent.
+
+### Toujours à jour : documentation et tests
+
+**Toute modification laisse la documentation et les tests à jour.** Ce n'est pas facultatif, et ce n'est pas pour plus tard.
+
+- **Documentation** :
+  - relire **tout ce qui décrit le comportement touché**, pas seulement la section évidente : `docs/specifications.md` (vocabulaire, règles métier, modèle de données compris), les ADR existants de `docs/decisions.md`, ce fichier et `README.md` ;
+  - corriger chaque phrase devenue fausse. Un ADR remplacé est marqué comme tel, et renvoie au nouveau ;
+  - un `grep` des anciens termes (noms de fonctions, libellés d'interface, options supprimées) doit ne plus rien trouver de périmé.
+- **Tests** :
+  - chaque fonctionnalité ajoutée ou modifiée a ses tests, à tous les niveaux concernés : Go, Vitest, Playwright, et `@live` si une requête GraphQL change ;
+  - un test devenu sans objet est réécrit ou supprimé, pas laissé de côté ;
+  - le code mort laissé par le changement (composant, CSS, texte, helper) est supprimé avec ses tests.
+- **Un test qui passe au rouge après une modification n'est jamais corrigé à l'aveugle.** Avant de toucher au test, déterminez la cause :
+  - **changement voulu** (le comportement attendu a changé) : mettez le test à jour, et dites dans le résumé du travail ce qui a changé et pourquoi ;
+  - **régression** : corrigez le code, pas le test ;
+  - **fragilité** (minuterie, charge, ordre) : reproduisez le test seul puis en charge, trouvez ce qui le ralentit ou le rend instable, et corrigez-le de façon ciblée (`test.slow()` pour un test lourd, attente sur un état plutôt qu'un délai). Ne vous contentez jamais d'une relance qui passe.
+  
+  Assouplir une assertion, augmenter un seuil ou supprimer un test pour retrouver le vert demande la même justification.
 
 ## Limites connues
 
