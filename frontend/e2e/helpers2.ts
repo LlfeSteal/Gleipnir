@@ -2,10 +2,10 @@ import { expect } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
 
 // Helpers of the selection, lanes, mobile and errors specs. The demo dataset
-// (gitlab-mock/dataset.go): "Itération 15" is always current, so the default window is
+// (gitlab-mock/dataset/dataset.go): "Itération 15" is always current, so the default window is
 // It. 14 – It. 18, and the default lanes are the four subgroups of plateforme/atlas.
 
-export const DEFAULT_LANES = ['API & intégrations', 'Data', 'Expérience produit', 'Identité & sécurité'];
+export const DEFAULT_LANES = ['API et intégrations', 'Data', 'Expérience produit', 'Identité et sécurité'];
 
 /** An epic or issue on the board, by its ref ("&18", "#110"): its button is named "Epic &18 …". */
 export function boardItem(page: Page, ref: string): Locator {

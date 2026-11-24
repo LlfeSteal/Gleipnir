@@ -118,7 +118,7 @@ test('a failed refresh keeps the board and shows the banner', async ({ page }) =
 test('"Synchroniser" only reads the lanes left active, and is off without any', async ({ page }) => {
   await openBoard(page);
   const sidebar = page.getByRole('complementary', { name: 'Filtres' });
-  for (const name of ['Data', 'Expérience produit', 'Identité & sécurité']) {
+  for (const name of ['Data', 'Expérience produit', 'Identité et sécurité']) {
     await sidebar.getByRole('checkbox', { name }).uncheck();
   }
   const sync = page.getByRole('button', { name: 'Synchroniser' });
@@ -132,7 +132,7 @@ test('"Synchroniser" only reads the lanes left active, and is off without any', 
   await expect(page.locator('.toolbar-updated')).toHaveText(/Mis à jour (à l'instant|il y a \d+ min)/);
   await expect(sync).toBeEnabled();
 
-  await sidebar.getByRole('checkbox', { name: 'API & intégrations' }).uncheck();
+  await sidebar.getByRole('checkbox', { name: 'API et intégrations' }).uncheck();
   await expect(sync).toBeDisabled();
   await expect(sync).toHaveAttribute('title', 'Aucun couloir actif à synchroniser');
 });

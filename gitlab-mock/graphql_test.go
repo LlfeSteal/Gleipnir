@@ -211,7 +211,7 @@ func TestGroups(t *testing.T) {
 
 func TestCadences(t *testing.T) {
 	nodes := walk[cadenceNode](t, newServer(10, nil), qCadences, "iterationCadences", map[string]any{"fullPath": "plateforme/atlas/data"})
-	if len(nodes) != 1 || nodes[0] != (cadenceNode{ID: cadenceID, Title: cadenceTitle, Active: true}) {
+	if len(nodes) != 1 || nodes[0] != (cadenceNode{ID: cadenceID, Title: "Sprints produit", Active: true}) {
 		t.Fatalf("got %+v", nodes)
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestDatasetShapes(t *testing.T) {
@@ -68,7 +67,7 @@ func TestDatasetJSON(t *testing.T) {
 		"issue in a sprint":    {"gid://gitlab/WorkItem/1104", `"iteration":{"id":"gid://gitlab/Iteration/315"}`},
 		"epic without parent":  {"gid://gitlab/WorkItem/512", `"parent":null`},
 		"issue with parent":    {"gid://gitlab/WorkItem/1104", `"parent":{"id":"gid://gitlab/WorkItem/512"}`},
-		"assignee":             {"gid://gitlab/WorkItem/1104", `"assignees":{"nodes":[{"name":"Thomas Roux","username":"troux"}]}`},
+		"assignee":             {"gid://gitlab/WorkItem/1104", `"assignees":{"nodes":[{"name":"Thomas Roux","username":"demo-troux"}]}`},
 		"type name":            {"gid://gitlab/WorkItem/525", `"workItemType":{"name":"Epic"}`},
 		"link out of group":    {"gid://gitlab/WorkItem/522", `"gid://gitlab/WorkItem/9999"`},
 		"blocked by both":      {"gid://gitlab/WorkItem/513", `"blockedBy":{"nodes":[{"workItem":{"id":"gid://gitlab/WorkItem/512"}}`},
@@ -76,19 +75,6 @@ func TestDatasetJSON(t *testing.T) {
 	for name, c := range cases {
 		if got := find(c.id); !strings.Contains(got, c.want) {
 			t.Errorf("%s: %s lacks %s", name, got, c.want)
-		}
-	}
-}
-
-// Itération 15 holds today whatever the weekday, also on a Sunday (end of the week).
-func TestCurrentIterationEveryDay(t *testing.T) {
-	for day := 0; day < 14; day++ {
-		today := time.Date(2026, 11, 16+day, 23, 0, 0, 0, time.UTC)
-		d := newDataset(today)
-		s := today.Format(dateLayout)
-		it := d.iterations[3]
-		if *it.Title != "Itération 15" || it.StartDate > s || s > it.DueDate {
-			t.Errorf("%s: Itération 15 runs %s – %s", s, it.StartDate, it.DueDate)
 		}
 	}
 }

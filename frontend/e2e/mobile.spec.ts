@@ -13,7 +13,7 @@ test.beforeEach(async ({ page }) => {
 
 test('the board scrolls horizontally while the lane rail stays put', async ({ page }) => {
   const scroller = page.locator('.board-scroll');
-  const lane = page.getByRole('region', { name: 'API & intégrations' });
+  const lane = page.getByRole('region', { name: 'API et intégrations' });
   const epic = boardItem(page, '&18');
   const { scrollWidth, clientWidth } = await scroller.evaluate((el) => ({
     scrollWidth: el.scrollWidth,
@@ -36,7 +36,7 @@ test('the board scrolls horizontally while the lane rail stays put', async ({ pa
 test('the lane rail leaves room for the items', async ({ page }) => {
   // On a phone the rail must not hide the first column: the item at the start of the window
   // (&19, cut at It. 14) is reachable without scrolling.
-  const rail = (await page.getByRole('region', { name: 'API & intégrations' }).boundingBox())!;
+  const rail = (await page.getByRole('region', { name: 'API et intégrations' }).boundingBox())!;
   expect(rail.width).toBeLessThan(VIEWPORT.width / 2);
   const epic = (await boardItem(page, '&19').boundingBox())!;
   expect(epic.x).toBeGreaterThanOrEqual(rail.x + rail.width - 1);

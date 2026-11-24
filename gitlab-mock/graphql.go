@@ -128,7 +128,7 @@ func (s *server) resolve(op, fullPath string, vars map[string]any) (map[string]a
 		return map[string]any{"fullPath": g.FullPath, "name": g.Name, "descendantGroups": conn}, nil
 
 	case "Cadences":
-		conn, err := page([]cadenceNode{{ID: cadenceID, Title: cadenceTitle, Active: true}}, after, s.pageSize)
+		conn, err := page([]cadenceNode{{ID: cadenceID, Title: d.cadence, Active: true}}, after, s.pageSize)
 		if err != nil {
 			return nil, err
 		}

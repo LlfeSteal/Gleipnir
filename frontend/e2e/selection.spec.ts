@@ -30,9 +30,9 @@ test('the inspector shows an epic in full', async ({ page, request }) => {
   await expect(panel.getByText('&18', { exact: true })).toBeVisible();
   await expect(panel.getByText('Ouvert', { exact: true })).toBeVisible();
   await expect(panel.getByRole('heading', { name: "API d'export des données" })).toBeVisible();
-  await expect(fact(panel, 'Groupe')).toContainText('API & intégrations');
+  await expect(fact(panel, 'Groupe')).toContainText('API et intégrations');
   await expect(fact(panel, 'Groupe')).toContainText('plateforme/atlas/api');
-  await expect(fact(panel, 'Couloirs')).toHaveText('API & intégrations');
+  await expect(fact(panel, 'Couloirs')).toHaveText('API et intégrations');
   await expect(fact(panel, 'Période')).toHaveText('It. 16 → It. 18');
   await expect(panel.getByRole('listitem').filter({ hasText: /^API$/ })).toBeVisible();
   await expect(panel.getByRole('listitem').filter({ hasText: /^backend$/ })).toBeVisible();

@@ -40,7 +40,7 @@ test.describe('search', () => {
     await expect(boardItems(page)).toHaveCount(1);
     await expect(item(page, '#131')).toBeVisible();
 
-    // "export": the epic &18 (API & intégrations) and the issue #110 of its project.
+    // "export": the epic &18 (API et intégrations) and the issue #110 of its project.
     await searchField(page).fill('EXPORT');
     await expect.poll(() => shownRefs(page)).toEqual(['#110', '&18']);
   });

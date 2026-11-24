@@ -54,7 +54,8 @@ backend/
 gitlab-mock/                  faux GitLab (module gitlab-mock) : démo et e2e, jamais déployé
   main.go                     PORT, PAGE_SIZE (10 par défaut, pour exercer la pagination), arrêt propre
   graphql.go                  POST /api/graphql : aiguillage par nom d'opération, pagination, GET /-/health
-  dataset.go                  jeu de démo au format GraphQL de GitLab, placé autour d'aujourd'hui
+  dataset/dataset.go          LE jeu de démo, sémantique et stockable dans un vrai GitLab (noms sans « & », usernames demo-*)
+  render.go                   rendu du jeu en nœuds GraphQL de GitLab (GID, widgets, liens d'un seul côté, lien hors groupe)
   Dockerfile                  image de la démo (alpine, uid 10001)
 frontend/
   index.html                  script de thème inline (avant le premier rendu) — son hash est dans la CSP
@@ -346,7 +347,7 @@ Ils sont dans `internal/board`. Tous sont couverts par des tests table par table
     - `getByTitle` et `getByText` normalisent les espaces : pour un texte qui commence ou finit par une espace, lisez l'attribut directement.
 - **Playwright** (`frontend/e2e/`, `playwright.config.ts`) :
   - `*.spec.ts` tournent contre le **backend réel, branché sur le faux GitLab** : `webServer` démarre `gitlab-mock` (8082), le backend (8081) et Vite (5174), ou les ports donnés par `E2E_MOCK_PORT` / `E2E_API_PORT` / `E2E_WEB_PORT` (voir ADR-22). Le client GitLab, la pagination et le rafraîchissement ciblé sont donc couverts de bout en bout.
-  - Le jeu de démo vit dans `gitlab-mock/dataset.go`. Les assertions des e2e (couloirs, « Itération 15 » en cours, références) en dépendent : changez-les ensemble.
+  - Le jeu de démo vit dans `gitlab-mock/dataset/dataset.go`. Les assertions des e2e (couloirs, « Itération 15 » en cours, références) en dépendent : changez-les ensemble.
   - `webServer` donne `DEMO-JETON-TEST` au faux GitLab (`GITLAB_MOCK_TOKEN`) et au backend (`GITLAB_TOKEN`) : le chargement du board prouve que le jeton passe, et un jeton exporté dans le shell n'est pas envoyé au faux GitLab.
   - En développement, React `StrictMode` lance puis annule une première requête `/api/board` : un mock d'erreur ne doit pas compter les appels, mais rester actif jusqu'à ce que le test le retire.
   - Vite surveille les fichiers par polling (le montage WSL du devcontainer rate les événements inotify). Un état d'erreur se simule avec `page.route` (401, 502).
