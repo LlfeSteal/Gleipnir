@@ -9,6 +9,8 @@ services:
       dockerfile: Dockerfile
     container_name: gleipnir-gitlab-mock
     environment:
+      # The token the backend must send: anything else gets a 401, as on GitLab.
+      GITLAB_MOCK_TOKEN: ${GLEIPNIR_DEMO_TOKEN:-DEMO-JETON-TEST}
       # Decides which iteration is the current one: keep it equal to the backend's.
       TZ: ${TZ:-Europe/Paris}
     # Reachable from the backend only: no port published on the host.
@@ -24,8 +26,9 @@ services:
       GITLAB_URL: http://gitlab-mock:8080
       GITLAB_GROUP: plateforme/atlas
       GITLAB_CADENCE: ""
-      # Overrides .env (environment wins over env_file): a real token never reaches the fake.
-      GITLAB_TOKEN: ""
+      # The fake GitLab's token. It overrides .env (environment wins over env_file): a real
+      # token never reaches the fake.
+      GITLAB_TOKEN: ${GLEIPNIR_DEMO_TOKEN:-DEMO-JETON-TEST}
     depends_on:
       gitlab-mock:
         condition: service_healthy

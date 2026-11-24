@@ -74,7 +74,7 @@ frontend/
   nginx.conf.template         nginx de l'image : SPA, gzip, proxy /api, cache, en-têtes de sécurité
 docs/                         specifications.md, mockup.html, style.md, decisions.md
 docker-compose.yml            projet compose « gleipnir » : backend + frontend
-docker-compose.demo.yml       overlay de démo : service gitlab-mock, backend branché dessus, jeton vidé
+docker-compose.demo.yml       overlay de démo : service gitlab-mock, backend branché dessus avec le jeton de démo
 .env / .env.example           configuration (.env n'est jamais commité)
 README.md                     documentation utilisateur
 CLAUDE.md                     importe ce fichier
@@ -86,8 +86,8 @@ CLAUDE.md                     importe ce fichier
 # Backend
 cd backend && gofmt -l . && go vet ./... && go test -race ./...
 cd backend && go test -coverprofile=cover.out ./... && go tool cover -func=cover.out | tail -1   # couverture (≥ 90 %)
-cd gitlab-mock && PORT=8082 go run .                                # faux GitLab, puis :
-cd backend && GITLAB_URL=http://localhost:8082 GITLAB_GROUP=plateforme/atlas go run ./cmd/server   # démo, http://localhost:8080
+cd gitlab-mock && PORT=8082 GITLAB_MOCK_TOKEN=DEMO-JETON-TEST go run .   # faux GitLab, puis :
+cd backend && GITLAB_URL=http://localhost:8082 GITLAB_GROUP=plateforme/atlas GITLAB_TOKEN=DEMO-JETON-TEST go run ./cmd/server   # démo, http://localhost:8080
 cd backend && (set -a; . ../.env; set +a; go run ./cmd/server)     # vrai GitLab : le backend ne lit pas .env lui-même
 
 # Faux GitLab
@@ -130,13 +130,15 @@ Toutes les variables sont lues par le backend, via `internal/config`.
 | `GLEIPNIR_DEMO` | **Supprimée** (ADR-25). Si elle est encore définie : avertissement, et sans `GITLAB_GROUP`, l'erreur de démarrage renvoie vers `docker-compose.demo.yml`. |
 | `TZ` | Fuseau horaire. Il décide de l'itération en cours. Compose le règle par défaut à `Europe/Paris` et l'image embarque `tzdata`. |
 | `GLEIPNIR_PORT` | Compose uniquement : port de l'hôte qui publie le frontend, 80 par défaut. |
+| `GLEIPNIR_DEMO_TOKEN` | Overlay de démo uniquement : jeton envoyé par le backend et exigé par le faux GitLab, `DEMO-JETON-TEST` par défaut. |
+| `GITLAB_MOCK_TOKEN` | Faux GitLab uniquement, **obligatoire** : le jeton exigé (`Authorization: Bearer` ou `PRIVATE-TOKEN`). Tout autre jeton reçoit un 401, comme sur GitLab. |
 | `GLEIPNIR_BACKEND_URL` | Image frontend uniquement : cible du proxy `/api/`, `http://backend:8080` par défaut. |
 
 **Compose.**
 
 - `env_file` est **optionnel** (`required: false`).
 - `TZ` passe par `environment`, interpolé depuis le shell puis depuis `.env` : le shell gagne.
-- **Overlay de démo** (`docker-compose.demo.yml`) : il ajoute `gitlab-mock` (aucun port publié) et impose au backend `GITLAB_URL=http://gitlab-mock:8080`, `GITLAB_GROUP=plateforme/atlas`, `GITLAB_CADENCE=""` et **`GITLAB_TOKEN=""`**. `environment` l'emporte sur `env_file` : le jeton du `.env` n'atteint jamais le faux GitLab. Le backend avertit alors que le jeton est vide : c'est attendu.
+- **Overlay de démo** (`docker-compose.demo.yml`) : il ajoute `gitlab-mock` (aucun port publié) et impose au backend `GITLAB_URL=http://gitlab-mock:8080`, `GITLAB_GROUP=plateforme/atlas`, `GITLAB_CADENCE=""` et **`GITLAB_TOKEN=${GLEIPNIR_DEMO_TOKEN:-DEMO-JETON-TEST}`**, la même valeur que le `GITLAB_MOCK_TOKEN` du faux GitLab. `environment` l'emporte sur `env_file` : le jeton du `.env` n'atteint jamais le faux GitLab. Le backend avertit que le jeton circule en `http://` : c'est attendu, il est factice.
 - Après une modification de `.env` : `docker compose up -d --force-recreate backend`, puis `docker compose up -d`.
 
 ## API backend
@@ -345,7 +347,7 @@ Ils sont dans `internal/board`. Tous sont couverts par des tests table par table
 - **Playwright** (`frontend/e2e/`, `playwright.config.ts`) :
   - `*.spec.ts` tournent contre le **backend réel, branché sur le faux GitLab** : `webServer` démarre `gitlab-mock` (8082), le backend (8081) et Vite (5174), ou les ports donnés par `E2E_MOCK_PORT` / `E2E_API_PORT` / `E2E_WEB_PORT` (voir ADR-22). Le client GitLab, la pagination et le rafraîchissement ciblé sont donc couverts de bout en bout.
   - Le jeu de démo vit dans `gitlab-mock/dataset.go`. Les assertions des e2e (couloirs, « Itération 15 » en cours, références) en dépendent : changez-les ensemble.
-  - `webServer` vide `GITLAB_TOKEN` pour le backend : un jeton exporté dans le shell n'est pas envoyé au faux GitLab.
+  - `webServer` donne `DEMO-JETON-TEST` au faux GitLab (`GITLAB_MOCK_TOKEN`) et au backend (`GITLAB_TOKEN`) : le chargement du board prouve que le jeton passe, et un jeton exporté dans le shell n'est pas envoyé au faux GitLab.
   - En développement, React `StrictMode` lance puis annule une première requête `/api/board` : un mock d'erreur ne doit pas compter les appels, mais rester actif jusqu'à ce que le test le retire.
   - Vite surveille les fichiers par polling (le montage WSL du devcontainer rate les événements inotify). Un état d'erreur se simule avec `page.route` (401, 502).
   - `*.live.spec.ts` sont marqués `@live` : ils tournent contre un vrai GitLab via `BASE_URL`, et ne supposent rien du contenu du groupe.

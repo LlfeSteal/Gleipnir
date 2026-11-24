@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -9,16 +10,18 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 )
 
 // maxBody caps a request: Gleipnir's queries are a few KB.
 const maxBody = 1 << 20
 
-// server answers the GraphQL queries Gleipnir sends, and only those, with the demo dataset.
-// It reads no token: whatever Authorization says, the data is the same.
+// server answers the GraphQL queries Gleipnir sends, and only those, with the demo dataset,
+// to requests carrying token.
 type server struct {
 	pageSize int
+	token    string
 	now      func() time.Time
 	logger   *slog.Logger
 }
@@ -46,6 +49,14 @@ func (e gqlError) Error() string { return e.Message }
 var operation = regexp.MustCompile(`^\s*query\s+(\w+)`)
 
 func (s *server) graphql(w http.ResponseWriter, r *http.Request) {
+	if !s.authorized(r) {
+		// Never the token, sent or expected.
+		s.logger.Warn("token rejected", "remote", r.RemoteAddr)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"message":"401 Unauthorized"}`))
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxBody)
 	var req struct {
 		Query     string         `json:"query"`
@@ -79,6 +90,20 @@ func (s *server) graphql(w http.ResponseWriter, r *http.Request) {
 		body = map[string]any{"data": map[string]any{"group": group}}
 	}
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+// authorized tells whether r carries the token, in either header GitLab reads: Authorization
+// (Bearer) or PRIVATE-TOKEN.
+func (s *server) authorized(r *http.Request) bool {
+	sent := r.Header.Get("PRIVATE-TOKEN")
+	if auth := r.Header.Get("Authorization"); auth != "" {
+		scheme, token, ok := strings.Cut(auth, " ")
+		if !ok || !strings.EqualFold(scheme, "Bearer") {
+			return false
+		}
+		sent = token
+	}
+	return sent != "" && subtle.ConstantTimeCompare([]byte(sent), []byte(s.token)) == 1
 }
 
 // resolve answers one query; a nil group means the path is not a group of the dataset.

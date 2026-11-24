@@ -12,6 +12,8 @@ import { defineConfig, devices } from '@playwright/test';
 // Only `--grep @live` is a live run: `--grep-invert @live` also puts "@live" in argv.
 const live = process.argv.includes('--grep') && process.argv.includes('@live');
 const mockPort = process.env.E2E_MOCK_PORT ?? '8082';
+// The fake GitLab answers 401 to any other token, as GitLab does.
+const demoToken = 'DEMO-JETON-TEST';
 const apiPort = process.env.E2E_API_PORT ?? '8081';
 const webPort = process.env.E2E_WEB_PORT ?? '5174';
 const baseURL = process.env.BASE_URL ?? `http://localhost:${webPort}`;
@@ -33,7 +35,7 @@ export default defineConfig({
           {
             command: 'go run .',
             cwd: '../gitlab-mock',
-            env: { PORT: mockPort, TZ: 'Europe/Paris' },
+            env: { PORT: mockPort, GITLAB_MOCK_TOKEN: demoToken, TZ: 'Europe/Paris' },
             url: `http://localhost:${mockPort}/-/health`,
             reuseExistingServer: !process.env.CI,
             timeout: 120_000,
@@ -41,12 +43,12 @@ export default defineConfig({
           {
             command: 'go run ./cmd/server',
             cwd: '../backend',
-            // GITLAB_TOKEN is emptied: a token exported in the shell never reaches the fake.
+            // GITLAB_TOKEN is the demo one: a token exported in the shell never reaches the fake.
             env: {
               GITLAB_URL: `http://localhost:${mockPort}`,
               GITLAB_GROUP: 'plateforme/atlas',
               GITLAB_CADENCE: '',
-              GITLAB_TOKEN: '',
+              GITLAB_TOKEN: demoToken,
               PORT: apiPort,
               TZ: 'Europe/Paris',
             },

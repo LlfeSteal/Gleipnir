@@ -15,11 +15,14 @@ import (
 // now is a Wednesday: Itération 15 runs from Monday 2026-11-23 to 2026-12-06.
 var now = time.Date(2026, 11, 25, 10, 0, 0, 0, time.UTC)
 
+// token is the demo token the server expects.
+const token = "DEMO-JETON-TEST"
+
 func newServer(pageSize int, logs io.Writer) http.Handler {
 	if logs == nil {
 		logs = io.Discard
 	}
-	s := &server{pageSize: pageSize, now: func() time.Time { return now }, logger: slog.New(slog.NewTextHandler(logs, nil))}
+	s := &server{pageSize: pageSize, token: token, now: func() time.Time { return now }, logger: slog.New(slog.NewTextHandler(logs, nil))}
 	return s.handler()
 }
 
@@ -36,10 +39,14 @@ type pageInfo struct {
 	EndCursor   *string `json:"endCursor"`
 }
 
+// post sends a GraphQL request with header, or with the right token when header is nil.
 func post(t *testing.T, h http.Handler, query string, vars map[string]any, header http.Header) (int, response) {
 	t.Helper()
 	body, _ := json.Marshal(map[string]any{"query": query, "variables": vars})
 	req := httptest.NewRequest(http.MethodPost, "/api/graphql", bytes.NewReader(body))
+	if header == nil {
+		header = http.Header{"Authorization": {"Bearer " + token}}
+	}
 	for k, v := range header {
 		req.Header[k] = v
 	}
@@ -136,7 +143,9 @@ func TestBadBodies(t *testing.T) {
 	}
 	for name, c := range cases {
 		rec := httptest.NewRecorder()
-		newServer(10, nil).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/graphql", strings.NewReader(c.body)))
+		req := httptest.NewRequest(http.MethodPost, "/api/graphql", strings.NewReader(c.body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		newServer(10, nil).ServeHTTP(rec, req)
 		if rec.Code != c.want {
 			t.Errorf("%s: got %d, want %d", name, rec.Code, c.want)
 		}
@@ -282,19 +291,52 @@ func TestWorkItemsBySubtree(t *testing.T) {
 	}
 }
 
-func TestTokenIsIgnoredAndNeverLogged(t *testing.T) {
+func TestToken(t *testing.T) {
+	cases := map[string]struct {
+		header http.Header
+		want   int
+	}{
+		"bearer":                {http.Header{"Authorization": {"Bearer " + token}}, http.StatusOK},
+		"bearer, any case":      {http.Header{"Authorization": {"bearer " + token}}, http.StatusOK},
+		"private token":         {http.Header{"Private-Token": {token}}, http.StatusOK},
+		"no token":              {http.Header{}, http.StatusUnauthorized},
+		"wrong token":           {http.Header{"Authorization": {"Bearer glpat-real"}}, http.StatusUnauthorized},
+		"token of another case": {http.Header{"Authorization": {"Bearer demo-jeton-test"}}, http.StatusUnauthorized},
+		"token prefix":          {http.Header{"Authorization": {"Bearer DEMO-JETON"}}, http.StatusUnauthorized},
+		"not bearer":            {http.Header{"Authorization": {"Basic " + token}}, http.StatusUnauthorized},
+		"no scheme":             {http.Header{"Authorization": {token}}, http.StatusUnauthorized},
+		"empty private token":   {http.Header{"Private-Token": {""}}, http.StatusUnauthorized},
+		// Authorization wins, as on GitLab: a wrong bearer is not saved by a right PRIVATE-TOKEN.
+		"wrong bearer, right private token": {http.Header{"Authorization": {"Bearer nope"}, "Private-Token": {token}}, http.StatusUnauthorized},
+	}
+	for name, c := range cases {
+		var logs bytes.Buffer
+		body, _ := json.Marshal(map[string]any{"query": qGroups, "variables": map[string]any{"fullPath": "plateforme/atlas"}})
+		req := httptest.NewRequest(http.MethodPost, "/api/graphql", bytes.NewReader(body))
+		req.Header = c.header
+		rec := httptest.NewRecorder()
+		newServer(10, &logs).ServeHTTP(rec, req)
+		if rec.Code != c.want {
+			t.Errorf("%s: got %d, want %d", name, rec.Code, c.want)
+		}
+		if c.want == http.StatusUnauthorized {
+			if rec.Body.String() != `{"message":"401 Unauthorized"}` || !strings.Contains(logs.String(), "token rejected") {
+				t.Errorf("%s: body %s, logs %s", name, rec.Body, logs.String())
+			}
+		}
+		// Neither the expected nor the sent token is logged.
+		for _, secret := range []string{token, "glpat-real", "demo-jeton-test"} {
+			if strings.Contains(logs.String(), secret) {
+				t.Errorf("%s: %q logged: %s", name, secret, logs.String())
+			}
+		}
+	}
+}
+
+func TestQueriesAreLogged(t *testing.T) {
 	var logs bytes.Buffer
-	h := newServer(10, &logs)
-	vars := map[string]any{"fullPath": "plateforme/atlas", "after": nil}
-	_, anonymous := post(t, h, qGroups, vars, nil)
-	_, authed := post(t, h, qGroups, vars, http.Header{"Authorization": {"Bearer glpat-secret"}})
-	if string(anonymous.Data.Group) != string(authed.Data.Group) {
-		t.Fatal("the token must not change the answer")
-	}
-	if strings.Contains(logs.String(), "glpat-secret") {
-		t.Fatalf("the token was logged: %s", logs.String())
-	}
-	if !strings.Contains(logs.String(), "op=Groups") {
+	post(t, newServer(10, &logs), qGroups, map[string]any{"fullPath": "plateforme/atlas"}, nil)
+	if !strings.Contains(logs.String(), "op=Groups") || !strings.Contains(logs.String(), "fullPath=plateforme/atlas") {
 		t.Fatalf("the query is not logged: %s", logs.String())
 	}
 }

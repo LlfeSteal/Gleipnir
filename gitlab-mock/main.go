@@ -1,7 +1,7 @@
 // Command gitlab-mock is a fake GitLab for Gleipnir's demo and end-to-end tests: it answers
 // the GraphQL queries of Gleipnir's backend, and only those, with a sample dataset placed
-// around today. It accepts any token and checks none. Never deploy it next to a real token:
-// point Gleipnir's GITLAB_URL at it with GITLAB_TOKEN empty.
+// around today. Like GitLab, it answers 401 unless the request carries the token set in
+// GITLAB_MOCK_TOKEN: give Gleipnir's backend the same value in GITLAB_TOKEN, never a real one.
 package main
 
 import (
@@ -43,13 +43,13 @@ func serve(getenv func(string) string, out io.Writer) int {
 
 // run serves until ctx is done, then shuts down gracefully.
 func run(ctx context.Context, getenv func(string) string, logger *slog.Logger) error {
-	port, pageSize, err := config(getenv)
+	cfg, err := loadConfig(getenv)
 	if err != nil {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
-	srv := &server{pageSize: pageSize, now: time.Now, logger: logger}
+	srv := &server{pageSize: cfg.pageSize, token: cfg.token, now: time.Now, logger: logger}
 	httpServer := &http.Server{
-		Addr:              ":" + port,
+		Addr:              ":" + cfg.port,
 		Handler:           srv.handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
@@ -60,7 +60,7 @@ func run(ctx context.Context, getenv func(string) string, logger *slog.Logger) e
 
 	errCh := make(chan error, 1)
 	go func() {
-		logger.Info("fake GitLab listening", "addr", httpServer.Addr, "pageSize", pageSize)
+		logger.Info("fake GitLab listening", "addr", httpServer.Addr, "pageSize", cfg.pageSize)
 		errCh <- httpServer.ListenAndServe()
 	}()
 	select {
@@ -79,21 +79,36 @@ func run(ctx context.Context, getenv func(string) string, logger *slog.Logger) e
 	return nil
 }
 
-// config reads PORT and PAGE_SIZE.
-func config(getenv func(string) string) (port string, pageSize int, err error) {
-	port = strings.TrimSpace(getenv("PORT"))
-	if port == "" {
-		port = defaultPort
+// config is the fake GitLab's configuration. token is a secret: it is never logged.
+type config struct {
+	port     string
+	pageSize int
+	token    string
+}
+
+// loadConfig reads PORT, PAGE_SIZE and GITLAB_MOCK_TOKEN.
+func loadConfig(getenv func(string) string) (config, error) {
+	cfg := config{
+		port:     strings.TrimSpace(getenv("PORT")),
+		pageSize: defaultPageSize,
+		token:    strings.TrimSpace(getenv("GITLAB_MOCK_TOKEN")),
 	}
-	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
-		return "", 0, fmt.Errorf("PORT %q is not a valid port number (1-65535)", port)
+	if cfg.port == "" {
+		cfg.port = defaultPort
 	}
-	pageSize = defaultPageSize
+	if n, err := strconv.Atoi(cfg.port); err != nil || n < 1 || n > 65535 {
+		return config{}, fmt.Errorf("PORT %q is not a valid port number (1-65535)", cfg.port)
+	}
 	if s := strings.TrimSpace(getenv("PAGE_SIZE")); s != "" {
 		// GitLab serves at most 100 nodes a page.
-		if pageSize, err = strconv.Atoi(s); err != nil || pageSize < 1 || pageSize > 100 {
-			return "", 0, fmt.Errorf("PAGE_SIZE %q is not a number between 1 and 100", s)
+		n, err := strconv.Atoi(s)
+		if err != nil || n < 1 || n > 100 {
+			return config{}, fmt.Errorf("PAGE_SIZE %q is not a number between 1 and 100", s)
 		}
+		cfg.pageSize = n
 	}
-	return port, pageSize, nil
+	if cfg.token == "" {
+		return config{}, fmt.Errorf("GITLAB_MOCK_TOKEN is required: the token the backend must send (e.g. DEMO-JETON-TEST)")
+	}
+	return cfg, nil
 }

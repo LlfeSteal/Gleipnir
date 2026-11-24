@@ -32,6 +32,7 @@ Ce fichier consigne les choix qui structurent Gleipnir, sous forme de courts ADR
 | 23 | Couverture de tests : 90 % de lignes et de fonctions | 2026-11-23 |
 | 24 | Synchro complète périodique et rafraîchissement ciblé | 2026-11-23 |
 | 25 | Faux GitLab pour la démo et les e2e | 2026-11-24 |
+| 26 | Jeton de démo vérifié par le faux GitLab | 2026-11-24 |
 
 ---
 
@@ -555,7 +556,7 @@ Une synchro en cours reste partagée par toutes les requêtes. Sans données en 
 
 ## ADR-25 — Faux GitLab pour la démo et les e2e
 
-*2026-11-24 · Accepté · Remplace ADR-9, amende ADR-17*
+*2026-11-24 · Accepté · Remplace ADR-9, amende ADR-17 · Amendé par ADR-26 (jeton vérifié)*
 
 **Contexte.** Le mode démo de l'ADR-9 vivait dans le binaire de production : `GLEIPNIR_DEMO=1` faisait servir `board.DemoRaw` au lieu de GitLab.
 
@@ -586,3 +587,23 @@ Une synchro en cours reste partagée par toutes les requêtes. Sans données en 
 - Le jeu de démo existe en deux exemplaires : `gitlab-mock/dataset.go` (démo, e2e) et la fixture Go. Ils peuvent diverger sans casser la démo ; seule la version du faux GitLab est visible.
 - Le faux GitLab **ne valide pas le schéma** : il ignore la sélection de champs. Un changement de requête se valide toujours sur un vrai GitLab (test `@live`).
 - Lancer la démo demande l'overlay : `docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build`.
+
+## ADR-26 — Jeton de démo vérifié par le faux GitLab
+
+*2026-11-24 · Accepté · Amende ADR-25*
+
+**Contexte.** Selon l'ADR-25, le faux GitLab acceptait n'importe quel jeton et l'overlay vidait celui du backend. L'envoi du jeton n'était donc jamais exercé : un backend qui l'aurait perdu ou mal formé serait passé inaperçu dans la démo et les e2e.
+
+**Décision.**
+
+- Le faux GitLab **exige** le jeton de `GITLAB_MOCK_TOKEN`, obligatoire au démarrage. Il le lit comme GitLab, dans `Authorization: Bearer …` ou `PRIVATE-TOKEN`, et le compare en temps constant.
+- Tout autre jeton, ou son absence, reçoit **HTTP 401** `{"message":"401 Unauthorized"}`. Le backend le traduit en `unauthorized`, comme pour un vrai GitLab.
+- Les logs disent `token rejected` avec l'adresse distante, **jamais** le jeton reçu ni le jeton attendu. `/-/health` reste ouvert.
+- L'overlay donne la **même** valeur aux deux côtés : `${GLEIPNIR_DEMO_TOKEN:-DEMO-JETON-TEST}`. Elle écrase toujours le jeton du `.env`.
+- Playwright passe `DEMO-JETON-TEST` aux deux processus.
+
+**Conséquences.**
+
+- Chaque chargement du board en démo et en e2e prouve que le backend envoie bien son jeton. Un test Go de `cmd/server` vérifie qu'un jeton refusé donne 401 `unauthorized`, sans fuite du jeton.
+- En démo, le backend avertit que le jeton circule en `http://` : c'est voulu, il est factice.
+- `go run .` dans `gitlab-mock/` demande `GITLAB_MOCK_TOKEN`.

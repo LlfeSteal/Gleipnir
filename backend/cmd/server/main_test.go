@@ -30,6 +30,46 @@ func fakeGitLabEnv(t *testing.T, port string) func(string) string {
 	return env(map[string]string{"GITLAB_URL": gl.URL, "GITLAB_GROUP": "org", "PORT": port})
 }
 
+// A token the GitLab refuses gives the unauthorized error, whatever the fake behind it.
+func TestRunWithARefusedTokenAnswersUnauthorized(t *testing.T) {
+	gl := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer DEMO-JETON-TEST" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = io.WriteString(w, `{"message":"401 Unauthorized"}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"data":{"group":null}}`)
+	}))
+	defer gl.Close()
+	port := freePort(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	vars := map[string]string{"GITLAB_URL": gl.URL, "GITLAB_GROUP": "org", "GITLAB_TOKEN": "glpat-wrong", "PORT": port}
+	go func() { done <- run(ctx, env(vars), discard()) }()
+	waitHealthy(t, port)
+
+	res, err := http.Get("http://127.0.0.1:" + port + "/api/board")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var body map[string]string
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusUnauthorized || body["code"] != "unauthorized" {
+		t.Fatalf("got %d %v, want 401 unauthorized", res.StatusCode, body)
+	}
+	if strings.Contains(body["error"], "glpat-wrong") {
+		t.Fatalf("the token leaked into the error: %v", body)
+	}
+	cancel()
+	if err := wait(t, done); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // env returns a getenv over vars.
 func env(vars map[string]string) func(string) string {
 	return func(key string) string { return vars[key] }

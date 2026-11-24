@@ -15,8 +15,10 @@ playwright-report/
 blob-report/
 playwright/.cache/
 
-# Backend
+# Backend and fake GitLab binaries
 backend/server
+gitlab-mock/gitlab-mock
+gitlab-mock/seed
 *.test
 *.out
 

@@ -18,31 +18,39 @@ func env(vars map[string]string) func(string) string {
 }
 
 func TestConfig(t *testing.T) {
+	with := func(vars map[string]string) map[string]string {
+		out := map[string]string{"GITLAB_MOCK_TOKEN": token}
+		for k, v := range vars {
+			out[k] = v
+		}
+		return out
+	}
 	cases := map[string]struct {
-		vars     map[string]string
-		port     string
-		pageSize int
-		err      string
+		vars map[string]string
+		want config
+		err  string
 	}{
-		"defaults":          {nil, "8080", 10, ""},
-		"set":               {map[string]string{"PORT": " 9000 ", "PAGE_SIZE": "100"}, "9000", 100, ""},
-		"port not a number": {map[string]string{"PORT": "abc"}, "", 0, "PORT"},
-		"port zero":         {map[string]string{"PORT": "0"}, "", 0, "PORT"},
-		"port too high":     {map[string]string{"PORT": "65536"}, "", 0, "PORT"},
-		"page size zero":    {map[string]string{"PAGE_SIZE": "0"}, "", 0, "PAGE_SIZE"},
-		"page size above":   {map[string]string{"PAGE_SIZE": "101"}, "", 0, "PAGE_SIZE"},
-		"page size text":    {map[string]string{"PAGE_SIZE": "ten"}, "", 0, "PAGE_SIZE"},
+		"defaults":          {with(nil), config{"8080", 10, token}, ""},
+		"set":               {with(map[string]string{"PORT": " 9000 ", "PAGE_SIZE": "100", "GITLAB_MOCK_TOKEN": " t "}), config{"9000", 100, "t"}, ""},
+		"no token":          {map[string]string{}, config{}, "GITLAB_MOCK_TOKEN is required"},
+		"blank token":       {map[string]string{"GITLAB_MOCK_TOKEN": "  "}, config{}, "GITLAB_MOCK_TOKEN is required"},
+		"port not a number": {with(map[string]string{"PORT": "abc"}), config{}, "PORT"},
+		"port zero":         {with(map[string]string{"PORT": "0"}), config{}, "PORT"},
+		"port too high":     {with(map[string]string{"PORT": "65536"}), config{}, "PORT"},
+		"page size zero":    {with(map[string]string{"PAGE_SIZE": "0"}), config{}, "PAGE_SIZE"},
+		"page size above":   {with(map[string]string{"PAGE_SIZE": "101"}), config{}, "PAGE_SIZE"},
+		"page size text":    {with(map[string]string{"PAGE_SIZE": "ten"}), config{}, "PAGE_SIZE"},
 	}
 	for name, c := range cases {
-		port, size, err := config(env(c.vars))
+		cfg, err := loadConfig(env(c.vars))
 		if c.err != "" {
 			if err == nil || !strings.Contains(err.Error(), c.err) {
 				t.Errorf("%s: got %v, want an error about %s", name, err, c.err)
 			}
 			continue
 		}
-		if err != nil || port != c.port || size != c.pageSize {
-			t.Errorf("%s: got %q %d %v", name, port, size, err)
+		if err != nil || cfg != c.want {
+			t.Errorf("%s: got %+v %v, want %+v", name, cfg, err, c.want)
 		}
 	}
 }
@@ -62,7 +70,7 @@ func TestRunServesThenStops(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		done <- run(ctx, env(map[string]string{"PORT": port}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		done <- run(ctx, env(map[string]string{"PORT": port, "GITLAB_MOCK_TOKEN": token}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	}()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
@@ -94,7 +102,7 @@ func TestRunFailsOnABusyPort(t *testing.T) {
 	}
 	defer l.Close()
 	port := strconv.Itoa(l.Addr().(*net.TCPAddr).Port)
-	err = run(context.Background(), env(map[string]string{"PORT": port}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	err = run(context.Background(), env(map[string]string{"PORT": port, "GITLAB_MOCK_TOKEN": token}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err == nil {
 		t.Fatal("a busy port must fail")
 	}

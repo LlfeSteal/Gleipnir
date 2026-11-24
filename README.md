@@ -67,7 +67,9 @@ Aucun fichier `.env` n'est nécessaire. Un **faux GitLab** (`gitlab-mock/`) sert
 
 - Le backend ne sait pas qu'il parle à un faux GitLab : il le lit comme le vrai, par `GITLAB_URL`.
 - Le faux GitLab n'est jamais construit ni démarré sans `docker-compose.demo.yml`. Il ne publie aucun port sur l'hôte.
-- L'overlay vide `GITLAB_TOKEN` : même avec un `.env` réel, votre jeton n'est pas envoyé au faux GitLab.
+- Le faux GitLab vérifie le jeton comme un vrai : il répond 401 à tout autre jeton que celui de la démo. L'overlay donne la même valeur aux deux services, `DEMO-JETON-TEST` par défaut, ou `GLEIPNIR_DEMO_TOKEN` si elle est définie.
+- Ce jeton de démo remplace celui du `.env` : même avec un `.env` réel, votre jeton n'est pas envoyé au faux GitLab.
+- Le backend avertit que le jeton circule en clair (`http://gitlab-mock:8080`) : c'est attendu, il est factice.
 
 Pour revenir au vrai GitLab : `docker compose up -d --build`, sans l'overlay. `docker compose down --remove-orphans` arrête aussi le faux GitLab.
 
@@ -84,8 +86,8 @@ cd backend && (set -a; . ../.env; set +a; go run ./cmd/server)    # avec le .env
 En mode démo, lancez d'abord le faux GitLab dans un troisième terminal :
 
 ```bash
-cd gitlab-mock && PORT=8082 go run .
-cd backend && GITLAB_URL=http://localhost:8082 GITLAB_GROUP=plateforme/atlas go run ./cmd/server
+cd gitlab-mock && PORT=8082 GITLAB_MOCK_TOKEN=DEMO-JETON-TEST go run .
+cd backend && GITLAB_URL=http://localhost:8082 GITLAB_GROUP=plateforme/atlas GITLAB_TOKEN=DEMO-JETON-TEST go run ./cmd/server
 ```
 
 Le backend lit uniquement les variables d'environnement : il ne charge pas `.env` lui-même.
