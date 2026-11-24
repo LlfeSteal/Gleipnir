@@ -15,4 +15,8 @@ export const UI = {
   },
   /** Help tag of the appearance button, e.g. "Apparence : Sombre". */
   appearanceTitle: (option: string) => `Apparence : ${option}`,
+  copyLink: 'Copier le lien',
+  copyLinkHelp: 'Copier le lien de cette vue : couloirs, fenêtre, options, recherche et sélection',
+  linkCopied: 'Lien copié',
+  copyFailed: 'Copie impossible : copiez l’adresse de la page',
 } as const;

@@ -7,7 +7,7 @@ import { Toolbar } from './Toolbar';
 import { mockupBoard } from '../board/fixtures';
 
 /** The toolbar with its own search state, as App holds it. */
-function Harness({ compact }: { compact: boolean }) {
+function Harness({ compact, shareLink = null }: { compact: boolean; shareLink?: (() => string) | null }) {
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   return (
@@ -29,6 +29,7 @@ function Harness({ compact }: { compact: boolean }) {
         onToggleSidebar={vi.fn()}
         searchOpen={searchOpen}
         onSearchOpenChange={setSearchOpen}
+        shareLink={shareLink}
       />
       <button type="button">ailleurs</button>
     </>
@@ -82,5 +83,16 @@ describe('Toolbar', () => {
     await user.click(screen.getByRole('button', { name: 'Rechercher' }));
     await user.click(screen.getByRole('button', { name: 'ailleurs' }));
     expect(searchbox()).toBeNull();
+  });
+
+  it('shows the copy-link button with a link to share, except on a phone (no room)', () => {
+    const { unmount } = render(<Harness compact={false} />);
+    expect(screen.queryByRole('button', { name: 'Copier le lien' })).toBeNull();
+    unmount();
+    const wide = render(<Harness compact={false} shareLink={() => 'http://x/'} />);
+    expect(screen.getByRole('button', { name: 'Copier le lien' })).toBeInTheDocument();
+    wide.unmount();
+    render(<Harness compact shareLink={() => 'http://x/'} />);
+    expect(screen.queryByRole('button', { name: 'Copier le lien' })).toBeNull();
   });
 });

@@ -26,10 +26,6 @@ export function sidebar(page: Page): Locator {
   return page.getByRole('complementary', { name: 'Filtres' });
 }
 
-export function laneSheet(page: Page): Locator {
-  return page.getByRole('dialog', { name: 'Couloirs' });
-}
-
 export function windowButton(page: Page): Locator {
   return page.getByRole('button', { name: /^Fenêtre : / });
 }

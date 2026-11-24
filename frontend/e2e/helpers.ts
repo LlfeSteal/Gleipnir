@@ -127,12 +127,6 @@ export function laneToggle(page: Page, lane: string): Locator {
   return page.getByRole('button', { name: new RegExp(`^(Replier|Déplier) le couloir ${escapeRegExp(lane)}$`) });
 }
 
-/** Reads a JSON value from the page's localStorage. */
-export async function stored<T = unknown>(page: Page, key: string): Promise<T | null> {
-  const raw = await page.evaluate((k) => localStorage.getItem(k), key);
-  return raw === null ? null : (JSON.parse(raw) as T);
-}
-
 export function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

@@ -17,7 +17,6 @@ export interface BoardCanvasProps {
   selectedId: string | null;
   onSelect(id: string | null): void;
   onToggleLane(laneId: string): void;
-  onEditLane(laneId: string): void;
   revealId: string | null;
   onRevealed(): void;
   criticalPath: boolean;
@@ -37,7 +36,6 @@ export function BoardCanvas({
   selectedId,
   onSelect,
   onToggleLane,
-  onEditLane,
   revealId,
   onRevealed,
   criticalPath,
@@ -148,7 +146,7 @@ export function BoardCanvas({
         data-critical-path={criticalPath || undefined}
       >
         <ColumnHeaders view={view} />
-        <LaneRail view={view} data={data} onToggleLane={onToggleLane} onEditLane={onEditLane} />
+        <LaneRail view={view} onToggleLane={onToggleLane} />
         {view.columns.map((c) => (
           <div
             key={c.key}

@@ -9,7 +9,12 @@ export const G = {
   xp: `${ROOT}/experience`,
   api: `${ROOT}/api`,
   data: `${ROOT}/data`,
+  /** Nested under api: unchecked by default, its items show in the API lane. */
+  partenaires: `${ROOT}/api/partenaires`,
 } as const;
+
+/** Group ids: gid://gitlab/Group/40 for the root, then 41… */
+export const groupId = (n: number) => `gid://gitlab/Group/${40 + n}`;
 
 const GITLAB = 'https://gitlab.exemple.fr';
 
@@ -63,7 +68,7 @@ const EPICS: E[] = [
   [17, G.xp, 'Mode hors ligne mobile', 6, 8, ['mobile', 'frontend']],
   [19, G.api, 'Webhooks sortants', 0, 3, ['API', 'backend']],
   [18, G.api, "API d'export des données", 4, 6, ['API', 'backend']],
-  [22, G.api, 'Portail développeur', 7, 9, ['API', 'UX']],
+  [22, G.partenaires, 'Portail développeur', 7, 9, ['API', 'UX']],
   [21, G.data, 'Pipeline analytique', 5, 7, ['data', 'backend']],
   [23, G.data, 'Modèles prédictifs', 8, 9, ['data']],
 ];
@@ -170,16 +175,17 @@ export function mockupBoard(): BoardData {
   return {
     syncedAt: '2026-11-23T09:00:00Z',
     gitlabUrl: GITLAB,
-    rootGroup: { path: ROOT, name: 'Atlas' },
+    rootGroup: { id: groupId(0), path: ROOT, name: 'Atlas' },
     cadence: { id: 'gid://gitlab/Iterations::Cadence/1', title: 'Sprints produit' },
     iterations: its,
     current: CURRENT,
     groups: [
-      { path: ROOT, name: 'Atlas' },
-      { path: G.api, name: 'API & intégrations' },
-      { path: G.data, name: 'Data' },
-      { path: G.xp, name: 'Expérience produit' },
-      { path: G.identite, name: 'Identité & sécurité' },
+      { id: groupId(0), path: ROOT, name: 'Atlas' },
+      { id: groupId(1), path: G.api, name: 'API & intégrations' },
+      { id: groupId(5), path: G.partenaires, name: 'Partenaires' },
+      { id: groupId(2), path: G.data, name: 'Data' },
+      { id: groupId(3), path: G.xp, name: 'Expérience produit' },
+      { id: groupId(4), path: G.identite, name: 'Identité & sécurité' },
     ],
     labels: LABELS.map(([title, color]) => ({ title, color })),
     epics,
@@ -199,7 +205,7 @@ export function generateBoard(opts: { epics: number; issues: number; links: numb
     return seed / 2147483648;
   };
   const pick = (n: number) => Math.floor(rand() * n);
-  const groups = Array.from({ length: opts.groups }, (_, i) => ({ path: `${ROOT}/g${i}`, name: `Groupe ${i}` }));
+  const groups = Array.from({ length: opts.groups }, (_, i) => ({ id: groupId(i + 1), path: `${ROOT}/g${i}`, name: `Groupe ${i}` }));
   const its: Iteration[] = Array.from({ length: opts.iterations }, (_, i) => ({
     id: `gid://gitlab/Iteration/${i}`,
     title: `Itération ${i + 1}`,
@@ -259,11 +265,11 @@ export function generateBoard(opts: { epics: number; issues: number; links: numb
   return {
     syncedAt: '2026-11-23T09:00:00Z',
     gitlabUrl: GITLAB,
-    rootGroup: { path: ROOT, name: 'Atlas' },
+    rootGroup: { id: groupId(0), path: ROOT, name: 'Atlas' },
     cadence: { id: 'c', title: 'Cadence' },
     iterations: its,
     current: Math.floor(opts.iterations / 2),
-    groups: [{ path: ROOT, name: 'Atlas' }, ...groups],
+    groups: [{ id: groupId(0), path: ROOT, name: 'Atlas' }, ...groups],
     labels: labels.map((title) => ({ title, color: '#888888' })),
     epics,
     issues,

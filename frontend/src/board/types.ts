@@ -11,18 +11,25 @@ export type ItemKind = 'epic' | 'issue';
 export const LANE_COLORS = ['indigo', 'blue', 'cyan', 'mint', 'yellow', 'orange', 'pink', 'brown'] as const;
 export type LaneColor = (typeof LANE_COLORS)[number];
 
-/** A lane is a filter (spec §4.4). Stored in localStorage. */
+/** A lane is a checked GitLab group (ADR-32): read only, derived from the group tree. It
+ * holds the items whose closest checked group, up their path, is this one. */
 export interface Lane {
+  id: string; // the group's full path
+  name: string; // the group's name in GitLab
+  /** Names from below the root down to the group: "API et intégrations › Partenaires". */
+  title: string;
+  color: LaneColor;
+  depth: number; // 0: the root group, 1: a direct subgroup…
+}
+
+/** A group in the tree, in tree order (parent first, siblings by path). */
+export interface GroupNode {
+  path: string;
   id: string;
   name: string;
-  color: LaneColor;
-  groups: string[]; // group full paths
-  includeSubgroups: boolean;
-  showEpics: boolean;
-  showIssues: boolean;
-  labels: string[]; // empty = no label filter
-  labelMode: 'any' | 'all';
-  active: boolean;
+  depth: number;
+  parent: string | null;
+  children: string[]; // paths
 }
 
 /** Iteration indexes, inclusive, from <= to. */
@@ -31,11 +38,19 @@ export interface BoardWindow {
   to: number;
 }
 
+export type LabelMode = 'any' | 'all';
+
 export interface DisplayOptions {
   linkTypes: Record<LinkType, boolean>;
   hideClosed: boolean;
   showUnplanned: boolean;
   criticalPath: boolean;
+  /** Item types shown, on the whole board. */
+  showEpics: boolean;
+  showIssues: boolean;
+  /** Label filter on the whole board; empty: no filter. */
+  labels: string[];
+  labelMode: LabelMode;
 }
 
 export const DEFAULT_OPTIONS: DisplayOptions = {
@@ -43,11 +58,15 @@ export const DEFAULT_OPTIONS: DisplayOptions = {
   hideClosed: false,
   showUnplanned: true,
   criticalPath: false,
+  showEpics: true,
+  showIssues: true,
+  labels: [],
+  labelMode: 'any',
 };
 
 export interface ViewInput {
   data: BoardData;
-  lanes: Lane[]; // in display order; inactive ones are skipped
+  lanes: Lane[]; // the checked groups, in tree order (lanesOf)
   window: BoardWindow;
   options: DisplayOptions;
   query: string; // search on ref and title, case-insensitive, already trimmed

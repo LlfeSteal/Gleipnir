@@ -4,9 +4,11 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { BoardData, Epic, Issue, Link } from '../api/types';
 import { G, mockupBoard } from '../board/fixtures';
-import { defaultLanes } from '../board/lanes';
+import { defaultChecked, lanesOf } from '../board/lanes';
 import type { BoardWindow } from '../board/types';
 import { Inspector } from './Inspector';
+
+const defaultLanes = (data: BoardData) => lanesOf(data, new Set(defaultChecked(data)));
 
 const id = (name: string) => `gid://gitlab/WorkItem/${name}`;
 
@@ -89,7 +91,7 @@ describe('Inspector', () => {
     expect(screen.getByRole('heading', { level: 2, name: 'Epic E1' })).toBeInTheDocument();
     expect(fact('Groupe')).toHaveTextContent('Identité & sécurité');
     expect(fact('Groupe')).toHaveTextContent(G.identite);
-    expect(fact('Couloirs')).toHaveTextContent('Identité & sécurité');
+    expect(fact('Couloir')).toHaveTextContent('Identité & sécurité');
     expect(fact('Période')).toHaveTextContent('It. 14 → It. 16');
     expect(fact('Période')).toHaveTextContent('dates héritées des issues');
     const labels = within(screen.getByRole('heading', { name: 'Labels' }).closest('section')!).getAllByRole('listitem');
@@ -107,7 +109,7 @@ describe('Inspector', () => {
     expect(within(panel()).getByText('Fermé')).toBeInTheDocument();
     expect(fact('Période')).toHaveTextContent('Non planifié');
     expect(fact('Groupe')).toHaveTextContent('ailleurs/x');
-    expect(fact('Couloirs')).toHaveTextContent('—');
+    expect(fact('Couloir')).toHaveTextContent('—');
     expect(screen.queryByRole('heading', { name: 'Labels' })).not.toBeInTheDocument();
   });
 

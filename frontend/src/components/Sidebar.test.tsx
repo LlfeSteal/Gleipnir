@@ -1,91 +1,136 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { BoardData } from '../api/types';
-import { mockupBoard } from '../board/fixtures';
-import { defaultLanes } from '../board/lanes';
-import { DEFAULT_OPTIONS, type BoardView, type DisplayOptions, type Lane } from '../board/types';
+import { G, mockupBoard } from '../board/fixtures';
+import { defaultChecked, lanesOf } from '../board/lanes';
+import { DEFAULT_OPTIONS, type BoardView, type DisplayOptions } from '../board/types';
 import { computeBoardView } from '../board/view';
 import { Sidebar } from './Sidebar';
 
 const data = mockupBoard();
-const lanes = defaultLanes(data);
+const DEFAULT = new Set(defaultChecked(data));
 
-function viewOf(ls: Lane[]): BoardView {
-  return computeBoardView({ data, lanes: ls, window: { from: 2, to: 6 }, options: DEFAULT_OPTIONS, query: '', collapsed: new Set() });
+function viewOf(checked: ReadonlySet<string>, options: DisplayOptions = DEFAULT_OPTIONS): BoardView {
+  const lanes = lanesOf(data, checked);
+  return computeBoardView({ data, lanes, window: { from: 2, to: 6 }, options, query: '', collapsed: new Set() });
 }
 
-function setup(over: Partial<{ data: BoardData; view: BoardView | null; lanes: Lane[]; options: DisplayOptions; overlay: boolean }> = {}) {
+function setup(
+  over: Partial<{ data: BoardData; view: BoardView | null; checked: ReadonlySet<string>; options: DisplayOptions; overlay: boolean; shareLink: () => string }> = {},
+) {
   const handlers = {
-    onToggleLane: vi.fn(),
-    onEditLane: vi.fn(),
-    onNewLane: vi.fn(),
-    onConfigure: vi.fn(),
+    onToggleGroup: vi.fn(),
     onOptionsChange: vi.fn(),
     onClose: vi.fn(),
   };
-  const ls = over.lanes ?? lanes;
+  const checked = over.checked ?? DEFAULT;
   render(
     <Sidebar
       id="sidebar"
       data={over.data ?? data}
-      view={over.view === undefined ? viewOf(ls) : over.view}
-      lanes={ls}
+      view={over.view === undefined ? viewOf(checked) : over.view}
+      checked={checked}
       options={over.options ?? DEFAULT_OPTIONS}
       overlay={over.overlay ?? false}
+      shareLink={over.shareLink}
       {...handlers}
     />,
   );
   return { ...handlers, user: userEvent.setup(), sidebar: screen.getByRole('complementary', { name: 'Filtres' }) };
 }
 
+const groupBox = (name: string) => screen.getByRole('checkbox', { name, exact: true });
+
 describe('Sidebar', () => {
-  it('lists the lanes with their shown item counts', () => {
-    const view = viewOf(lanes);
+  it('lists the GitLab groups as a tree, checked ones with their shown item counts', () => {
+    const view = viewOf(DEFAULT);
     setup({ view });
+    const tree = screen.getByRole('list', { name: 'Groupes GitLab' });
+    // The root, unfolded, and its subgroups; Partenaires is folded away under API.
+    expect(within(tree).getAllByRole('checkbox').map((box) => box.getAttribute('aria-label'))).toEqual([
+      'Atlas',
+      'API & intégrations',
+      'Data',
+      'Expérience produit',
+      'Identité & sécurité',
+    ]);
+    expect(groupBox('Atlas')).not.toBeChecked();
+    expect(groupBox('Atlas')).not.toHaveAttribute('aria-describedby');
     for (const block of view.lanes) {
-      const box = screen.getByRole('checkbox', { name: block.lane.name });
+      const box = groupBox(block.lane.name);
       expect(box).toBeChecked();
-      const count = block.counts.epics + block.counts.issues;
-      expect(box).toHaveAccessibleDescription(String(count));
+      expect(box).toHaveAccessibleDescription(String(block.counts.epics + block.counts.issues));
     }
-    expect(screen.queryByText('Aucun couloir.')).not.toBeInTheDocument();
+    expect(screen.getByText(/créez le groupe dans GitLab puis synchronisez/)).toBeInTheDocument();
+    // Read only: nothing to create or edit.
+    expect(screen.queryByRole('button', { name: /^Modifier|Nouveau couloir/ })).toBeNull();
   });
 
-  it('an inactive lane is unchecked and has no count; without a view, no lane has one', () => {
-    const ls = lanes.map((lane, i) => (i === 0 ? { ...lane, active: false } : lane));
-    setup({ lanes: ls });
-    expect(screen.getByRole('checkbox', { name: ls[0].name })).not.toBeChecked();
-    expect(screen.getByRole('checkbox', { name: ls[0].name })).not.toHaveAttribute('aria-describedby');
-    expect(screen.getByRole('checkbox', { name: ls[1].name })).toHaveAttribute('aria-describedby');
+  it('unfolds and folds a branch, and opens those leading to a checked group', async () => {
+    const { user } = setup();
+    const api = screen.getByRole('button', { name: 'Déplier API & intégrations' });
+    expect(api).toHaveAttribute('aria-expanded', 'false');
+    await user.click(api);
+    expect(groupBox('Partenaires')).not.toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'Replier API & intégrations' }));
+    expect(screen.queryByRole('checkbox', { name: 'Partenaires' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Replier Atlas' }));
+    expect(screen.getAllByRole('checkbox', { name: /^(?!Bloque|Lié à|Epic parent)/ })).toHaveLength(1);
+    cleanup();
+    setup({ checked: new Set([G.partenaires]) });
+    expect(groupBox('Partenaires')).toBeChecked();
   });
 
-  it('without a view (loading), lanes show no count and links count 0', () => {
+  it('without a view (loading), groups show no count and links count 0', () => {
     setup({ view: null });
-    expect(screen.getByRole('checkbox', { name: lanes[0].name })).not.toHaveAttribute('aria-describedby');
+    expect(groupBox('Data')).not.toHaveAttribute('aria-describedby');
     expect(screen.getByRole('checkbox', { name: 'Bloque' })).toHaveAccessibleDescription('0');
   });
 
-  it('says when there is no lane', () => {
-    setup({ lanes: [] });
-    expect(screen.getByText('Aucun couloir.')).toBeInTheDocument();
+  it('checks and unchecks a group', async () => {
+    const { user, onToggleGroup } = setup();
+    await user.click(groupBox('Data'));
+    expect(onToggleGroup).toHaveBeenCalledWith(G.data);
+    await user.click(groupBox('Atlas'));
+    expect(onToggleGroup).toHaveBeenLastCalledWith(data.rootGroup.path);
   });
 
-  it('toggles, edits and adds lanes, and opens the settings', async () => {
-    const { user, onToggleLane, onEditLane, onNewLane, onConfigure } = setup();
-    await user.click(screen.getByRole('checkbox', { name: lanes[1].name }));
-    expect(onToggleLane).toHaveBeenCalledWith(lanes[1].id);
-    await user.click(screen.getByRole('button', { name: `Modifier ${lanes[2].name}` }));
-    expect(onEditLane).toHaveBeenCalledWith(lanes[2].id);
-    await user.click(screen.getByRole('button', { name: 'Nouveau couloir' }));
-    expect(onNewLane).toHaveBeenCalledOnce();
-    await user.click(screen.getByRole('button', { name: 'Modifier…' }));
-    expect(onConfigure).toHaveBeenCalledOnce();
+  it('filters the item types', async () => {
+    const { user, onOptionsChange } = setup();
+    await user.click(screen.getByRole('switch', { name: 'Epics' }));
+    expect(onOptionsChange).toHaveBeenLastCalledWith({ ...DEFAULT_OPTIONS, showEpics: false });
+    await user.click(screen.getByRole('switch', { name: 'Issues bloquantes' }));
+    expect(onOptionsChange).toHaveBeenLastCalledWith({ ...DEFAULT_OPTIONS, showIssues: false });
+  });
+
+  it('filters labels from a pop-up: pick, match mode, clear', async () => {
+    const { user, onOptionsChange } = setup();
+    const button = screen.getByRole('button', { name: 'Labels\u00a0: Tous les labels' });
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+    await user.click(button);
+    const popup = screen.getByRole('dialog', { name: 'Labels' });
+    await user.click(within(popup).getByRole('option', { name: /bug/ }));
+    expect(onOptionsChange).toHaveBeenLastCalledWith({ ...DEFAULT_OPTIONS, labels: ['bug'] });
+    await user.click(within(popup).getByRole('radio', { name: 'Tous' }));
+    expect(onOptionsChange).toHaveBeenLastCalledWith({ ...DEFAULT_OPTIONS, labelMode: 'all' });
+    expect(within(popup).queryByRole('button', { name: 'Tous les labels' })).toBeNull();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Labels' })).toBeNull();
+    expect(button).toHaveFocus();
+
+    cleanup();
+    const picked = setup({ options: { ...DEFAULT_OPTIONS, labels: ['bug', 'UX'], labelMode: 'all' } });
+    const active = screen.getByRole('button', { name: 'Labels\u00a0: bug, UX' });
+    expect(active).toHaveAttribute('data-active', 'true');
+    await picked.user.click(active);
+    await picked.user.click(within(screen.getByRole('dialog', { name: 'Labels' })).getByRole('button', { name: 'Tous les labels' }));
+    expect(picked.onOptionsChange).toHaveBeenLastCalledWith({ ...DEFAULT_OPTIONS, labels: [], labelMode: 'all' });
   });
 
   it('switches a link type off, keeping the others', async () => {
-    const view = viewOf(lanes);
+    const view = viewOf(DEFAULT);
     const { user, onOptionsChange } = setup({ view });
     expect(screen.getByRole('checkbox', { name: 'Bloque' })).toHaveAccessibleDescription(String(view.linkCounts.blocks));
     await user.click(screen.getByRole('checkbox', { name: 'Lié à' }));
@@ -113,6 +158,14 @@ describe('Sidebar', () => {
     expect(within(sidebar).getByRole('heading', { level: 2, name: 'Filtres' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Fermer les filtres' }));
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('holds the copy-link button in its overlay header only', () => {
+    setup({ shareLink: () => 'http://x/' });
+    expect(screen.queryByRole('button', { name: 'Copier le lien' })).toBeNull();
+    cleanup();
+    setup({ overlay: true, shareLink: () => 'http://x/' });
+    expect(screen.getByRole('button', { name: 'Copier le lien' })).toBeInTheDocument();
   });
 
   it('counts the ignored issues, singular and plural, and hides the note at 0', () => {

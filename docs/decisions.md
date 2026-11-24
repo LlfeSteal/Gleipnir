@@ -130,7 +130,7 @@ Les erreurs sont typées : `ErrUnauthorized`, `ErrGroupNotFound`, `ErrPremiumReq
 
 ## ADR-5 — Couloirs stockés dans le navigateur
 
-*2026-11-23 · Accepté*
+*2026-11-23 · Remplacé par l'ADR-31 (vue dans l'URL) et l'ADR-32 (couloirs = groupes GitLab)*
 
 **Contexte.** La spec (§7) vise des vues partagées côté serveur. Mais les couloirs sont une préférence d'interface, pas une donnée GitLab, et la v1 n'a ni base de données ni identité utilisateur.
 
@@ -708,3 +708,59 @@ Une synchro en cours reste partagée par toutes les requêtes. Sans données en 
 - Une recherche qui touche un élément très connecté peut ramener une grande partie du board.
 - Les compteurs comptent aussi les dépendances affichées.
 - E2E : une recherche par ref ne vérifie plus que les éléments affichés comme résultats. Une assertion sur la chaîne exacte cherche par titre, car sur un vrai GitLab `&1` existe dans chaque groupe.
+
+## ADR-31 — La vue dans l'URL, partageable par un lien
+
+*2026-11-24 · Accepté · Remplace l'ADR-5 pour la fenêtre · Amende la spec §4.3, §7 et §9.7*
+
+**Contexte.** On veut envoyer à quelqu'un un lien qui ouvre le board avec les mêmes filtres. La fenêtre était dans `localStorage`, commune à tous les onglets ; les options, la recherche et la sélection ne vivaient que dans la session. Des vues enregistrées et nommées (« portfolio ») viendront plus tard ; en attendant, aucune configuration de vue n'est sauvegardée.
+
+**Décision.**
+
+- **L'URL est la vue de l'onglet** (`src/board/share.ts`). Le front la lit une fois, au chargement, et la tient à jour avec `history.replaceState`, sans ajouter d'entrée d'historique. Deux onglets sur deux URL sont deux vues indépendantes ; un rechargement garde la vue.
+- **Plus de `gleipnir.lanes` ni de `gleipnir.window`.** Restent dans `localStorage` les préférences qui ne disent pas ce qu'on voit : l'apparence et le panneau replié.
+- **Paramètres**, valeurs par défaut omises (la vue par défaut a une URL nue). Groupes, itérations et éléments sont désignés par le **dernier segment de leur GID** (`gid://gitlab/Group/45` → `45`) : court, et stable si un groupe est renommé ou déplacé. Le backend envoie donc `groups[].id`.
+
+  | Param | Contenu |
+  |---|---|
+  | `groups` | groupes cochés (les couloirs, ADR-32), dans l'ordre de l'arbre. Vide : aucun. Absent : les sous-groupes directs |
+  | `fold` | groupes dont le couloir est replié |
+  | `from`, `to` | fenêtre, par les itérations |
+  | `types` | `epics` ou `issues` quand un seul type est affiché (vide : aucun) |
+  | `label` (répété), `labelMode=all` | filtre de labels |
+  | `links` | types de lien cochés (`blocks,parent`) |
+  | `closed=hide`, `unplanned=hide`, `critical=1` | options d'affichage |
+  | `q` | recherche |
+  | `item` | élément sélectionné |
+
+- **Fenêtre fixe dans un lien** : la barre d'adresse omet la fenêtre par défaut (elle suit l'itération en cours), mais le bouton **Copier le lien** l'écrit toujours : le destinataire voit les mêmes itérations, même ouvert plus tard.
+- **Tolérance** : tout ce qui est inconnu ou invalide retombe sur sa valeur par défaut, champ par champ (groupe, itération ou élément inconnu, valeur mal formée).
+- La vue est résolue au rendu des premières données, pour ne jamais afficher la vue par défaut d'abord. Tant que le board n'est pas chargé (erreur comprise), l'URL n'est pas touchée.
+- **Bouton Copier le lien** : dans la barre d'outils, ou dans l'en-tête du panneau Filtres sur téléphone, où la barre n'a pas la place. `navigator.clipboard`, avec repli sur `execCommand('copy')` hors contexte sécurisé (`http://` hors localhost).
+- Les filtres ne vont jamais au backend : ouvrir un lien fait le même `GET /api/board` que d'habitude, servi par le cache.
+
+**Conséquences.**
+
+- Les GID sont propres à une instance GitLab : un lien ne se transpose pas d'une instance à l'autre (il retombe alors sur les valeurs par défaut).
+- La configuration ne survit pas à la fermeture de l'onglet sans son URL : c'est le rôle du futur portfolio.
+
+## ADR-32 — Couloirs en lecture seule : les groupes cochés de l'arbre GitLab
+
+*2026-11-24 · Accepté · Remplace l'ADR-5 pour les couloirs · Amende la spec §4.4, §4.7 et §4.8*
+
+**Contexte.** Les couloirs étaient des filtres éditables : nom, couleur, groupes, sous-groupes, types, labels, création et suppression. Or Gleipnir est en **lecture seule** : un couloir ne doit rien porter que GitLab ne dise. Un nouveau couloir, c'est un nouveau groupe dans GitLab.
+
+**Décision.**
+
+- **Un couloir = un groupe coché** dans l'arbre des groupes GitLab, affiché dans la barre latérale (une case par groupe, une branche se replie). Nom, chemin et hiérarchie viennent de GitLab ; rien ne s'édite, rien ne se crée.
+- **Un élément va dans le couloir de son groupe coché le plus proche** (`laneOf`) : son groupe, sinon le premier ancêtre coché. Cocher un sous-groupe le sort donc du couloir de son parent. Un élément n'est plus que dans un couloir ; sans ancêtre coché, il n'est pas affiché.
+- **Par défaut**, les sous-groupes directs de la racine sont cochés (la racine s'il n'y en a pas), comme avant.
+- **Ordre** : celui de l'arbre (parent, puis ses sous-groupes, frères triés par chemin), pas le tri brut des chemins (`a/b-x` passerait avant `a/b/c`).
+- **Couleur stable** : celle du sous-groupe de premier niveau dont descend le groupe, prise dans la palette en ordre d'arbre ; la racine a la dernière. Un sous-couloir garde la couleur de son parent, et cocher un groupe ne change la couleur d'aucun autre. Sur le board, un sous-couloir montre sa place : « API et intégrations › Partenaires ».
+- **Types et labels** deviennent des **filtres globaux** de la barre latérale (interrupteurs Epics / Issues bloquantes, liste de labels avec « Au moins un / Tous »), appliqués à tout le board après la recherche, comme « Masquer les issues fermées ».
+- La feuille de réglages des couloirs (`LaneSettingsSheet`) est supprimée.
+
+**Conséquences.**
+
+- Plus de couloir transverse (deux groupes, ou un label) : le filtre de labels global le remplace en partie.
+- Le faux GitLab gagne un groupe imbriqué (`api/partenaires`, qui porte &22) pour exercer l'arbre ; le seeder crée un groupe imbriqué sous son parent.

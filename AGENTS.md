@@ -63,11 +63,12 @@ frontend/
   src/main.tsx, App.tsx       point d'entrée, coquille de l'application (état, préférences)
   src/api/types.ts            miroir TypeScript de model.go
   src/api/client.ts           fetch + ApiError
-  src/board/                  logique pure : types, couloirs, fenêtre, format, mise en page, recherche, liens, statistiques
+  src/board/                  logique pure : types, couloirs, fenêtre, format, mise en page, recherche, liens, statistiques,
+                              share.ts (la vue dans l'URL, ADR-31)
   src/components/ui/          primitives : Icons, Popover / MenuItem, Sheet (<dialog>), SearchField, Switch,
-                              Checkbox, SelectList, SegmentedControl, StateViews, AppearanceMenu
+                              Checkbox, SelectList, SegmentedControl, StateViews, AppearanceMenu, CopyLinkButton
   src/components/board/       le canevas : BoardCanvas, ItemGlyph, LinkSwatch…
-  src/components/             Toolbar, WindowControl, Sidebar, Inspector, LaneSettingsSheet, SummaryLine
+  src/components/             Toolbar, WindowControl, Sidebar (arbre des groupes, filtres), Inspector, SummaryLine
   src/hooks/                  useAppearance, usePreferences (useStoredState), useBoard
   src/strings/                textes de l'interface (ui.ts, board.ts, app.ts, réexportés par index.ts)
   src/styles/                 theme.css (jetons + contrôles), board.css (canevas), app.css (coquille)
@@ -157,7 +158,7 @@ Toutes les variables sont lues par le backend, via `internal/config`.
     - Les groupes inconnus sont ignorés ; sans groupe connu, la réponse est 400 `invalid_scope`.
     - Si tous ces groupes ont été relus depuis moins de 10 s, le cache répond (ADR-20).
     - Aucune requête ne lance de synchro complète, sauf quand le backend n'a encore aucune donnée.
-  - **Données par groupe** : `groups[].syncedAt` (RFC 3339) dit quand les éléments du groupe ont été lus. Le « Mis à jour il y a… » de la barre d'outils est la plus ancienne de ces dates parmi les groupes des couloirs actifs (`scopeSyncedAt`).
+  - **Données par groupe** : `groups[].id` est le GID du groupe (`gid://gitlab/Group/N`) : l'URL d'une vue désigne les groupes par son dernier segment (ADR-31). `groups[].syncedAt` (RFC 3339) dit quand les éléments du groupe ont été lus. Le « Mis à jour il y a… » de la barre d'outils est la plus ancienne de ces dates parmi les groupes des couloirs actifs (`scopeSyncedAt`).
   - **En-têtes** :
     - `X-Fetched-At` (RFC 3339) : la lecture la plus ancienne parmi les groupes du board.
     - `X-Cache` : `HIT` (servi depuis le cache) ou `MISS` (lu pour cette requête).
@@ -243,6 +244,7 @@ La plupart viennent de Nornir, où ils ont été appris à la dure.
   - **Liens** : `workItemAddLinkedItems(linkType: BLOCKS | RELATED)`. Un lien n'existe qu'une fois et se lit des deux côtés.
   - **Itérations titrées avec un trou** : seule une cadence **manuelle** (`automatic: false`) le permet ; `iterationCreate` prend des dates `String`. GitLab refuse deux itérations qui se chevauchent : pour décaler, déplacer la dernière d'abord en avançant, la première d'abord en reculant.
   - **Labels** : `labelCreate` ne fixe pas de couleur après coup (`labelUpdate` n'a que `archived`) : le recoloriage passe par REST `PUT /groups/:id/labels/:label_id`.
+  - **Groupes imbriqués** : `Group.Slug` peut contenir un `/` (`api/partenaires`) ; le seeder crée le groupe sous son parent (`parent_id`), qui le précède dans `Dataset.Groups`.
   - **Utilisateurs** : seul un admin peut en créer (`POST /users`). Un assigné doit être membre : le seeder ajoute les `demo-*` en Reporter du groupe cible.
   - Les mutations `workItem*` sont marquées « Experiment » dans le schéma : elles peuvent changer d'une version à l'autre.
   - **Non validé en live** (2026-11-24) : noms, arguments et types vérifiés sur l'introspection de gitlab.com seulement, faute d'instance Premium en écriture. Premier passage sur une vraie instance : `-apply` puis relancer, la deuxième exécution doit afficher `0 to create`.
@@ -304,7 +306,8 @@ Ils sont dans `internal/board`. Tous sont couverts par des tests table par table
   - Les jetons (noms de `docs/style.md` §2) sont définis **uniquement** dans `src/styles/theme.css`, avec leurs valeurs claires et sombres (`:root[data-theme='dark']`). `board.css` et `app.css` ne font que les utiliser.
   - **Aucune couleur en dur** dans les composants ni dans le TypeScript. Un composant expose ses états en attributs `data-*` (`data-kind`, `data-closed`, `data-conflict`, `data-lane-color`…), que le CSS traduit en jetons.
   - Seule exception : la couleur d'un label GitLab, qui est une donnée. Elle passe par la propriété `--label-color` dans un `style` inline.
-- **Couleurs des couloirs** : une palette fixe de jetons de couleurs système Apple (`--lane-indigo`, `--lane-blue`, `--lane-cyan`, `--lane-mint`, `--lane-yellow`, `--lane-orange`, `--lane-pink`, `--lane-brown`). Le CSS les expose par `[data-lane-color='x'] { --lane: … }`.
+- **Couloirs** (ADR-32) : les groupes cochés de l'arbre GitLab (`src/board/lanes.ts` : `groupTree`, `defaultChecked`, `lanesOf`, `laneOf`). **Lecture seule** : aucun couloir ne se crée, ne se renomme ni ne s'édite. Un élément va dans le couloir de son groupe coché le plus proche, et dans aucun autre. Types et labels sont des filtres globaux (`DisplayOptions`).
+- **Couleurs des couloirs** : celle du sous-groupe de premier niveau dont descend le groupe (`laneColor`), stable quand on coche ou décoche. Une palette fixe de jetons de couleurs système Apple (`--lane-indigo`, `--lane-blue`, `--lane-cyan`, `--lane-mint`, `--lane-yellow`, `--lane-orange`, `--lane-pink`, `--lane-brown`). Le CSS les expose par `[data-lane-color='x'] { --lane: … }`.
   - Pas de rouge : il est réservé aux conflits.
   - Pas de vert, de violet ni de teal : ils sont pris par d'autres sens (violet = epic, teal = issue).
 - **Textes** : tous les textes de l'interface sont en français et vivent dans `src/strings/` :
@@ -324,9 +327,12 @@ Ils sont dans `internal/board`. Tous sont couverts par des tests table par table
   - `app.css` : la coquille.
   
   `main.tsx` importe les trois. Pas de framework CSS ni de police externe : l'application marche hors ligne.
-- **Préférences** (`localStorage`, lues avec validation et try/catch partout) :
-  - `gleipnir.appearance`, `gleipnir.lanes` (validés contre les groupes), `gleipnir.window`, `gleipnir.sidebar` ;
-  - le reste est de l'état de session : options d'affichage, couloirs repliés, recherche, sélection.
+- **La vue est dans l'URL** (`src/board/share.ts`, ADR-31) : groupes cochés, couloirs repliés, fenêtre, types, labels, options d'affichage, recherche, sélection. Groupes, itérations et éléments y sont désignés par le dernier segment de leur GID.
+  - `App` la lit une fois (`decodeView`), la résout au rendu des premières données (`resolveGroups`, `resolveWindow`, `resolveItem`), puis la réécrit avec `history.replaceState` (`encodeView`, valeurs par défaut omises). L'URL n'est pas touchée avant le chargement du board.
+  - **Rien de la vue n'est sauvegardé** ailleurs : deux onglets, deux vues. Le futur portfolio de vues enregistrées s'appuiera sur ce format.
+  - Le bouton **Copier le lien** (`CopyLinkButton`) écrit toujours la fenêtre (`fixedWindow`). Sur téléphone, il est dans l'en-tête du panneau Filtres : la barre compacte n'a pas la place.
+  - Tout paramètre inconnu ou invalide retombe sur sa valeur par défaut, champ par champ : ajoutez un cas à `share.test.ts` pour tout nouveau paramètre.
+- **Préférences** (`localStorage`, lues avec validation et try/catch partout) : seulement `gleipnir.appearance` et `gleipnir.sidebar`, qui ne disent pas ce qu'on voit.
 - **Thème** :
   - Le script inline de `index.html` applique l'apparence **avant le premier rendu**, pour éviter un flash. Gardez-le synchronisé avec `resolveScheme` (`src/hooks/useAppearance.ts`).
   - **Toute modification de ce script change son hash** : recalculez-le et mettez à jour la CSP de `frontend/nginx.conf.template` (voir Sécurité), sinon le script est bloqué en production.
@@ -363,6 +369,7 @@ Ils sont dans `internal/board`. Tous sont couverts par des tests table par table
     - React lit un `timeStamp` de 0 comme absent et le remplace par `Date.now()` : un événement simulé part de 1 ;
     - jsdom n'a pas de `PointerEvent` : un `MouseEvent` auquel on ajoute `pointerId` et `pointerType` le remplace ;
     - `getByTitle` et `getByText` normalisent les espaces : pour un texte qui commence ou finit par une espace, lisez l'attribut directement.
+    - l'application écrit sa vue dans l'URL : `setup.ts` remet `/` après chaque test. Pour ouvrir l'application sur une vue, `window.history.replaceState(null, '', '/?…')` avant le rendu.
 - **Playwright** (`frontend/e2e/`, `playwright.config.ts`) :
   - `*.spec.ts` tournent contre le **backend réel, branché sur le faux GitLab** : `webServer` démarre `gitlab-mock` (8082), le backend (8081) et Vite (5174), ou les ports donnés par `E2E_MOCK_PORT` / `E2E_API_PORT` / `E2E_WEB_PORT` (voir ADR-22). Le client GitLab, la pagination et le rafraîchissement ciblé sont donc couverts de bout en bout.
   - Le jeu de démo vit dans `gitlab-mock/dataset/dataset.go`. Les assertions des e2e (couloirs, « Itération 15 » en cours, liens, comptes) en dépendent : changez-les ensemble.
@@ -373,6 +380,8 @@ Ils sont dans `internal/board`. Tous sont couverts par des tests table par table
     - Une recherche par ref vérifie que tout élément affiché comme **résultat** correspond (`shownKeys(page, true)`, sans `data-search-context`), pas un compte : sur un vrai GitLab, `#1` trouve aussi `#10`.
     - La recherche ramène la chaîne de dépendances des résultats (ADR-30) : pour une assertion sur la chaîne exacte, cherchez par **titre**. Par ref, chaque groupe a son `&1` et la chaîne grossit.
     - Le `globalSetup` exige `current === 3` (« Itération 15 ») : sur un GitLab rempli, relancer le seeder recale les dates.
+  - Une URL de vue désigne groupes, itérations et éléments par le dernier segment de leur GID : lisez-les dans `board()` (`e2e/demo.ts`, `groupKey('api')`), jamais en dur.
+  - Le jeu de démo a un groupe imbriqué, `api/partenaires` (« Partenaires », &22), décoché par défaut : &22 s'affiche dans le couloir « API et intégrations ».
     - `npm run test:e2e:gitlab-like` (`E2E_GITLAB_LIKE=1`) le vérifie sans instance : `GITLAB_MOCK_NUMBERING=gitlab` et `GITLAB_MOCK_ROOT=demo/gleipnir`.
   - `webServer` donne `DEMO-JETON-TEST` au faux GitLab (`GITLAB_MOCK_TOKEN`) et au backend (`GITLAB_TOKEN`) : le chargement du board prouve que le jeton passe, et un jeton exporté dans le shell n'est pas envoyé au faux GitLab.
   - En développement, React `StrictMode` lance puis annule une première requête `/api/board` : un mock d'erreur ne doit pas compter les appels, mais rester actif jusqu'à ce que le test le retire.
@@ -477,6 +486,7 @@ Ils sont dans `internal/board`. Tous sont couverts par des tests table par table
 - **Données d'âges différents** : après un rafraîchissement ciblé, les autres groupes gardent leurs données jusqu'à la synchro complète suivante. Un élément déplacé hors du sous-arbre relu disparaît jusque-là.
 - **Liens** : plus de 100 par élément et par sens sont coupés (`linkedItems(first: 100)`).
 - **Pas de chart Helm** en v1 : uniquement Docker et compose. Le cache est en mémoire, donc une instance par backend.
-- **Couloirs, fenêtre et panneau latéral** sont mémorisés **par navigateur** (`localStorage`) : pas de vues partagées ni de préférences côté serveur.
+- **Vue sans sauvegarde** : groupes cochés, fenêtre et filtres ne vivent que dans l'URL de l'onglet (ADR-31). Pas de vues nommées ni de préférences côté serveur. Un lien est propre à une instance GitLab (GID de groupe, d'itération et d'élément).
+- **Couloirs = groupes GitLab** (ADR-32) : pas de couloir transverse (deux groupes, un label) ; un élément n'est que dans un couloir.
 - **Lecture seule** : on ne peut ni créer ni supprimer un lien depuis le board.
 - **Seeder non validé en live** : ses mutations n'ont été vérifiées que contre le schéma de gitlab.com et un faux GitLab à état (ADR-27).

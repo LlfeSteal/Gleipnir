@@ -2,7 +2,7 @@
 
 Board des **dépendances** GitLab par **itération**.
 
-Les boards natifs de GitLab ne montrent pas les dépendances entre epics et issues dans le temps. Gleipnir les affiche sur une frise d'itérations, une colonne par itération, avec des couloirs configurables. Le but est de repérer :
+Les boards natifs de GitLab ne montrent pas les dépendances entre epics et issues dans le temps. Gleipnir les affiche sur une frise d'itérations, une colonne par itération, avec un couloir par groupe GitLab choisi. Le but est de repérer :
 
 - les chaînes de blocage ;
 - les risques de retard ;
@@ -23,6 +23,10 @@ Gleipnir ne suit **pas l'avancement** : il n'affiche ni pourcentage, ni poids, n
 - les **conflits de dates** : un élément bloqué qui commence avant la fin de son bloqueur ;
 - le **chemin critique** : la plus longue chaîne de blocages ouverts ;
 - une colonne **Non planifié**, pour ce qui n'a ni dates ni itération.
+
+**Couloirs.** Ce sont les groupes GitLab : la barre latérale montre l'arbre des groupes, et chaque groupe coché est un couloir. Un élément va dans le couloir de son groupe coché le plus proche ; cocher un sous-groupe lui donne son propre couloir. Rien ne s'édite dans Gleipnir : pour un nouveau couloir, créez le groupe dans GitLab puis synchronisez. Les types (epics, issues) et les labels se filtrent sur tout le board.
+
+**Partager une vue.** La vue (groupes cochés, fenêtre, filtres, options, recherche, élément sélectionné) est dans l'URL de la page. Le bouton **Copier le lien** de la barre d'outils, ou du panneau Filtres sur téléphone, copie un lien qui l'ouvre telle quelle chez quelqu'un d'autre, sur les mêmes itérations. Rien n'est sauvegardé dans le navigateur, hors l'apparence et le panneau replié : chaque onglet garde sa propre vue, un rechargement aussi.
 
 L'application est en **lecture seule** : elle ne modifie jamais GitLab.
 

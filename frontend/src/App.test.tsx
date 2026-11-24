@@ -4,6 +4,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
 import { mockupBoard } from './board/fixtures';
+import { decodeView } from './board/share';
 
 // The mockup dataset: It. 12 → It. 21, It. 15 current, so the default window is It. 14 – It. 18.
 // Default lanes: one per subgroup of plateforme/atlas.
@@ -32,7 +33,7 @@ async function renderApp() {
 
 const windowButton = () => screen.getByRole('button', { name: /^Fenêtre :/ });
 const inspector = () => screen.queryByRole('complementary', { name: 'Détail de l’élément' });
-const storedLanes = () => JSON.parse(localStorage.getItem('gleipnir.lanes') ?? 'null') as { name: string }[] | null;
+const urlView = () => decodeView(window.location.search);
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -48,8 +49,9 @@ describe('App', () => {
     expect(windowButton()).toHaveAccessibleName('Fenêtre : It. 14 – It. 18');
     expect(document.querySelector('.summary-line')).toHaveTextContent(/^4 couloirs · \d+ epics · \d+ issues bloquantes/);
     expect(within(sidebar).getByText(/7 issues synchronisées ne bloquent aucun epic/)).toBeInTheDocument();
-    // The defaults are kept, so their ids stay stable.
-    await waitFor(() => expect(storedLanes()?.map((lane) => lane.name)).toEqual(LANES));
+    // The default view has a plain URL, and nothing is stored in the browser.
+    expect(window.location.search).toBe('');
+    expect(localStorage.getItem('gleipnir.lanes')).toBeNull();
   });
 
   it('shows a French error banner on 401, and retries', async () => {
@@ -130,36 +132,23 @@ describe('App', () => {
     expect(within(sidebar).getByRole('checkbox', { name: LANES[0] })).toBeInTheDocument();
   });
 
-  it('lane settings: Annuler leaves the lanes unchanged, Appliquer applies and persists', async () => {
+  it('checking a subgroup gives it its own lane, out of its parent\'s, and writes the groups in the URL', async () => {
     stubFetch();
     const { user, sidebar } = await renderApp();
-    await waitFor(() => expect(storedLanes()).not.toBeNull());
-    const before = localStorage.getItem('gleipnir.lanes');
+    await user.click(screen.getByRole('button', { name: 'Itération suivante' }));
+    await user.click(screen.getByRole('button', { name: 'Itération suivante' }));
+    await user.click(screen.getByRole('button', { name: 'Itération suivante' }));
+    const portal = () => screen.getAllByRole('button', { name: /^Epic &22 / });
+    expect(within(screen.getByRole('region', { name: LANES[0] })).getByText('API & intégrations')).toBeInTheDocument();
+    expect(portal()).toHaveLength(1);
 
-    await user.click(within(sidebar).getByRole('button', { name: `Modifier ${LANES[1]}` }));
-    let sheet = screen.getByRole('dialog', { name: 'Couloirs' });
-    let name = within(sheet).getByRole('textbox', { name: 'Nom' });
-    expect(name).toHaveValue(LANES[1]);
-    await user.clear(name);
-    await user.type(name, 'Données');
-    await user.click(within(sheet).getByRole('button', { name: 'Annuler' }));
-    expect(screen.queryByRole('dialog')).toBeNull();
-    expect(within(sidebar).getByRole('checkbox', { name: LANES[1] })).toBeInTheDocument();
-    expect(localStorage.getItem('gleipnir.lanes')).toBe(before);
-
-    await user.click(within(sidebar).getByRole('button', { name: 'Modifier…' }));
-    sheet = screen.getByRole('dialog', { name: 'Couloirs' });
-    await user.click(within(sheet).getByRole('button', { name: new RegExp(`^${LANES[1]}`) }));
-    name = within(sheet).getByRole('textbox', { name: 'Nom' });
-    await user.clear(name);
-    await user.type(name, 'Données');
-    await user.click(within(sheet).getByRole('checkbox', { name: `Afficher ${LANES[0]}` }));
-    await user.click(within(sheet).getByRole('button', { name: 'Appliquer' }));
-
-    expect(screen.queryByRole('dialog')).toBeNull();
-    expect(within(sidebar).getByRole('checkbox', { name: 'Données' })).toBeChecked();
-    expect(within(sidebar).getByRole('checkbox', { name: LANES[0] })).not.toBeChecked();
-    expect(storedLanes()?.map((lane) => lane.name)).toEqual([LANES[0], 'Données', LANES[2], LANES[3]]);
+    await user.click(within(sidebar).getByRole('button', { name: `Déplier ${LANES[0]}` }));
+    await user.click(within(sidebar).getByRole('checkbox', { name: 'Partenaires' }));
+    expect(screen.getByRole('region', { name: 'Partenaires' })).toHaveTextContent('API & intégrations › Partenaires');
+    expect(portal()).toHaveLength(1);
+    await waitFor(() => expect(urlView().groups).toEqual(['41', '45', '42', '43', '44']));
+    // Read only: no lane to create or edit.
+    expect(screen.queryByRole('button', { name: /^Modifier|Nouveau couloir/ })).toBeNull();
   });
 
   it('shows an empty state when no lane is active', async () => {
@@ -167,11 +156,13 @@ describe('App', () => {
     const { user, sidebar } = await renderApp();
     for (const name of LANES) await user.click(within(sidebar).getByRole('checkbox', { name }));
     expect(screen.getByText('Aucun couloir affiché')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Configurer les couloirs' }));
-    expect(screen.getByRole('dialog', { name: 'Couloirs' })).toBeInTheDocument();
+    await waitFor(() => expect(window.location.search).toBe('?groups='));
+    await user.click(screen.getByRole('button', { name: 'Afficher les couloirs par défaut' }));
+    for (const name of LANES) expect(within(sidebar).getByRole('checkbox', { name })).toBeChecked();
+    await waitFor(() => expect(window.location.search).toBe(''));
   });
 
-  it('moves the window with the arrows and the presets, and remembers it', async () => {
+  it('moves the window with the arrows and the presets, and writes it in the URL', async () => {
     stubFetch();
     const { user } = await renderApp();
     await user.click(screen.getByRole('button', { name: 'Itération suivante' }));
@@ -192,7 +183,7 @@ describe('App', () => {
     expect(windowButton()).toHaveAccessibleName('Fenêtre : It. 12 – It. 21');
     expect(screen.getByRole('button', { name: 'Itération suivante' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Itération précédente' })).toBeDisabled();
-    expect(JSON.parse(localStorage.getItem('gleipnir.window') ?? 'null')).toEqual({ from: 0, to: 9 });
+    await waitFor(() => expect(window.location.search).toBe('?from=500&to=509'));
 
     await user.click(windowButton());
     expect(screen.getByRole('menuitemradio', { name: 'Toutes' })).toHaveAttribute('aria-checked', 'true');
@@ -237,5 +228,45 @@ describe('App', () => {
     const { user } = await renderApp();
     await user.keyboard('{Control>}f{/Control}');
     expect(screen.getByRole('searchbox', { name: 'Rechercher un epic ou une issue' })).toHaveFocus();
+  });
+
+  it('opens the view a URL asks for, and keeps it in the URL', async () => {
+    stubFetch();
+    const query = 'groups=41,44&fold=41&from=503&to=505&links=blocks&critical=1&q=SSO&item=1012';
+    window.history.replaceState(null, '', `/?${query}`);
+    const { sidebar } = await renderApp();
+    expect(within(sidebar).getByRole('checkbox', { name: LANES[3] })).toBeChecked();
+    expect(within(sidebar).getByRole('checkbox', { name: LANES[0] })).toBeChecked();
+    expect(within(sidebar).getByRole('checkbox', { name: LANES[1] })).not.toBeChecked();
+    expect(within(sidebar).getByRole('checkbox', { name: LANES[2] })).not.toBeChecked();
+    expect(within(sidebar).getByRole('switch', { name: /Chemin critique/ })).toBeChecked();
+    expect(within(sidebar).getByRole('checkbox', { name: /Lié à/ })).not.toBeChecked();
+    expect(windowButton()).toHaveAccessibleName('Fenêtre : It. 15 – It. 17');
+    expect(screen.getByRole('searchbox', { name: 'Rechercher un epic ou une issue' })).toHaveValue('SSO');
+    expect(within(inspector()!).getByRole('heading', { name: 'Authentification SSO' })).toBeInTheDocument();
+    await waitFor(() => expect(window.location.search).toBe(`?${query}`));
+  });
+
+  it('leaves the URL alone while the board fails to load', async () => {
+    stubFetch(() => new Response('Bad Gateway', { status: 502 }));
+    window.history.replaceState(null, '', '/?groups=&q=x');
+    render(<App />);
+    await screen.findByRole('alert');
+    expect(window.location.search).toBe('?groups=&q=x');
+  });
+
+  it('copies a link of the view that names its iterations', async () => {
+    stubFetch();
+    const writeText = vi.fn(async (_text: string) => {});
+    const { user, sidebar } = await renderApp();
+    // user-event installs its own clipboard: replace it after setup.
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    await user.click(within(sidebar).getByRole('checkbox', { name: LANES[1] }));
+    const button = screen.getByRole('button', { name: 'Copier le lien' });
+    await user.click(button);
+    expect(writeText).toHaveBeenCalledWith(
+      `${window.location.origin}/?groups=41,43,44&from=502&to=506`,
+    );
+    expect(button).toHaveAttribute('title', 'Lien copié');
   });
 });

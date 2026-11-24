@@ -6,6 +6,8 @@ export type ItemState = 'open' | 'closed';
 export type LinkType = 'blocks' | 'relates' | 'parent';
 
 export interface Group {
+  /** Global ID, "gid://gitlab/Group/12": the URL of a view names groups by its last segment. */
+  id: string;
   path: string;
   name: string;
   /** When the group's items were read from GitLab (RFC 3339). Synchroniser refreshes some

@@ -4,8 +4,8 @@
 // well under the 300 ms budget (spec §8).
 
 import type { Epic, Issue, LinkType } from '../api/types';
-import { isEpicUnplanned, isIssueUnplanned } from './items';
-import { matchLane } from './lanes';
+import { isEpicUnplanned, isIssueUnplanned, matchesLabels } from './items';
+import { laneOf } from './lanes';
 import { searchItems } from './search';
 import type {
   BoardStats,
@@ -133,18 +133,28 @@ export function computeBoardView(input: ViewInput, layout: Readonly<BoardLayout>
       e = Math.min(epic.end as number, to);
     } else st = 'out';
     status.set(epic.id, st);
-    if (inSearch(epic.id)) epics.push({ epic, order, status: st, s, e });
+    if (options.showEpics && inSearch(epic.id) && matchesLabels(epic.labels, options.labels, options.labelMode)) {
+      epics.push({ epic, order, status: st, s, e });
+    }
   });
   const issues: Issue[] = [];
   for (const issue of data.issues) {
     const it = issue.iteration;
     const st: Status = isIssueUnplanned(issue) ? 'unplanned' : (it as number) >= from && (it as number) <= to ? 'in' : 'out';
     status.set(issue.id, st);
-    if (inSearch(issue.id) && !(options.hideClosed && issue.state === 'closed')) issues.push(issue);
+    if (
+      options.showIssues &&
+      inSearch(issue.id) &&
+      !(options.hideClosed && issue.state === 'closed') &&
+      matchesLabels(issue.labels, options.labels, options.labelMode)
+    ) {
+      issues.push(issue);
+    }
   }
 
-  const activeLanes = input.lanes.filter((l) => l.active);
-  const contents: LaneContent[] = activeLanes.map((lane) => {
+  // Each item goes to one lane: its closest checked group.
+  const checked = new Set(input.lanes.map((lane) => lane.id));
+  const contents: LaneContent[] = input.lanes.map((lane) => {
     const c: LaneContent = {
       lane,
       epicsIn: [],
@@ -154,27 +164,26 @@ export function computeBoardView(input: ViewInput, layout: Readonly<BoardLayout>
       outside: 0,
       matching: new Set(),
     };
-    if (lane.showEpics) {
-      for (const entry of epics) {
-        if (!matchLane(lane, entry.epic, 'epic')) continue;
-        c.matching.add(entry.epic.id);
-        if (entry.status === 'in') c.epicsIn.push(entry);
-        else if (entry.status === 'unplanned') c.epicsUnplanned.push(entry.epic);
-        else c.outside++;
-      }
-    }
-    if (lane.showIssues) {
-      for (const issue of issues) {
-        if (!matchLane(lane, issue, 'issue')) continue;
-        c.matching.add(issue.id);
-        const st = status.get(issue.id);
-        if (st === 'in') c.issuesIn.push(issue);
-        else if (st === 'unplanned') c.issuesUnplanned.push(issue);
-        else c.outside++;
-      }
-    }
     return c;
   });
+  const byLane = new Map(contents.map((c) => [c.lane.id, c]));
+  for (const entry of epics) {
+    const c = byLane.get(laneOf(entry.epic.groupPath, checked) ?? '');
+    if (!c) continue;
+    c.matching.add(entry.epic.id);
+    if (entry.status === 'in') c.epicsIn.push(entry);
+    else if (entry.status === 'unplanned') c.epicsUnplanned.push(entry.epic);
+    else c.outside++;
+  }
+  for (const issue of issues) {
+    const c = byLane.get(laneOf(issue.groupPath, checked) ?? '');
+    if (!c) continue;
+    c.matching.add(issue.id);
+    const st = status.get(issue.id);
+    if (st === 'in') c.issuesIn.push(issue);
+    else if (st === 'unplanned') c.issuesUnplanned.push(issue);
+    else c.outside++;
+  }
 
   const unplannedColumn =
     options.showUnplanned && contents.some((c) => c.epicsUnplanned.length > 0 || c.issuesUnplanned.length > 0);
@@ -364,7 +373,7 @@ export function computeBoardView(input: ViewInput, layout: Readonly<BoardLayout>
   const issueIds = new Set<string>();
   for (const p of items) (p.kind === 'epic' ? epicIds : issueIds).add(p.itemId);
   const stats: BoardStats = {
-    lanes: activeLanes.length,
+    lanes: input.lanes.length,
     epics: epicIds.size,
     issues: issueIds.size,
     blocks: drawn.blocks.size,

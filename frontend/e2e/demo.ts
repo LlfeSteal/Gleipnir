@@ -113,6 +113,14 @@ export function group(slug: string): string {
   return `${root().path}/${slug}`;
 }
 
+/** The key a view URL names a group by (ADR-31): the last segment of its GitLab id. */
+export function groupKey(slug: string): string {
+  const path = slug === '' ? root().path : group(slug);
+  const found = board().groups.find((g) => g.path === path);
+  if (!found) throw new Error(`no group ${path} in the board`);
+  return found.id.slice(found.id.lastIndexOf('/') + 1);
+}
+
 /** The name of the iteration cadence. */
 export function cadence(): string {
   return board().cadence.title;

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { escapeRegExp, expectWindow, item, openBoard, openWindowMenu, stored, windowButton } from './helpers';
-import { it, itTitle } from './demo';
+import { escapeRegExp, expectWindow, item, openBoard, openWindowMenu, windowButton } from './helpers';
+import { board, it, itTitle } from './demo';
 
 // The iteration window (spec §4.3). Demo: Itération 12 … 21 (indexes 0 … 9), Itération 15 current.
 
@@ -93,13 +93,15 @@ test('the quick settings set the window, and the active one is checked', async (
   }
 });
 
-test('the window is remembered after a reload', async ({ page }) => {
+test('the window is kept in the URL, through a reload', async ({ page }) => {
   await openWindowMenu(page);
   await page.getByRole('menuitemradio', { name: '6 prochaines', exact: true }).click();
   await expectWindow(page, it(15), it(20));
   await page.getByRole('button', { name: 'Itération suivante' }).click();
   await expectWindow(page, it(16), it(21));
-  await expect.poll(() => stored(page, 'gleipnir.window')).toEqual({ from: 4, to: 9 });
+  // Iterations are named by the last segment of their GitLab id (ADR-31).
+  const key = (index: number) => board().iterations[index].id.split('/').pop();
+  await expect.poll(() => new URL(page.url()).search).toBe(`?from=${key(4)}&to=${key(9)}`);
 
   await page.reload();
   await expectWindow(page, it(16), it(21));

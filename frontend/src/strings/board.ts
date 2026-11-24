@@ -7,21 +7,10 @@ export const BOARD = {
   emptyLane: 'Aucun élément de ce couloir dans la fenêtre.',
 
   // Lanes
-  newLaneName: 'Nouveau couloir',
-  noGroup: 'aucun groupe',
-  subgroups: '+ sous-groupes',
-  allLabels: 'tous les labels',
-  labelModeAny: 'au moins un',
-  labelModeAll: 'tous',
-  /** Lane summary, label part: "au moins un de : bug, UX" / "tous : bug, UX". */
-  labelsAny: (labels: string[]) => `au moins un de : ${labels.join(', ')}`,
-  labelsAll: (labels: string[]) => `tous : ${labels.join(', ')}`,
   typeEpics: 'epics',
   typeIssues: 'issues',
-  noType: 'aucun type',
   collapseLane: (name: string) => `Replier le couloir ${name}`,
   expandLane: (name: string) => `Déplier le couloir ${name}`,
-  editLane: (name: string) => `Modifier le couloir ${name}`,
   laneEpics: (n: number) => (n > 1 ? `${n} epics` : `${n} epic`),
   laneIssues: (n: number) => (n > 1 ? `${n} issues` : `${n} issue`),
   outside: (n: number) => `${n} hors fenêtre`,

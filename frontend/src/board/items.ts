@@ -34,6 +34,12 @@ export function isUnplanned(entry: BoardItem): boolean {
   return entry.kind === 'epic' ? isEpicUnplanned(entry.item) : isIssueUnplanned(entry.item);
 }
 
+/** Whether an item's labels pass a label filter: any or all of them; no label, no filter. */
+export function matchesLabels(labels: readonly string[], filter: readonly string[], mode: 'any' | 'all'): boolean {
+  if (filter.length === 0) return true;
+  return mode === 'all' ? filter.every((l) => labels.includes(l)) : filter.some((l) => labels.includes(l));
+}
+
 const labelCache = new WeakMap<BoardData, Map<string, string>>();
 
 /** GitLab label colors by title, cached per BoardData. */

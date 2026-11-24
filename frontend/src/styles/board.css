@@ -71,17 +71,10 @@
 .lane-chevron svg { transform: rotate(90deg); transition: transform 0.2s var(--ease); }
 .lane-header[data-collapsed] .lane-chevron svg { transform: none; }
 .lane-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
-/* The pencil appears on hover or keyboard focus; always there without a hover-capable pointer. */
-.lane-edit { opacity: 0; }
-.lane-header:hover .lane-edit, .lane-edit:focus-visible { opacity: 1; }
-@media (hover: none) { .lane-edit { opacity: 1; } }
 .lane-meta {
   padding-left: 28px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 11px; line-height: 16px; color: var(--text-secondary);
 }
-.lane-labels { display: flex; align-items: center; gap: 8px; }
-.lane-label { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
-.lane-label-mode { flex: none; }
 .lane-counts {
   display: flex; align-items: center; gap: 10px; padding-left: 28px; min-height: 18px;
   font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap;
@@ -91,8 +84,8 @@
 .label-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--label-color, var(--undated)); }
 
 /* ---------- Compact rail (phones, COMPACT_LAYOUT) ----------
-   The rail keeps what identifies and acts on a lane: the color edge, the chevron, the name on two
-   lines and the pencil below it. Filters and counts stay in the sidebar sheet and the settings. */
+   The rail keeps what identifies and acts on a lane: the color edge, the chevron and the name on
+   two lines. The group path and counts stay in the sidebar sheet. */
 .board-canvas[data-compact] .board-corner { padding: 0 8px 10px 12px; }
 .board-canvas[data-compact] .lane-header { padding: 8px 6px 8px 7px; gap: 0; }
 .board-canvas[data-compact] .lane-header-top {
@@ -104,8 +97,6 @@
   white-space: normal; overflow-wrap: anywhere; hyphens: auto;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
 }
-/* Aligned on the name's first letter: the 14 px glyph sits 5 px inside its 24 px button. */
-.board-canvas[data-compact] .lane-edit { grid-row: 2; grid-column: 2; margin-left: -5px; }
 .board-canvas[data-compact] :is(.lane-meta, .lane-counts) { display: none; }
 .board-canvas[data-compact] .lane-empty { max-width: 140px; }
 

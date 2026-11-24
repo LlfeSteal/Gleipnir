@@ -3,7 +3,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { G, idOf, mockupBoard } from '../../board/fixtures';
-import { defaultLanes } from '../../board/lanes';
+import { defaultChecked, lanesOf } from '../../board/lanes';
 import { DEFAULT_OPTIONS, type BoardView } from '../../board/types';
 import { COMPACT_LAYOUT, computeBoardView } from '../../board/view';
 import { BoardCanvas, type BoardCanvasProps } from './BoardCanvas';
@@ -11,7 +11,7 @@ import { ItemGlyph } from './ItemGlyph';
 import { LinkSwatch } from './LinkSwatch';
 
 const data = mockupBoard();
-const lanes = defaultLanes(data);
+const lanes = lanesOf(data, new Set(defaultChecked(data)));
 
 function makeView(collapsed: string[] = []): BoardView {
   return computeBoardView({
@@ -28,7 +28,6 @@ function setup(props: Partial<BoardCanvasProps> = {}) {
   const handlers = {
     onSelect: vi.fn(),
     onToggleLane: vi.fn(),
-    onEditLane: vi.fn(),
     onRevealed: vi.fn(),
   };
   const all: BoardCanvasProps = {
@@ -104,17 +103,16 @@ describe('BoardCanvas', () => {
     expect(container.querySelector('.board-canvas')).not.toHaveAttribute('data-selection');
   });
 
-  it('collapses and edits lanes', async () => {
+  it('collapses lanes, which cannot be edited', async () => {
     const user = userEvent.setup();
-    const { onToggleLane, onEditLane, rerender } = setup();
+    const { onToggleLane, rerender } = setup();
     const collapse = screen.getByRole('button', { name: 'Replier le couloir Data' });
     expect(collapse).toHaveAttribute('aria-expanded', 'true');
     await user.click(collapse);
-    expect(onToggleLane).toHaveBeenCalledWith(`group:${G.data}`);
-    await user.click(screen.getByRole('button', { name: 'Modifier le couloir Data' }));
-    expect(onEditLane).toHaveBeenCalledWith(`group:${G.data}`);
+    expect(onToggleLane).toHaveBeenCalledWith(G.data);
+    expect(screen.queryByRole('button', { name: /^Modifier/ })).toBeNull();
 
-    rerender({ view: makeView([`group:${G.data}`]) });
+    rerender({ view: makeView([G.data]) });
     const expand = screen.getByRole('button', { name: 'Déplier le couloir Data' });
     expect(expand).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByRole('button', { name: /Pipeline analytique/ })).toBeNull();
@@ -143,12 +141,11 @@ describe('BoardCanvas', () => {
     }
   });
 
-  it('switches the rail to its compact form with the compact layout, keeping names and actions', () => {
+  it('switches the rail to its compact form with the compact layout, keeping names and the chevron', () => {
     const view = computeBoardView({ data, lanes, window: { from: 2, to: 6 }, options: DEFAULT_OPTIONS, query: '', collapsed: new Set() }, COMPACT_LAYOUT);
     const { container } = setup({ view });
     expect(container.querySelector('.board-canvas')).toHaveAttribute('data-compact');
     expect(container.querySelector('.board-scroll')).toHaveStyle({ scrollPaddingLeft: `${COMPACT_LAYOUT.railWidth + 8}px` });
-    expect(screen.getByRole('button', { name: `Modifier le couloir ${lanes[0].name}` })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: `Replier le couloir ${lanes[0].name}` })).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByRole('button', { name: /^Epic &18/ })).toBeInTheDocument();
   });
@@ -180,10 +177,11 @@ describe('BoardCanvas', () => {
   });
 
   it('shows an empty lane message', () => {
-    const empty = lanes.map((l, i) => (i === 0 ? { ...l, labels: ['nobody'] } : l));
-    const view = computeBoardView({ data, lanes: empty, window: { from: 2, to: 6 }, options: DEFAULT_OPTIONS, query: '', collapsed: new Set() });
+    // Only the Identité lane holds "sécurité" items.
+    const options = { ...DEFAULT_OPTIONS, labels: ['sécurité'] };
+    const view = computeBoardView({ data, lanes, window: { from: 2, to: 6 }, options, query: '', collapsed: new Set() });
     setup({ view });
-    expect(screen.getByText('Aucun élément de ce couloir dans la fenêtre.')).toBeInTheDocument();
+    expect(screen.getAllByText('Aucun élément de ce couloir dans la fenêtre.')).toHaveLength(lanes.length - 1);
   });
 
   it('reports the width of its scroll container on mount and on resize', () => {

@@ -1,194 +1,133 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { boardItem, boardItems, boardLanes, DEFAULT_LANES, laneSheet, openBoard, sidebar } from './helpers2';
-import { group, root } from './demo';
-import { itemName } from './helpers';
+import { boardItem, boardItems, boardLanes, DEFAULT_LANES, openBoard, sidebar } from './helpers2';
+import { groupKey, root, title } from './demo';
 
-// Lane settings (spec §4.4) and the sidebar's lane list (§4.8). The sheet edits a draft:
-// nothing changes on the board before "Appliquer".
+// Lanes (spec §4.4, ADR-32): the checked groups of the GitLab group tree, read only. An item
+// shows in the lane of its closest checked group. Item types and labels filter the whole board
+// (§4.7). The demo has one nested group: Partenaires, under API et intégrations, holding &22.
 
 test.beforeEach(async ({ page }) => {
   await openBoard(page);
   await expect.poll(() => boardLanes(page)).toEqual(DEFAULT_LANES);
 });
 
-async function storedLaneNames(page: Page): Promise<string[]> {
-  return page.evaluate(() => {
-    const raw = localStorage.getItem('gleipnir.lanes');
-    return raw ? (JSON.parse(raw) as { name: string }[]).map((lane) => lane.name) : [];
-  });
+const groupBox = (page: Page, name: string) => sidebar(page).getByRole('checkbox', { name, exact: true });
+
+/** The groups the URL names, null when it names none: the default ones. */
+function urlGroups(page: Page): string[] | null {
+  const groups = new URL(page.url()).searchParams.get('groups');
+  return groups === null ? null : groups.split(',').filter(Boolean);
 }
 
-test('the settings sheet opens from "Modifier…", a lane pencil and "Nouveau couloir"', async ({ page }) => {
-  const sheet = laneSheet(page);
+/** Every iteration in the window, so that &22 (It. 19 → It. 21) shows. */
+async function showAllIterations(page: Page): Promise<void> {
+  await page.getByRole('button', { name: /^Fenêtre\s*:/ }).click();
+  await page.getByRole('menuitemradio', { name: 'Toutes', exact: true }).click();
+}
 
-  await sidebar(page).getByRole('button', { name: 'Modifier…' }).click();
-  await expect(sheet).toBeVisible();
-  await expect(sheet.getByRole('textbox', { name: 'Nom' })).toHaveValue('API et intégrations');
-  await sheet.getByRole('button', { name: 'Annuler' }).click();
-  await expect(sheet).toBeHidden();
-
-  // The pencil of a lane header on the board opens the sheet on that lane.
-  await page.getByRole('button', { name: 'Modifier le couloir Data' }).click();
-  await expect(sheet.getByRole('textbox', { name: 'Nom' })).toHaveValue('Data');
-  await sheet.getByRole('button', { name: 'Fermer' }).click();
-  await expect(sheet).toBeHidden();
-
-  // And so does the sidebar's.
-  await sidebar(page).getByRole('button', { name: 'Modifier Expérience produit' }).click();
-  await expect(sheet.getByRole('textbox', { name: 'Nom' })).toHaveValue('Expérience produit');
-  await page.keyboard.press('Escape');
-  await expect(sheet).toBeHidden();
-
-  // "Nouveau couloir" adds a lane to the draft and opens it.
-  await sidebar(page).getByRole('button', { name: 'Nouveau couloir' }).click();
-  await expect(sheet.getByRole('textbox', { name: 'Nom' })).toHaveValue('Nouveau couloir');
-  await expect(sheet.getByRole('checkbox', { name: /^Afficher / })).toHaveCount(5);
+test('the lanes are the GitLab groups, read only: nothing to create, rename or edit', async ({ page }) => {
+  const tree = sidebar(page).getByRole('list', { name: 'Groupes GitLab' });
+  await expect(tree.getByRole('checkbox')).toHaveCount(1 + DEFAULT_LANES.length);
+  await expect(groupBox(page, root().name)).not.toBeChecked();
+  for (const name of DEFAULT_LANES) await expect(groupBox(page, name)).toBeChecked();
+  await expect(sidebar(page).getByText(/créez le groupe dans GitLab puis synchronisez/)).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Modifier|Nouveau couloir/ })).toHaveCount(0);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 
-test('Annuler and Escape discard every change', async ({ page }) => {
-  const sheet = laneSheet(page);
-  const editAndDiscard = async (discard: () => Promise<void>) => {
-    await sidebar(page).getByRole('button', { name: 'Modifier…' }).click();
-    await sheet.getByRole('textbox', { name: 'Nom' }).fill('Renommé');
-    await sheet.getByRole('button', { name: 'Descendre Renommé' }).click();
-    await sheet.getByRole('button', { name: 'Supprimer Data' }).click();
-    await sheet.getByRole('button', { name: 'Nouveau couloir', exact: true }).click();
-    await discard();
-    await expect(sheet).toBeHidden();
-    await expect.poll(() => boardLanes(page)).toEqual(DEFAULT_LANES);
-    await expect(sidebar(page).getByRole('checkbox')).toHaveCount(3 + DEFAULT_LANES.length); // + 3 link types
-  };
+test('checking a nested group gives it its own lane, taken out of its parent\'s', async ({ page }) => {
+  await showAllIterations(page);
+  const api = groupBox(page, 'API et intégrations');
+  // The count of shown items, the checkbox's description.
+  const apiCount = Number(await api.evaluate((el) => document.getElementById(el.getAttribute('aria-describedby') ?? '')?.textContent));
+  await expect(boardItem(page, '&22')).toBeVisible();
 
-  await editAndDiscard(() => sheet.getByRole('button', { name: 'Annuler' }).click());
-  await editAndDiscard(async () => {
-    await sheet.getByRole('radio', { name: 'Rose' }).focus();
-    await page.keyboard.press('Escape');
-  });
-  expect(await storedLaneNames(page)).toEqual(DEFAULT_LANES);
-});
+  await sidebar(page).getByRole('button', { name: 'Déplier API et intégrations' }).click();
+  await groupBox(page, 'Partenaires').check();
+  await expect.poll(() => boardLanes(page)).toEqual(['API et intégrations', 'Partenaires', ...DEFAULT_LANES.slice(1)]);
+  await expect(page.getByRole('region', { name: 'Partenaires' })).toContainText('API et intégrations › Partenaires');
+  await expect(groupBox(page, 'Partenaires')).toHaveAccessibleDescription('1');
+  await expect(api).toHaveAccessibleDescription(String(apiCount - 1));
+  await expect(page.getByRole('button', { name: new RegExp(`^Epic [&#]\\d+ ${title('&22')}`) })).toHaveCount(1);
+  await expect
+    .poll(() => urlGroups(page))
+    .toEqual(['api', 'api/partenaires', 'data', 'experience', 'identite'].map(groupKey));
 
-test('editing a lane: name, color, reorder, delete, then Appliquer persists it', async ({ page }) => {
-  const sheet = laneSheet(page);
-  await page.getByRole('button', { name: 'Modifier le couloir API et intégrations' }).click();
-  await sheet.getByRole('textbox', { name: 'Nom' }).fill('Intégrations');
-  await sheet.getByRole('radio', { name: 'Rose' }).click();
-  await expect(sheet.getByRole('radio', { name: 'Rose' })).toHaveAttribute('aria-checked', 'true');
-
-  // Down once, then the last lane up to the top, then delete "Data".
-  await sheet.getByRole('button', { name: 'Descendre Intégrations' }).click();
-  await expect(sheet.getByRole('button', { name: 'Monter Identité et sécurité' })).toBeEnabled();
-  await sheet.getByRole('button', { name: 'Monter Identité et sécurité' }).click();
-  await sheet.getByRole('button', { name: 'Monter Identité et sécurité' }).click();
-  await sheet.getByRole('button', { name: 'Monter Identité et sécurité' }).click();
-  await expect(sheet.getByRole('button', { name: 'Monter Identité et sécurité' })).toBeDisabled();
-  await sheet.getByRole('button', { name: 'Supprimer Data' }).click();
-
-  // Nothing on the board yet.
-  await expect.poll(() => boardLanes(page)).toEqual(DEFAULT_LANES);
-
-  await sheet.getByRole('button', { name: 'Appliquer' }).click();
-  await expect(sheet).toBeHidden();
-  const expected = ['Identité et sécurité', 'Intégrations', 'Expérience produit'];
-  await expect.poll(() => boardLanes(page)).toEqual(expected);
-  await expect(page.getByRole('region', { name: 'Intégrations' })).toHaveAttribute('data-lane-color', 'pink');
-  await expect(boardItem(page, '&21')).toHaveCount(0); // a Data epic
-  expect(await storedLaneNames(page)).toEqual(expected);
-
+  // The URL keeps it, folded branch unfolded again after a reload.
   await page.reload();
-  await expect(boardItem(page, '&18')).toBeVisible();
-  await expect.poll(() => boardLanes(page)).toEqual(expected);
-  await expect(page.getByRole('region', { name: 'Intégrations' })).toHaveAttribute('data-lane-color', 'pink');
-});
+  await expect.poll(() => boardLanes(page)).toContain('Partenaires');
+  await expect(groupBox(page, 'Partenaires')).toBeChecked();
 
-test('a new lane on label "priorité::haute" with issues only shows #104 and #113', async ({ page }) => {
-  const sheet = laneSheet(page);
-  await sidebar(page).getByRole('button', { name: 'Nouveau couloir' }).click();
-  await sheet.getByRole('textbox', { name: 'Nom' }).fill('Priorités');
-
-  const groups = sheet.getByRole('listbox', { name: 'Groupes' });
-  await groups.getByRole('option', { name: `${root().name}, ${root().path}` }).click();
-  await expect(groups.getByRole('option', { name: `${root().name}, ${root().path}` })).toHaveAttribute('aria-selected', 'true');
-  await expect(sheet.getByRole('switch', { name: 'Inclure les sous-groupes' })).toHaveAttribute('aria-checked', 'true');
-
-  await sheet.getByRole('switch', { name: 'Epics' }).click();
-  await expect(sheet.getByRole('switch', { name: 'Epics' })).toHaveAttribute('aria-checked', 'false');
-  await expect(sheet.getByRole('switch', { name: 'Issues bloquantes' })).toHaveAttribute('aria-checked', 'true');
-
-  // The label mode is disabled until a label is picked.
-  await expect(sheet.getByRole('radio', { name: 'Tous' })).toBeDisabled();
-  await sheet.getByRole('searchbox', { name: 'Filtrer les labels' }).fill('priorité');
-  const labels = sheet.getByRole('listbox', { name: 'Labels' });
-  await labels.getByRole('option', { name: 'priorité::haute' }).click();
-  await expect(labels.getByRole('option', { name: 'priorité::haute' })).toHaveAttribute('aria-selected', 'true');
-  await sheet.getByRole('radio', { name: 'Tous' }).click();
-  await expect(sheet.getByRole('radio', { name: 'Tous' })).toHaveAttribute('aria-checked', 'true');
-
-  // Only this lane on the board.
-  for (const name of DEFAULT_LANES) await sheet.getByRole('checkbox', { name: `Afficher ${name}` }).uncheck();
-  await expect(sheet.getByRole('button', { name: /^Priorités / })).toContainText(`${root().name} · issues · tous : priorité::haute`);
-
-  await sheet.getByRole('button', { name: 'Appliquer' }).click();
-  await expect(sheet).toBeHidden();
-  await expect.poll(() => boardLanes(page)).toEqual(['Priorités']);
-  await expect(boardItems(page)).toHaveCount(2);
-  await expect(boardItem(page, '#104')).toBeVisible();
-  await expect(boardItem(page, '#113')).toBeVisible();
-});
-
-test('groups and "Inclure les sous-groupes" decide what a lane holds', async ({ page }) => {
-  const sheet = laneSheet(page);
-  // The Data lane on the root group only: items all live in subgroups, so it shows nothing.
-  await page.getByRole('button', { name: 'Modifier le couloir Data' }).click();
-  const groups = sheet.getByRole('listbox', { name: 'Groupes' });
-  await groups.getByRole('option', { name: `Data, ${group('data')}` }).click();
-  await groups.getByRole('option', { name: `${root().name}, ${root().path}` }).click();
-  await expect(groups.getByRole('option', { name: `Data, ${group('data')}` })).toHaveAttribute('aria-selected', 'false');
-  const subgroups = sheet.getByRole('switch', { name: 'Inclure les sous-groupes' });
-  await subgroups.click();
-  await expect(subgroups).toHaveAttribute('aria-checked', 'false');
-  await sheet.getByRole('button', { name: 'Appliquer' }).click();
-  await expect(sheet).toBeHidden();
-  await expect(page.getByText('Aucun élément de ce couloir dans la fenêtre.')).toBeVisible();
-  await expect(boardItem(page, '&21')).toHaveCount(0);
-
-  // With its subgroups the root matches everything: #110 shows in API et intégrations and in Data.
-  await page.getByRole('button', { name: 'Modifier le couloir Data' }).click();
-  await sheet.getByRole('switch', { name: 'Inclure les sous-groupes' }).click();
-  await sheet.getByRole('button', { name: 'Appliquer' }).click();
-  await expect(boardItem(page, '&21')).toBeVisible();
-  await expect(page.getByRole('button', { name: itemName('#110') })).toHaveCount(2);
-});
-
-test('"Rétablir les couloirs par défaut" brings the default lanes back', async ({ page }) => {
-  const sheet = laneSheet(page);
-  await sidebar(page).getByRole('button', { name: 'Modifier…' }).click();
-  await sheet.getByRole('button', { name: 'Supprimer API et intégrations' }).click();
-  await sheet.getByRole('button', { name: 'Supprimer Data' }).click();
-  await sheet.getByRole('button', { name: 'Appliquer' }).click();
-  await expect.poll(() => boardLanes(page)).toEqual(['Expérience produit', 'Identité et sécurité']);
-
-  await sidebar(page).getByRole('button', { name: 'Modifier…' }).click();
-  await sheet.getByRole('button', { name: 'Rétablir les couloirs par défaut' }).click();
-  await expect(sheet.getByRole('checkbox', { name: /^Afficher / })).toHaveCount(DEFAULT_LANES.length);
-  await sheet.getByRole('button', { name: 'Appliquer' }).click();
+  await groupBox(page, 'Partenaires').uncheck();
   await expect.poll(() => boardLanes(page)).toEqual(DEFAULT_LANES);
-  expect(await storedLaneNames(page)).toEqual(DEFAULT_LANES);
+  await expect.poll(() => urlGroups(page)).toBeNull();
 });
 
-test('unchecking a lane in the sidebar hides it, and it is remembered', async ({ page }) => {
-  const box = sidebar(page).getByRole('checkbox', { name: 'Data', exact: true });
-  await expect(box).toBeChecked();
+test('the root group holds what no checked subgroup takes', async ({ page }) => {
+  for (const name of DEFAULT_LANES.slice(1)) await groupBox(page, name).uncheck();
+  await groupBox(page, root().name).check();
+  await expect.poll(() => boardLanes(page)).toEqual([root().name, 'API et intégrations']);
+  await expect(boardItem(page, '&21')).toBeVisible(); // a Data epic, in the root's lane
+  await expect.poll(() => urlGroups(page)).toEqual([groupKey(''), groupKey('api')]);
+});
+
+test('without a checked group, an empty state brings the default lanes back', async ({ page }) => {
+  for (const name of DEFAULT_LANES) await groupBox(page, name).uncheck();
+  await expect(page.getByText('Aucun couloir affiché')).toBeVisible();
+  await expect.poll(() => urlGroups(page)).toEqual([]);
+  await page.getByRole('button', { name: 'Afficher les couloirs par défaut' }).click();
+  await expect.poll(() => boardLanes(page)).toEqual(DEFAULT_LANES);
+  await expect.poll(() => urlGroups(page)).toBeNull();
+});
+
+test('unchecking a lane in the sidebar hides it, and the URL keeps it hidden', async ({ page }) => {
+  const box = groupBox(page, 'Data');
   await box.uncheck();
   await expect.poll(() => boardLanes(page)).toEqual(DEFAULT_LANES.filter((name) => name !== 'Data'));
   await expect(boardItem(page, '&21')).toHaveCount(0);
 
   await page.reload();
   await expect(boardItem(page, '&18')).toBeVisible();
-  await expect(sidebar(page).getByRole('checkbox', { name: 'Data', exact: true })).not.toBeChecked();
+  await expect(groupBox(page, 'Data')).not.toBeChecked();
   await expect(boardItem(page, '&21')).toHaveCount(0);
 
-  await sidebar(page).getByRole('checkbox', { name: 'Data', exact: true }).check();
+  await groupBox(page, 'Data').check();
   await expect.poll(() => boardLanes(page)).toEqual(DEFAULT_LANES);
   await expect(boardItem(page, '&21')).toBeVisible();
+});
+
+test('the label filter "priorité::haute" shows #104 and #113 only, on every lane', async ({ page }) => {
+  const button = sidebar(page).getByRole('button', { name: /^Labels\s*:/ });
+  await expect(button).toHaveAccessibleName(/Tous les labels$/);
+  await button.click();
+  const popup = page.getByRole('dialog', { name: 'Labels' });
+  await popup.getByRole('searchbox', { name: 'Filtrer les labels' }).fill('priorité');
+  await popup.getByRole('option', { name: 'priorité::haute' }).click();
+  await page.keyboard.press('Escape');
+  await expect(button).toHaveAccessibleName(/priorité::haute$/);
+  await expect(boardItems(page)).toHaveCount(2);
+  await expect(boardItem(page, '#104')).toBeVisible();
+  await expect(boardItem(page, '#113')).toBeVisible();
+  await expect.poll(() => new URL(page.url()).searchParams.getAll('label')).toEqual(['priorité::haute']);
+
+  // "Tous" with "bug" too: both issues carry both labels.
+  await button.click();
+  await popup.getByRole('searchbox', { name: 'Filtrer les labels' }).fill('bug');
+  await popup.getByRole('option', { name: 'bug' }).click();
+  await popup.getByRole('radio', { name: 'Tous' }).click();
+  await page.keyboard.press('Escape');
+  await expect(boardItems(page)).toHaveCount(2);
+  await expect.poll(() => new URL(page.url()).searchParams.get('labelMode')).toBe('all');
+});
+
+test('the type filters hide the epics or the issues of every lane', async ({ page }) => {
+  await sidebar(page).getByRole('switch', { name: 'Epics' }).click();
+  await expect(page.getByRole('button', { name: /^Epic &\d+/ })).toHaveCount(0);
+  await expect(boardItem(page, '#110')).toBeVisible();
+  await expect.poll(() => new URL(page.url()).searchParams.get('types')).toBe('issues');
+  await sidebar(page).getByRole('switch', { name: 'Epics' }).click();
+  await sidebar(page).getByRole('switch', { name: 'Issues bloquantes' }).click();
+  await expect(page.getByRole('button', { name: /^Issue #\d+/ })).toHaveCount(0);
+  await expect(boardItem(page, '&18')).toBeVisible();
 });

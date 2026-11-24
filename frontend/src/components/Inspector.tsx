@@ -2,7 +2,7 @@ import { useMemo, useRef } from 'react';
 import type { CSSProperties, PointerEvent, ReactNode } from 'react';
 import type { BoardData } from '../api/types';
 import type { BoardWindow, ItemKind, Lane } from '../board/types';
-import { matchLane } from '../board/lanes';
+import { laneOf } from '../board/lanes';
 import { itemIndex } from '../board/items';
 import type { BoardItem } from '../board/items';
 import { isInWindow } from '../board/window';
@@ -146,7 +146,9 @@ export function Inspector({ data, itemId, lanes, window: win, onSelect, onClose 
   const { kind, item } = entry;
   const closed = item.state === 'closed';
   const group = data.groups.find((g) => g.path === item.groupPath);
-  const laneNames = lanes.filter((lane) => lane.active && matchLane(lane, item, kind));
+  // One lane at most: the closest checked group up the item's path.
+  const laneId = laneOf(item.groupPath, new Set(lanes.map((lane) => lane.id)));
+  const laneNames = lanes.filter((lane) => lane.id === laneId);
   const labelColors = new Map(data.labels.map((label) => [label.title, label.color]));
   const url = safeUrl(item.webUrl);
 
@@ -169,7 +171,7 @@ export function Inspector({ data, itemId, lanes, window: win, onSelect, onClose 
           {laneNames.map((lane) => (
             <span key={lane.id} className="inspector-lane" data-lane-color={lane.color}>
               <span className="lane-dot" aria-hidden="true" />
-              {lane.name}
+              {lane.title}
             </span>
           ))}
         </span>

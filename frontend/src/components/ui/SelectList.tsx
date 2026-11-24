@@ -33,7 +33,7 @@ export function normalizeText(text: string): string {
 }
 
 /**
- * An inline multi-select list, as in the lane settings: a bordered inset list of checkable rows
+ * An inline multi-select list, as in the label filter: a bordered inset list of checkable rows
  * (a listbox with aria-multiselectable). One tab stop; the arrow keys, Home and End move between
  * rows, Space and Enter toggle the focused one.
  */

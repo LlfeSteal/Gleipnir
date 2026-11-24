@@ -36,5 +36,7 @@ if (typeof window !== 'undefined') {
     cleanup();
     localStorage.clear();
     sessionStorage.clear();
+    // The app writes its view in the URL (ADR-31): each test starts from a plain one.
+    window.history.replaceState(null, '', '/');
   });
 }

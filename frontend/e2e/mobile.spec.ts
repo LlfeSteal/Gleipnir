@@ -118,3 +118,28 @@ test('the toolbar controls are reachable', async ({ page }) => {
   await expect(search).toHaveCount(0);
   await expect(boardItem(page, '&15')).toBeVisible();
 });
+
+test('the toolbar keeps every action on the first row, beside the title', async ({ page }) => {
+  const title = page.getByRole('heading', { level: 1, name: 'Dépendances' });
+  const buttons = ['Filtres', 'Rechercher', 'Synchroniser', 'Apparence'].map((name) =>
+    page.getByRole('button', { name: new RegExp(`^${name}`) }),
+  );
+  const titleBox = (await title.boundingBox())!;
+  for (const button of buttons) {
+    const box = (await button.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(VIEWPORT.width);
+    // Same row as the title, without covering it.
+    expect(Math.abs(box.y + box.height / 2 - (titleBox.y + titleBox.height / 2))).toBeLessThan(12);
+    expect(box.x + box.width <= titleBox.x || box.x >= titleBox.x + titleBox.width).toBe(true);
+  }
+});
+
+test('"Copier le lien" lives in the Filtres overlay', async ({ page }) => {
+  await expect(page.getByRole('button', { name: 'Copier le lien' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Filtres' }).click();
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await sidebar(page).getByRole('button', { name: 'Copier le lien' }).click();
+  const link = new URL(await page.evaluate(() => navigator.clipboard.readText()));
+  expect([...link.searchParams.keys()]).toEqual(['from', 'to']);
+});

@@ -1,9 +1,8 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import type { BoardData } from './api/types';
-import type { BoardWindow, DisplayOptions, Lane } from './board/types';
-import { DEFAULT_OPTIONS, LANE_COLORS } from './board/types';
-import { defaultLanes, matchLane, refreshScope, scopeSyncedAt } from './board/lanes';
+import type { BoardWindow, DisplayOptions } from './board/types';
+import { defaultChecked, laneOf, lanesOf, refreshScope, scopeSyncedAt } from './board/lanes';
+import { decodeView, encodeView, resolveGroups, resolveItem, resolveWindow } from './board/share';
 import { clampWindow, defaultWindow, focusWindow, isInWindow, itemSpan, presetWindow } from './board/window';
 import { shortIterationLabel } from './board/format';
 import { findItem, isUnplanned } from './board/items';
@@ -18,56 +17,9 @@ import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
 import { SummaryLine } from './components/SummaryLine';
 import { Inspector } from './components/Inspector';
-import { LaneSettingsSheet } from './components/LaneSettingsSheet';
-import type { LaneSettingsFocus } from './components/LaneSettingsSheet';
 import { APP } from './strings';
 
-// ---------- Stored preferences, validated on read (anything else falls back to the default) ----------
-
-const isStringArray = (value: unknown): value is string[] =>
-  Array.isArray(value) && value.every((item) => typeof item === 'string');
-
-function isLane(value: unknown): value is Lane {
-  if (!value || typeof value !== 'object') return false;
-  const lane = value as Record<string, unknown>;
-  return (
-    typeof lane.id === 'string' &&
-    typeof lane.name === 'string' &&
-    (LANE_COLORS as readonly unknown[]).includes(lane.color) &&
-    isStringArray(lane.groups) &&
-    typeof lane.includeSubgroups === 'boolean' &&
-    typeof lane.showEpics === 'boolean' &&
-    typeof lane.showIssues === 'boolean' &&
-    isStringArray(lane.labels) &&
-    (lane.labelMode === 'any' || lane.labelMode === 'all') &&
-    typeof lane.active === 'boolean'
-  );
-}
-
-/** null: nothing stored yet, the default lanes apply. */
-const isStoredLanes = (value: unknown): value is Lane[] | null =>
-  value === null || (Array.isArray(value) && value.every(isLane));
-
-const isStoredWindow = (value: unknown): value is BoardWindow | null => {
-  if (value === null) return true;
-  if (!value || typeof value !== 'object') return false;
-  const { from, to } = value as Record<string, unknown>;
-  return Number.isInteger(from) && Number.isInteger(to) && (from as number) >= 0 && (from as number) <= (to as number);
-};
-
 const isBoolean = (value: unknown): value is boolean => typeof value === 'boolean';
-
-/** Lanes keep only the groups that still exist under the root group. */
-function withKnownGroups(lanes: Lane[], data: BoardData): Lane[] {
-  const known = new Set(data.groups.map((group) => group.path));
-  let changed = false;
-  const next = lanes.map((lane) => {
-    if (lane.groups.every((path) => known.has(path))) return lane;
-    changed = true;
-    return { ...lane, groups: lane.groups.filter((path) => known.has(path)) };
-  });
-  return changed ? next : lanes;
-}
 
 function useMediaQuery(query: string): boolean {
   const [matches, setMatches] = useState(() => typeof window !== 'undefined' && !!window.matchMedia?.(query).matches);
@@ -94,19 +46,22 @@ export default function App() {
   const { appearance, setAppearance } = useAppearance();
   const compact = useMediaQuery('(max-width: 760px)');
 
-  // Remembered in the browser (spec §7).
-  const [storedLanes, setStoredLanes] = useStoredState<Lane[] | null>('gleipnir.lanes', null, isStoredLanes);
-  const [storedWindow, setStoredWindow] = useStoredState<BoardWindow | null>('gleipnir.window', null, isStoredWindow);
+  // Remembered in the browser: how the app looks, not what it shows.
   const [sidebarCollapsed, setSidebarCollapsed] = useStoredState<boolean>('gleipnir.sidebar', false, isBoolean);
-  // Session only.
+  // The view lives in the URL (ADR-31): read once; the groups, window and selection when the
+  // first data gives them meaning.
+  const [initialView] = useState(() => decodeView(window.location.search));
+  const [viewResolved, setViewResolved] = useState(false);
+  // The checked groups, by path: the lanes (ADR-32). null until the data has come.
+  const [checked, setChecked] = useState<ReadonlySet<string> | null>(null);
+  const [windowState, setWindowState] = useState<BoardWindow | null>(null); // null: the default window
   const [overlayOpen, setOverlayOpen] = useState(false);
-  const [options, setOptions] = useState<DisplayOptions>(DEFAULT_OPTIONS);
+  const [options, setOptions] = useState<DisplayOptions>(initialView.options);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialView.query);
   const [searchOpen, setSearchOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [revealId, setRevealId] = useState<string | null>(null);
-  const [settings, setSettings] = useState<{ focus: LaneSettingsFocus } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   // Typing stays smooth on a large board: the layout follows the query a bit later.
   const deferredQuery = useDeferredValue(query.trim());
@@ -115,23 +70,46 @@ export default function App() {
   const [boardWidth, setBoardWidth] = useState(0);
   const deferredWidth = useDeferredValue(boardWidth);
 
-  // The first time data arrives with nothing valid stored, the default lanes are kept, so
-  // their ids (collapsed lanes, selection) stay stable across reloads.
-  useEffect(() => {
-    if (data && storedLanes === null) setStoredLanes(defaultLanes(data));
-  }, [data, storedLanes, setStoredLanes]);
-  const fallbackLanes = useMemo(() => (data ? defaultLanes(data) : []), [data]);
-  const lanes = useMemo(
-    () => (data ? withKnownGroups(storedLanes ?? fallbackLanes, data) : []),
-    [data, storedLanes, fallbackLanes],
-  );
+  // Applied while rendering the first data, so the board never shows the default view first.
+  if (data && !viewResolved) {
+    const selection = resolveItem(initialView, data);
+    const groups = resolveGroups(initialView, data);
+    setViewResolved(true);
+    setChecked(groups.checked);
+    setCollapsed(groups.collapsed);
+    setWindowState(resolveWindow(initialView, data));
+    setSelectedId(selection);
+    setRevealId(selection);
+  }
+  const checkedGroups = useMemo(() => checked ?? new Set<string>(), [checked]);
+  const lanes = useMemo(() => (data ? lanesOf(data, checkedGroups) : []), [data, checkedGroups]);
 
   const iterationCount = data?.iterations.length ?? 0;
   const boardWindow = useMemo(
-    () => (data && iterationCount > 0 ? clampWindow(storedWindow ?? defaultWindow(data), iterationCount) : null),
-    [data, storedWindow, iterationCount],
+    () => (data && iterationCount > 0 ? clampWindow(windowState ?? defaultWindow(data), iterationCount) : null),
+    [data, windowState, iterationCount],
   );
-  const setWindow = useCallback((next: BoardWindow) => setStoredWindow(next), [setStoredWindow]);
+  const setWindow = useCallback((next: BoardWindow) => setWindowState(next), []);
+
+  // The address bar follows the view, defaults left out; replaceState, so that Back isn't
+  // flooded with every change. Untouched until the data has come: a link that fails to load
+  // keeps what it asks for.
+  const viewState = useMemo(
+    () => ({ checked: checkedGroups, window: boardWindow, options, query: deferredQuery, collapsed, selectedId }),
+    [checkedGroups, boardWindow, options, deferredQuery, collapsed, selectedId],
+  );
+  const viewQuery = useMemo(() => (data && checked ? encodeView(viewState, data) : null), [data, checked, viewState]);
+  useEffect(() => {
+    if (viewQuery === null || viewQuery === window.location.search.slice(1)) return;
+    const { pathname, hash } = window.location;
+    window.history.replaceState(window.history.state, '', `${pathname}${viewQuery ? `?${viewQuery}` : ''}${hash}`);
+  }, [viewQuery]);
+  // A shared link always names its iterations: opened later, it shows the same ones. It takes
+  // the query as typed, not the deferred one.
+  const shareLink = () =>
+    data
+      ? `${window.location.origin}${window.location.pathname}?${encodeView({ ...viewState, query }, data, { fixedWindow: true })}`
+      : '';
 
   const view = useMemo(
     () =>
@@ -171,15 +149,13 @@ export default function App() {
       }
       const entry = findItem(data, id);
       if (entry) {
-        // Unplanned items live in their own column: show it, and open the lanes hiding the item.
+        // Unplanned items live in their own column: show it, and open the lane hiding the item.
         if (isUnplanned(entry) && !options.showUnplanned) setOptions((o) => ({ ...o, showUnplanned: true }));
-        const hiding = lanes.filter(
-          (lane) => lane.active && collapsed.has(lane.id) && matchLane(lane, entry.item, entry.kind),
-        );
-        if (hiding.length) {
+        const lane = laneOf(entry.item.groupPath, checkedGroups);
+        if (lane && collapsed.has(lane)) {
           setCollapsed((current) => {
             const next = new Set(current);
-            hiding.forEach((lane) => next.delete(lane.id));
+            next.delete(lane);
             return next;
           });
         }
@@ -187,15 +163,13 @@ export default function App() {
       setSelectedId(id);
       setRevealId(id);
     },
-    [data, boardWindow, iterationCount, setWindow, options.showUnplanned, lanes, collapsed],
+    [data, boardWindow, iterationCount, setWindow, options.showUnplanned, checkedGroups, collapsed],
   );
 
-  const settingsOpen = settings !== null;
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'f') {
         // ⌘F / Ctrl+F: the board's own search rather than the browser's.
-        if (settingsOpen) return;
         event.preventDefault();
         // On a phone the field may be folded: unfolding it focuses it (see Toolbar).
         if (compact) setSearchOpen(true);
@@ -203,17 +177,21 @@ export default function App() {
         searchRef.current?.select();
         return;
       }
-      if (event.key !== 'Escape' || event.defaultPrevented || settingsOpen || ownsEscape(event.target)) return;
+      if (event.key !== 'Escape' || event.defaultPrevented || ownsEscape(event.target)) return;
       if (overlayOpen && compact) setOverlayOpen(false);
       else setSelectedId(null);
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [settingsOpen, overlayOpen, compact]);
+  }, [overlayOpen, compact]);
 
-  const setLanes = useCallback((next: Lane[]) => setStoredLanes(next), [setStoredLanes]);
-  const toggleLaneActive = (laneId: string) =>
-    setLanes(lanes.map((lane) => (lane.id === laneId ? { ...lane, active: !lane.active } : lane)));
+  const toggleGroup = useCallback((path: string) => {
+    setChecked((current) => {
+      const next = new Set(current);
+      if (!next.delete(path)) next.add(path);
+      return next;
+    });
+  }, []);
   const toggleCollapsed = useCallback((laneId: string) => {
     setCollapsed((current) => {
       const next = new Set(current);
@@ -221,22 +199,17 @@ export default function App() {
       return next;
     });
   }, []);
-  const openSettings = useCallback((focus: LaneSettingsFocus) => {
-    setOverlayOpen(false);
-    setSettings({ focus });
-  }, []);
-  const editLane = useCallback((laneId: string) => openSettings({ laneId }), [openSettings]);
   const onRevealed = useCallback(() => setRevealId(null), []);
 
   const sidebarOpen = compact ? overlayOpen : !sidebarCollapsed;
   const toggleSidebar = () => (compact ? setOverlayOpen((open) => !open) : setSidebarCollapsed(!sidebarCollapsed));
 
-  const activeLanes = lanes.filter((lane) => lane.active).length;
+  const activeLanes = lanes.length;
   // Synchroniser only reads the groups the user looks at: the whole group is read in the
   // background by the backend, every CACHE_TTL.
-  const scope = useMemo(() => refreshScope(lanes), [lanes]);
+  const scope = useMemo(() => refreshScope(checkedGroups), [checkedGroups]);
   const refresh = scope.length > 0 ? () => void reload(scope) : null;
-  const shownSyncedAt = useMemo(() => (data ? scopeSyncedAt(data, lanes) : null), [data, lanes]);
+  const shownSyncedAt = useMemo(() => (data ? scopeSyncedAt(data, checkedGroups) : null), [data, checkedGroups]);
   const nothingShown = !!view && view.lanes.length > 0 && view.lanes.every((block) => block.empty);
   const selected = selectedId && data && boardWindow ? selectedId : null;
   const failure = error ? errorMessage(error) : null;
@@ -251,8 +224,8 @@ export default function App() {
           title={APP.states.noLaneTitle}
           message={APP.states.noLaneMessage}
           action={
-            <button type="button" className="button" onClick={() => openSettings(null)}>
-              {APP.states.configure}
+            <button type="button" className="button" onClick={() => setChecked(new Set(defaultChecked(data)))}>
+              {APP.states.defaultLanes}
             </button>
           }
         />
@@ -294,7 +267,6 @@ export default function App() {
             selectedId={selectedId}
             onSelect={setSelectedId}
             onToggleLane={toggleCollapsed}
-            onEditLane={editLane}
             revealId={revealId}
             onRevealed={onRevealed}
             criticalPath={options.criticalPath}
@@ -324,6 +296,7 @@ export default function App() {
         onToggleSidebar={toggleSidebar}
         searchOpen={compact && searchOpen}
         onSearchOpenChange={setSearchOpen}
+        shareLink={data ? shareLink : null}
       />
       <div className="app-body">
         {data && sidebarOpen && (
@@ -341,15 +314,13 @@ export default function App() {
               id="sidebar"
               data={data}
               view={view}
-              lanes={lanes}
-              onToggleLane={toggleLaneActive}
-              onEditLane={editLane}
-              onNewLane={() => openSettings({ newLane: true })}
-              onConfigure={() => openSettings(null)}
+              checked={checkedGroups}
+              onToggleGroup={toggleGroup}
               options={options}
               onOptionsChange={setOptions}
               overlay={compact}
               onClose={() => setOverlayOpen(false)}
+              shareLink={shareLink}
             />
           </>
         )}
@@ -380,18 +351,6 @@ export default function App() {
           )}
         </main>
       </div>
-      {settings && data && (
-        <LaneSettingsSheet
-          data={data}
-          lanes={lanes}
-          focus={settings.focus}
-          onApply={(next) => {
-            setLanes(next);
-            setSettings(null);
-          }}
-          onClose={() => setSettings(null)}
-        />
-      )}
     </div>
   );
 }

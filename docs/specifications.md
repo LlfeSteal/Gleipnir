@@ -28,7 +28,7 @@ L'outil ne suit **pas l'avancement**. Il n'affiche ni pourcentage, ni poids, ni 
 | Issues **qui bloquent au moins un epic** | Issues sans lien « bloque » vers un epic |
 | Liens « bloque », « lié à », « epic parent → issue » | Indicateurs d'avancement (progression, poids, burndown) |
 | Itérations d'une cadence GitLab | Modification des données GitLab (lecture seule, v1) |
-| Couloirs configurables par groupes, types et labels | |
+| Couloirs = groupes GitLab cochés ; filtres de types et de labels | |
 
 ---
 
@@ -95,33 +95,18 @@ Chaque type est reconnaissable par sa **forme**, sa **couleur** et son **pictogr
   - un epic est affiché si sa période **chevauche** la fenêtre. Il est alors coupé aux bords ;
   - une issue est affichée si son itération est **dans** la fenêtre.
 - Les colonnes, « Non planifié » comprise, se partagent à parts égales la largeur disponible du board. Elles ne descendent pas sous 212 px, ou 180 px au-delà de 7 colonnes : en dessous, le board défile horizontalement.
-- La fenêtre est mémorisée.
+- La fenêtre fait partie de l'URL de la vue (voir §7).
 
-### 4.4 Couloirs configurables
+### 4.4 Couloirs : les groupes GitLab
 
-Chaque couloir a les propriétés suivantes :
+Les couloirs sont les **groupes GitLab cochés** dans l'arbre des groupes (ADR-32). Ils sont en **lecture seule**, comme le reste de l'application : on ne crée, ne renomme ni ne modifie un couloir. Pour un nouveau couloir, on crée le groupe dans GitLab, puis on synchronise.
 
-| Propriété | Description |
-|---|---|
-| Nom | Texte libre |
-| Couleur | Couleur du filet et de la pastille de l'en-tête |
-| Groupes GitLab | Un ou plusieurs groupes, parmi les groupes disponibles |
-| Inclure les sous-groupes | Oui / non. Si oui, un élément de `a/b/c` correspond au groupe `a/b`. |
-| Afficher les epics | Oui / non |
-| Afficher les issues | Oui / non. Seules les issues bloquant un epic sont concernées (voir 5.1). |
-| Labels | Liste de labels (vide = pas de filtre) |
-| Mode de correspondance | « Au moins un » (OU) ou « Tous » (ET) |
-| Actif | Couloir affiché ou masqué |
-
-Le panneau **Configurer les couloirs** permet de :
-- créer, modifier, supprimer, monter ou descendre un couloir. L'ordre de la liste est l'ordre d'affichage ;
-- activer ou masquer un couloir ;
-- ajouter un **groupe GitLab disponible** en saisissant son chemin (`plateforme/atlas/mobile`). Le groupe peut ensuite être choisi dans n'importe quel couloir ;
-- rétablir la configuration d'exemple.
-
-Le panneau a des boutons **Annuler** et **Appliquer** : rien ne change sur le board avant « Appliquer ».
-
-Les couloirs peuvent se **recouper**. Un élément qui correspond à plusieurs couloirs apparaît dans chacun.
+- Un couloir porte le **nom** du groupe dans GitLab. Un sous-couloir dit où il se trouve : « API et intégrations › Partenaires ».
+- Un élément va dans le couloir de son **groupe coché le plus proche** : son groupe s'il est coché, sinon le premier ancêtre coché. Il n'apparaît que dans un couloir ; sans ancêtre coché, il n'est pas affiché.
+- Cocher un sous-groupe lui donne donc son propre couloir, et retire ses éléments du couloir de son parent.
+- Par défaut, les **sous-groupes directs** du groupe racine sont cochés (le groupe racine s'il n'en a pas).
+- L'ordre des couloirs est celui de l'arbre : un groupe, puis ses sous-groupes ; les frères par chemin.
+- La **couleur** d'un couloir est celle du sous-groupe de premier niveau dont il descend : un sous-couloir garde la couleur de son parent.
 
 ### 4.5 Liens
 
@@ -168,19 +153,22 @@ Les couloirs peuvent se **recouper**. Un élément qui correspond à plusieurs c
   - Les deux sens sont parcourus séparément : un autre bloqueur d'un élément bloqué n'est pas ramené.
   - Seuls les types de lien cochés sont suivis. Un lien « lié à » se suit dans les deux sens.
   - Les dépendances ajoutées sont atténuées ; les éléments trouvés restent pleins.
+- **Types d'éléments** : epics, issues bloquantes (interrupteurs).
+- **Labels** : une liste de labels, avec « Au moins un » (OU) ou « Tous » (ET). Vide : pas de filtre.
 - **Masquer les issues fermées**.
 - **Types de lien** (voir 4.5).
-- **Compteurs** en haut du board : couloirs actifs, epics, issues bloquantes et blocages visibles. Un élément présent dans plusieurs couloirs n'est compté qu'une fois.
+- Ces filtres s'appliquent à **tout le board**, après la recherche.
+- **Compteurs** en haut du board : couloirs actifs, epics, issues bloquantes et blocages visibles.
 
 ### 4.8 Panneau de configuration de gauche
 
 Le panneau contient :
-- la liste des couloirs, avec une case à cocher, la couleur et un bouton modifier ;
-- le bouton « Nouveau couloir » ;
+- l'**arbre des groupes GitLab**, avec une case à cocher par groupe (un groupe coché est un couloir), sa couleur et le nombre d'éléments affichés. Une branche se replie ; celles qui mènent à un groupe coché sont dépliées ;
+- les types d'éléments et le filtre de labels ;
 - les types de lien ;
 - les options d'affichage.
 
-Il est **repliable** avec le bouton ‹. Replié, il devient une bande de 52 px qui garde le bouton › et des pastilles de couleur pour les couloirs actifs. Son état est mémorisé.
+Il est **repliable** avec le bouton ‹. Replié, il devient une bande de 52 px qui garde le bouton › et des pastilles de couleur pour les couloirs actifs. Son état est mémorisé dans le navigateur.
 
 Sur mobile (largeur ≤ 760 px), il est masqué et s'ouvre avec le bouton « Filtres ».
 
@@ -255,12 +243,14 @@ BoardPrefs{ windowFrom, windowTo, linkTypes{blocks,relates,parent}, hideClosed, 
 
 ## 7. Persistance des préférences
 
-| Donnée | Portée (maquette) | Portée cible proposée |
+| Donnée | Portée actuelle | Portée cible proposée |
 |---|---|---|
-| Couloirs et groupes disponibles | Navigateur (`localStorage`) | Par utilisateur, côté serveur, avec des **vues partageables** |
-| Fenêtre d'itérations | Navigateur | Par vue |
+| Groupes cochés (couloirs) | URL de la vue | Par utilisateur, côté serveur, avec des **vues partageables** |
+| Fenêtre d'itérations | URL de la vue | Par vue |
 | Panneau replié ou déplié | Navigateur | Par utilisateur |
-| Types de lien, masquer les fermées, couloirs repliés | Session | Par vue |
+| Types d'éléments, labels, types de lien, options d'affichage, couloirs repliés, recherche, sélection | URL de la vue | Par vue |
+
+**Partage** (ADR-31) : la vue est dans l'URL de l'onglet. Le bouton **Copier le lien** copie un lien qui ouvre la même vue : groupes cochés, fenêtre fixe, filtres, options, recherche et élément sélectionné. Rien n'est sauvegardé ailleurs : deux onglets sur deux liens sont deux vues indépendantes.
 
 ---
 
@@ -290,7 +280,7 @@ BoardPrefs{ windowFrom, windowTo, linkTypes{blocks,relates,parent}, hideClosed, 
 4. **Liens epic ↔ epic** : faut-il les distinguer visuellement des liens issue → epic, avec un filtre séparé ?
 5. **Chemin critique** : faut-il calculer et mettre en évidence la plus longue chaîne de blocages ?
 6. **Alertes** : faut-il signaler un epic bloqué par un élément planifié **après** lui (conflit de dates) ?
-7. **Vues partagées** : faut-il pouvoir enregistrer une configuration de couloirs et une fenêtre comme une vue nommée, avec un lien partageable ?
+7. **Vues partagées** : faut-il pouvoir enregistrer une configuration de couloirs et une fenêtre comme une vue nommée, avec un lien partageable ? *Le lien partageable existe (ADR-31) ; l'enregistrement de vues nommées reste à faire.*
 8. **Écriture** : en v2, faut-il pouvoir créer ou supprimer un lien « bloque » depuis le board ?
 
 ---

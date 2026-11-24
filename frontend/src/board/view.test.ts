@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { BoardData } from '../api/types';
 import { generateBoard, G, idOf, mockupBoard } from './fixtures';
-import { defaultLanes } from './lanes';
-import { DEFAULT_OPTIONS, type BoardView, type DisplayOptions, type Lane, type ViewInput } from './types';
+import { defaultChecked, lanesOf } from './lanes';
+import { DEFAULT_OPTIONS, type BoardView, type DisplayOptions, type ViewInput } from './types';
 import { COMPACT_LAYOUT, computeBoardView, connectedIds, curve, isCompactView, LAYOUT, layoutFor } from './view';
 
 function view(patch: Partial<Omit<ViewInput, 'options'>> & { options?: Partial<DisplayOptions> } = {}): BoardView {
@@ -18,7 +18,11 @@ function view(patch: Partial<Omit<ViewInput, 'options'>> & { options?: Partial<D
   });
 }
 
-const laneId = (path: string) => `group:${path}`;
+/** The lanes of the default checked groups. */
+const defaultLanes = (data: BoardData) => lanesOf(data, new Set(defaultChecked(data)));
+/** The lanes of these groups. */
+const lanesFor = (data: BoardData, ...paths: string[]) => lanesOf(data, new Set(paths));
+const laneId = (path: string) => path;
 const placed = (v: BoardView, ref: string, lane?: string) =>
   v.items.find((p) => p.itemId === idOf(ref) && (!lane || p.laneId === lane));
 const placedRefs = (v: BoardView) => new Set(v.items.map((p) => p.itemId));
@@ -184,8 +188,7 @@ describe('lanes and items', () => {
     expect(e19.rect.y).toBe(e18.rect.y); // 2..3 and 4..6 share a row
     // A lane with every epic: no two bars may overlap.
     const data = mockupBoard();
-    const all: Lane = { ...defaultLanes(data)[0], id: 'all', groups: ['plateforme/atlas'], includeSubgroups: true, showIssues: false };
-    const w = view({ data, lanes: [all], window: { from: 0, to: 9 } });
+    const w = view({ data, lanes: lanesFor(data, data.rootGroup.path), window: { from: 0, to: 9 }, options: { showIssues: false } });
     const bars = w.items.filter((p) => p.kind === 'epic');
     expect(bars).toHaveLength(10);
     for (const a of bars)
@@ -238,15 +241,42 @@ describe('lanes and items', () => {
 
   it('flags empty lanes and keeps a minimum height', () => {
     const data = mockupBoard();
-    const lanes = defaultLanes(data);
-    lanes[0] = { ...lanes[0], labels: ['nobody'] };
-    lanes[1] = { ...lanes[1], active: false };
-    const v = view({ data, lanes });
+    // Partenaires only holds &22, after the window.
+    const v = view({ data, lanes: lanesFor(data, G.partenaires, G.xp, G.identite) });
     expect(v.lanes).toHaveLength(3);
     expect(v.stats.lanes).toBe(3);
+    expect(v.lanes[0].lane.id).toBe(G.partenaires);
     expect(v.lanes[0].empty).toBe(true);
     expect(v.lanes[0].height).toBe(LAYOUT.laneMinHeight);
     expect(v.lanes[1].empty).toBe(false);
+  });
+
+  it('puts each item in the lane of its closest checked group, and nowhere without one', () => {
+    const data = mockupBoard();
+    const whole = { window: { from: 0, to: 9 } };
+    // Partenaires unchecked: &22 shows in its parent's lane.
+    expect(placed(view({ data, ...whole }), '&22')!.laneId).toBe(G.api);
+    // Checked: in its own lane, and no longer in API.
+    const split = view({ data, ...whole, lanes: lanesFor(data, G.api, G.partenaires) });
+    expect(split.items.filter((p) => p.itemId === idOf('&22')).map((p) => p.laneId)).toEqual([G.partenaires]);
+    expect(split.items.some((p) => p.laneId === G.api && p.itemId === idOf('&18'))).toBe(true);
+    // The root holds what no checked subgroup takes; an unchecked branch shows nothing.
+    const root = view({ data, ...whole, lanes: lanesFor(data, data.rootGroup.path, G.api) });
+    expect(placed(root, '&21')!.laneId).toBe(data.rootGroup.path);
+    expect(placed(root, '&18')!.laneId).toBe(G.api);
+    expect(placed(view({ data, ...whole, lanes: lanesFor(data, G.xp) }), '&18')).toBeUndefined();
+  });
+
+  it('filters the item types and labels on the whole board', () => {
+    const kinds = (v: BoardView) => new Set(v.items.map((p) => p.kind));
+    expect(kinds(view({ options: { showEpics: false } }))).toEqual(new Set(['issue']));
+    expect(kinds(view({ options: { showIssues: false } }))).toEqual(new Set(['epic']));
+    expect(view({ options: { showEpics: false, showIssues: false } }).items).toEqual([]);
+    // "bug" or "UX", then both.
+    const any = placedRefs(view({ options: { labels: ['bug', 'UX'] } }));
+    expect(any).toEqual(new Set(['#104', '#113', '&15'].map(idOf)));
+    const all = placedRefs(view({ options: { labels: ['bug', 'priorité::haute'], labelMode: 'all' } }));
+    expect(all).toEqual(new Set(['#104', '#113'].map(idOf)));
   });
 
   it('searches refs and titles, case-insensitive, and keeps the dependency chain of the matches', () => {
@@ -313,18 +343,11 @@ describe('links', () => {
     expect(v.links.filter((l) => l.critical)).toHaveLength(2);
   });
 
-  it('links the occurrence of the same lane first, else the first one', () => {
-    const data = mockupBoard();
-    const all: Lane = { ...defaultLanes(data)[0], id: 'all', name: 'Tout', groups: ['plateforme/atlas'], includeSubgroups: true };
-    const v = view({ data, lanes: [...defaultLanes(data), all] });
+  it('links items across lanes, once per pair', () => {
+    const v = view();
     const paths = v.links.filter((l) => l.source === idOf('#107') && l.target === idOf('&15'));
-    expect(paths.map((p) => [p.sourceKey, p.targetKey])).toEqual([
-      [`${laneId(G.api)}|${idOf('#107')}`, `${laneId(G.xp)}|${idOf('&15')}`],
-      [`all|${idOf('#107')}`, `all|${idOf('&15')}`],
-    ]);
+    expect(paths.map((p) => [p.sourceKey, p.targetKey])).toEqual([[`${laneId(G.api)}|${idOf('#107')}`, `${laneId(G.xp)}|${idOf('&15')}`]]);
     expect(new Set(v.links.map((l) => l.key)).size).toBe(v.links.length);
-    // items in two lanes count once
-    expect(v.stats).toEqual({ lanes: 5, epics: 7, issues: 8, blocks: 12, conflicts: 3 });
   });
 
   it('counts dependencies outside the window per occurrence', () => {
@@ -332,9 +355,8 @@ describe('links', () => {
     expect(new Set(placed(v, '&18')!.offWindow)).toEqual(new Set([idOf('&22'), idOf('#140')]));
     expect(placed(v, '&21')!.offWindow).toEqual([idOf('&23')]);
     expect(placed(v, '#110')!.offWindow).toEqual([]);
-    // the other end must match the lane: &23 is in "Data", not in "API"
-    const lanes = defaultLanes(mockupBoard()).map((l) => (l.id === laneId(G.data) ? { ...l, showEpics: false } : l));
-    const w = view({ lanes });
+    // the other end must be on the board: no epic shown, no pill toward &23
+    const w = view({ options: { showEpics: false } });
     expect(placed(w, '#130')!.offWindow).toEqual([]);
     // disabled link types don't count
     const off = view({ options: { linkTypes: { blocks: false, relates: true, parent: false } } });
@@ -401,8 +423,7 @@ describe('performance', () => {
     expect(elapsed).toBeLessThan(300);
     // and with a query, a few overlapping lanes and the selection helper
     const t1 = performance.now();
-    const all: Lane = { ...lanes[0], id: 'all', groups: ['plateforme/atlas'], includeSubgroups: true };
-    const v2 = computeBoardView({ ...input, lanes: [...lanes, all], query: 'e' });
+    const v2 = computeBoardView({ ...input, lanes: lanesFor(data, data.rootGroup.path, ...defaultChecked(data).slice(0, 3)), query: 'e' });
     connectedIds(v2, data.epics[0].id);
     expect(performance.now() - t1).toBeLessThan(300);
     console.info(`computeBoardView: ${elapsed.toFixed(1)} ms for ${v.items.length} items and ${v.links.length} links`);
