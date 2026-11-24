@@ -28,6 +28,8 @@ async function openElsewhere(browser: Browser, link: string): Promise<Page> {
 }
 
 test('a copied link opens the same view in another browser', async ({ page, browser }) => {
+  // Two browsers and a dozen settings: slow when both suites run side by side.
+  test.slow();
   await openBoard(page);
   await sidebar(page).getByRole('checkbox', { name: 'Data', exact: true }).uncheck();
   await laneToggle(page, 'API et intégrations').click();
@@ -69,6 +71,7 @@ test('the address bar leaves the default view out, a copied link names its itera
 });
 
 test('two tabs on two links keep their own view', async ({ page, context }) => {
+  test.slow(); // two tabs, two loads and a reload
   const apiOnly = `/?groups=${groupKey('api')}`;
   await page.goto(apiOnly);
   await expect.poll(() => boardLanes(page)).toEqual(['API et intégrations']);

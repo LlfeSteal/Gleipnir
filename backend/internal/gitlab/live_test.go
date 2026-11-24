@@ -5,6 +5,7 @@ package gitlab
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,6 +54,12 @@ func TestLiveFetch(t *testing.T) {
 		len(raw.Iterations), kinds, links, iterated, parented, labelled, assigned)
 	if raw.RootGroup.Path == "" || raw.Cadence.ID == "" || len(raw.Iterations) == 0 {
 		t.Errorf("incomplete data: %+v", raw.RootGroup)
+	}
+	// The frontend names groups by their id in the URL of a view (ADR-31).
+	for _, g := range append([]board.Group{raw.RootGroup}, raw.Groups...) {
+		if !strings.HasPrefix(g.ID, "gid://gitlab/Group/") {
+			t.Errorf("group %s without a GID: %q", g.Path, g.ID)
+		}
 	}
 
 	// Scoped refresh (Synchroniser): the same query on a subgroup, or on the root when it has none.

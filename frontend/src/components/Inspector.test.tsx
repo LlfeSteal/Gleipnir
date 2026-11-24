@@ -61,12 +61,10 @@ function board(epics: Epic[], issues: Issue[], links: Link[]): BoardData {
 
 const WINDOW: BoardWindow = { from: 2, to: 5 };
 
-function renderInspector(data: BoardData, itemId: string, win = WINDOW) {
+function renderInspector(data: BoardData, itemId: string, win = WINDOW, lanes = defaultLanes(data)) {
   const onSelect = vi.fn();
   const onClose = vi.fn();
-  const view = render(
-    <Inspector data={data} itemId={itemId} lanes={defaultLanes(data)} window={win} onSelect={onSelect} onClose={onClose} />,
-  );
+  const view = render(<Inspector data={data} itemId={itemId} lanes={lanes} window={win} onSelect={onSelect} onClose={onClose} />);
   return { ...view, onSelect, onClose, user: userEvent.setup() };
 }
 
@@ -101,6 +99,17 @@ describe('Inspector', () => {
     expect(dots[0].style.getPropertyValue('--label-color')).toBe('#e0532f');
     expect(dots[1].style.getPropertyValue('--label-color')).toBe('');
     expect(screen.getByText('Aucune dépendance.')).toBeInTheDocument();
+  });
+
+  it('names the lane of an item: its closest checked group, a sublane with its parent', () => {
+    const data = board([epic('E1', { groupPath: G.partenaires })], [], []);
+    // Partenaires unchecked: the item shows in its parent's lane.
+    const { unmount } = renderInspector(data, id('E1'));
+    expect(fact('Couloir')).toHaveTextContent(/^API & intégrations$/);
+    unmount();
+    renderInspector(data, id('E1'), WINDOW, lanesOf(data, new Set([G.api, G.partenaires])));
+    expect(fact('Couloir')).toHaveTextContent('API & intégrations › Partenaires');
+    expect(fact('Couloir').querySelector('[data-lane-color]')).toHaveAttribute('data-lane-color', 'indigo');
   });
 
   it('shows an unplanned, closed epic of an unknown group, in no lane', () => {
