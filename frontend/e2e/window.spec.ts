@@ -5,6 +5,9 @@ import { board, it, itTitle } from './demo';
 // The iteration window (spec §4.3). Demo: Itération 12 … 21 (indexes 0 … 9), Itération 15 current.
 
 test.beforeEach(async ({ page }) => {
+  // Dozens of pop-up clicks per test: about 2 s alone, 17 to 21 s when both suites run side by
+  // side (12 Chromium workers on 12 cores), too close to the 30 s timeout.
+  test.slow();
   await openBoard(page);
 });
 

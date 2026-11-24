@@ -391,7 +391,7 @@ They live in `internal/board`. All are covered by table-driven tests: a behavior
   - `*.live.spec.ts` are tagged `@live`: they run against a real GitLab through `BASE_URL`, and assume nothing about the group's content.
   - Locale `fr-FR`, time zone `Europe/Paris`.
   - Tests use roles and labels, not CSS classes, except to measure geometry.
-  - A test that opens a second page or browser context is heavy: mark it `test.slow()`, or it times out when both suites run side by side.
+  - Running both suites side by side (12 Chromium workers on 12 cores) makes every test about ten times slower: a 2 s test takes about 20 s. A heavy test (a second page or browser context, dozens of pop-up clicks: `share.spec.ts`, `window.spec.ts`) is marked `test.slow()`, or it times out. Measure with `--reporter=json` before raising anything else.
 - **Every new Playwright test is kept in the project**, never thrown away.
 
 ## Deployment (Docker)
