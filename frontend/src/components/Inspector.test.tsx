@@ -1,14 +1,12 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { BoardData, Epic, Issue, Link } from '../api/types';
 import { G, mockupBoard } from '../board/fixtures';
-import { defaultChecked, lanesOf } from '../board/lanes';
-import type { BoardWindow } from '../board/types';
+import { defaultLanes } from '../board/lanes';
+import type { BoardWindow, Lane } from '../board/types';
 import { Inspector } from './Inspector';
-
-const defaultLanes = (data: BoardData) => lanesOf(data, new Set(defaultChecked(data)));
 
 const id = (name: string) => `gid://gitlab/WorkItem/${name}`;
 
@@ -89,7 +87,7 @@ describe('Inspector', () => {
     expect(screen.getByRole('heading', { level: 2, name: 'Epic E1' })).toBeInTheDocument();
     expect(fact('Groupe')).toHaveTextContent('Identité & sécurité');
     expect(fact('Groupe')).toHaveTextContent(G.identite);
-    expect(fact('Couloir')).toHaveTextContent('Identité & sécurité');
+    expect(fact('Couloirs')).toHaveTextContent('Identité & sécurité');
     expect(fact('Période')).toHaveTextContent('It. 14 → It. 16');
     expect(fact('Période')).toHaveTextContent('dates héritées des issues');
     const labels = within(screen.getByRole('heading', { name: 'Labels' }).closest('section')!).getAllByRole('listitem');
@@ -101,15 +99,20 @@ describe('Inspector', () => {
     expect(screen.getByText('Aucune dépendance.')).toBeInTheDocument();
   });
 
-  it('names the lane of an item: its closest checked group, a sublane with its parent', () => {
+  it('names every active lane the item shows in (lanes may overlap)', () => {
     const data = board([epic('E1', { groupPath: G.partenaires })], [], []);
-    // Partenaires unchecked: the item shows in its parent's lane.
+    // The API lane takes its subgroups: Partenaires.
     const { unmount } = renderInspector(data, id('E1'));
-    expect(fact('Couloir')).toHaveTextContent(/^API & intégrations$/);
+    expect(fact('Couloirs')).toHaveTextContent(/^API & intégrations$/);
     unmount();
-    renderInspector(data, id('E1'), WINDOW, lanesOf(data, new Set([G.api, G.partenaires])));
-    expect(fact('Couloir')).toHaveTextContent('API & intégrations › Partenaires');
-    expect(fact('Couloir').querySelector('[data-lane-color]')).toHaveAttribute('data-lane-color', 'indigo');
+    const partners: Lane = { ...defaultLanes(data)[0], id: 'p', name: 'Partenaires', color: 'pink', groups: [data.groups.find((g) => g.path === G.partenaires)!.id] };
+    const off: Lane = { ...partners, id: 'off', name: 'Masqué', active: false };
+    renderInspector(data, id('E1'), WINDOW, [...defaultLanes(data), partners, off]);
+    const lanes = fact('Couloirs').querySelectorAll('[data-lane-color]');
+    expect([...lanes].map((l) => [l.textContent, l.getAttribute('data-lane-color')])).toEqual([
+      ['API & intégrations', 'indigo'],
+      ['Partenaires', 'pink'],
+    ]);
   });
 
   it('shows an unplanned, closed epic of an unknown group, in no lane', () => {
@@ -118,7 +121,7 @@ describe('Inspector', () => {
     expect(within(panel()).getByText('Fermé')).toBeInTheDocument();
     expect(fact('Période')).toHaveTextContent('Non planifié');
     expect(fact('Groupe')).toHaveTextContent('ailleurs/x');
-    expect(fact('Couloir')).toHaveTextContent('—');
+    expect(fact('Couloirs')).toHaveTextContent('—');
     expect(screen.queryByRole('heading', { name: 'Labels' })).not.toBeInTheDocument();
   });
 
@@ -216,6 +219,33 @@ describe('Inspector', () => {
     expect(within(group('Lié à')!).getAllByRole('button')).toHaveLength(1);
     const e2 = within(group('Bloqué par')!).getByRole('button', { name: /&E2/ });
     expect(within(e2).getByTitle('hors fenêtre')).toHaveTextContent(/^It\. 12$/);
+  });
+
+  it('lists a dependency in no active lane dotted, with its group, and not as a button (spec §4.6)', () => {
+    const data = board(
+      [epic('E1'), epic('E5', { groupPath: 'plateforme/atlas', start: 9, end: 9 })],
+      [issue('I1', { blocksEpics: [] }), issue('I2')],
+      [relates('E1', 'E5'), blocks('I1', 'I2'), blocks('I2', 'E1')],
+    );
+    renderInspector(data, id('E1'));
+    const related = within(group('Lié à')!).getAllByRole('listitem');
+    expect(related).toHaveLength(1);
+    expect(within(related[0]).queryByRole('button')).not.toBeInTheDocument();
+    const row = related[0].querySelector('.dependency-row')!;
+    expect(row).toHaveAttribute('data-off-lanes', 'true');
+    expect(row).toHaveTextContent('&E5');
+    expect(row).toHaveTextContent('Hors couloirs · Atlas');
+    expect(row).toHaveAttribute('title', 'Dans aucun couloir actif : ouvrez-le dans GitLab, ou ajustez un couloir pour l’inclure.');
+    // A lane's rule counts too: I1 blocks no epic, so the default lanes leave it out.
+    cleanup();
+    renderInspector(data, id('I2'));
+    const blocker = within(group('Bloqué par')!).getByText('#I1').closest('.dependency-row')!;
+    expect(blocker.tagName).toBe('DIV');
+    expect(blocker).toHaveTextContent('Hors couloirs · API & intégrations');
+    // In a lane showing every issue, it is a button again.
+    cleanup();
+    renderInspector(data, id('I2'), WINDOW, defaultLanes(data).map((l) => ({ ...l, issueMode: 'all' as const })));
+    expect(within(group('Bloqué par')!).getByRole('button', { name: /#I1/ })).toBeInTheDocument();
   });
 
   it('opens http(s) links in GitLab safely, and never another scheme', () => {

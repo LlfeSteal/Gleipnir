@@ -4,6 +4,7 @@ import { shortIterationLabel } from '../../board/format';
 import type { PlacedItem } from '../../board/types';
 import { BOARD } from '../../strings/board';
 import { ChevronLeftIcon, ChevronRightIcon, EpicIcon } from '../ui/Icons';
+import { OffLanesPill } from './OffLanesPill';
 import { OffWindowPill } from './OffWindowPill';
 
 export interface ItemProps {
@@ -14,12 +15,23 @@ export interface ItemProps {
   related: boolean;
   critical: boolean;
   offWindowRefs: string[];
+  /** Refs of the dependencies in no active lane (spec §4.5). */
+  offLanesRefs: string[];
   onToggle(id: string): void;
+}
+
+/** The tooltip-like description of an item's badges, for assistive technologies. */
+export function badgesDescription(offWindowRefs: string[], offLanesRefs: string[]): string | undefined {
+  const parts = [
+    offWindowRefs.length ? BOARD.offWindowTitle(offWindowRefs) : '',
+    offLanesRefs.length ? BOARD.offLanesTitle(offLanesRefs) : '',
+  ].filter(Boolean);
+  return parts.length ? parts.join('. ') : undefined;
 }
 
 /** An epic: a purple bar from its first to its last iteration in the window. A side cut by the
  * window is square with a chevron whose tooltip gives the real start or end. */
-export const EpicBar = memo(function EpicBar({ placed, epic, data, selected, related, critical, offWindowRefs, onToggle }: ItemProps & { epic: Epic }) {
+export const EpicBar = memo(function EpicBar({ placed, epic, data, selected, related, critical, offWindowRefs, offLanesRefs, onToggle }: ItemProps & { epic: Epic }) {
   const { rect } = placed;
   const closed = epic.state === 'closed';
   const label = (index: number | null) => {
@@ -41,7 +53,7 @@ export const EpicBar = memo(function EpicBar({ placed, epic, data, selected, rel
       data-search-context={placed.searchContext || undefined}
       aria-pressed={selected}
       aria-label={BOARD.epicLabel(epic.ref, epic.title, closed)}
-      aria-description={offWindowRefs.length ? BOARD.offWindowTitle(offWindowRefs) : undefined}
+      aria-description={badgesDescription(offWindowRefs, offLanesRefs)}
       onClick={() => onToggle(epic.id)}
     >
       {placed.clippedStart && (
@@ -55,6 +67,7 @@ export const EpicBar = memo(function EpicBar({ placed, epic, data, selected, rel
         {epic.title}
       </span>
       <OffWindowPill refs={offWindowRefs} />
+      <OffLanesPill refs={offLanesRefs} />
       {placed.clippedEnd && (
         <span className="epic-clip" title={BOARD.endsIn(label(epic.end))}>
           <ChevronRightIcon size={12} />

@@ -6,7 +6,7 @@ export type ItemState = 'open' | 'closed';
 export type LinkType = 'blocks' | 'relates' | 'parent';
 
 export interface Group {
-  /** Global ID, "gid://gitlab/Group/12": the URL of a view names groups by its last segment. */
+  /** Global ID, "gid://gitlab/Group/12": lanes name their groups by it, stable on a rename. */
   id: string;
   path: string;
   name: string;
@@ -71,7 +71,8 @@ export interface Issue {
   iteration: number | null;
   parentEpic: string; // epic id, "" when none
   assignee: Person | null;
-  /** IDs of the epics this issue blocks (never empty: only blocking issues are sent). */
+  /** IDs of the epics this issue blocks; empty when it blocks none (every issue is sent, each
+   * lane picks the ones it shows, spec §5.1). */
   blocksEpics: string[];
   unplanned: boolean;
   webUrl: string;
@@ -96,12 +97,10 @@ export interface BoardData {
   groups: Group[]; // root group first, then descendants sorted by path
   labels: Label[];
   epics: Epic[];
-  issues: Issue[];
+  issues: Issue[]; // every synced issue, blocking an epic or not
   links: Link[];
   /** Longest chain of open blocking links, item ids from the first blocker to the last blocked. */
   criticalPath: string[];
-  /** Synced issues that block no epic, hence not shown. */
-  ignoredIssues: number;
 }
 
 /** Error body of the API: { error, code }. */

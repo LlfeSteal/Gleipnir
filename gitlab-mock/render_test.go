@@ -42,8 +42,8 @@ func TestDatasetShapes(t *testing.T) {
 			}
 		}
 	}
-	if len(d.items) != 31 {
-		t.Fatalf("got %d items, want 12 epics + 19 issues", len(d.items))
+	if len(d.items) != 32 {
+		t.Fatalf("got %d items, want 13 epics + 19 issues", len(d.items))
 	}
 }
 
@@ -70,6 +70,7 @@ func TestDatasetJSON(t *testing.T) {
 		"assignee":             {"gid://gitlab/WorkItem/1104", `"assignees":{"nodes":[{"name":"Thomas Roux","username":"demo-troux"}]}`},
 		"type name":            {"gid://gitlab/WorkItem/525", `"workItemType":{"name":"Epic"}`},
 		"link out of group":    {"gid://gitlab/WorkItem/522", `"gid://gitlab/WorkItem/9999"`},
+		"epic of the root":     {"gid://gitlab/WorkItem/526", `"namespace":{"id":"gid://gitlab/Group/40","fullPath":"plateforme/atlas"}`},
 		"blocked by both":      {"gid://gitlab/WorkItem/513", `"blockedBy":{"nodes":[{"workItem":{"id":"gid://gitlab/WorkItem/512"}}`},
 	}
 	for name, c := range cases {

@@ -7,6 +7,20 @@ export const BOARD = {
   emptyLane: 'Aucun élément de ce couloir dans la fenêtre.',
 
   // Lanes
+  newLaneName: 'Nouveau couloir',
+  untitledLane: 'Couloir sans nom',
+  noGroup: 'aucun groupe',
+  subgroups: '+ sous-groupes',
+  allLabels: 'tous les labels',
+  labelModeAny: 'au moins un',
+  labelModeAll: 'tous',
+  /** Lane summary, label part: "au moins un de : bug, UX" / "tous : bug, UX". */
+  labelsAny: (labels: readonly string[]) => `au moins un de : ${labels.join(', ')}`,
+  labelsAll: (labels: readonly string[]) => `tous : ${labels.join(', ')}`,
+  /** A lane's issue mode, in its summary and header (spec §4.4). */
+  issueModes: { all: 'toutes les issues', blocking: 'issues bloquantes', none: 'aucune issue' },
+  noType: 'aucun type',
+  editLane: (name: string) => `Modifier le couloir ${name}`,
   typeEpics: 'epics',
   typeIssues: 'issues',
   collapseLane: (name: string) => `Replier le couloir ${name}`,
@@ -22,6 +36,7 @@ export const BOARD = {
   epicLabel: (ref: string, title: string, closed: boolean) => `Epic ${ref} ${title}${closed ? ', fermé' : ''}`,
   issueLabel: (ref: string, title: string, closed: boolean) => `Issue ${ref} ${title}${closed ? ', fermée' : ''}`,
   blocks: (refs: string[]) => `Bloque ${refs.join(', ')}`,
+  blocksNoEpic: 'Ne bloque aucun epic',
   startsIn: (iteration: string) => `Commence en ${iteration}`,
   endsIn: (iteration: string) => `Se termine en ${iteration}`,
   moreLabels: (n: number) => `+${n}`,
@@ -29,6 +44,10 @@ export const BOARD = {
   offWindowTitle: (refs: string[]) =>
     `${refs.length > 1 ? 'Dépendances hors fenêtre' : 'Dépendance hors fenêtre'} : ${refs.join(', ')}`,
   offWindowLabel: (n: number) => (n > 1 ? `${n} dépendances hors fenêtre` : `${n} dépendance hors fenêtre`),
+  /** Dependencies in no active lane (spec §4.5): the full label on an epic, the number on a card. */
+  offLanesPill: (n: number) => `${n} hors couloirs`,
+  offLanesTitle: (refs: string[]) =>
+    `${refs.length > 1 ? 'Dépendances hors couloirs' : 'Dépendance hors couloirs'} : ${refs.join(', ')}`,
 
   // Links
   linkTypes: { blocks: 'Bloque', relates: 'Lié à', parent: 'Epic parent → issue' },

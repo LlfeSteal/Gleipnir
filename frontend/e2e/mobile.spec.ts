@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { boardItem, inspector, openBoard, sidebar } from './helpers2';
+import { boardItem, inspector, laneSettings, openBoard, sidebar } from './helpers2';
 import { it, ref, title } from './demo';
 
 // Phone layout (≤ 760 px, spec §4.6 and §4.8): the sidebar is a "Filtres" overlay, the
@@ -135,11 +135,25 @@ test('the toolbar keeps every action on the first row, beside the title', async 
   }
 });
 
-test('"Copier le lien" lives in the Filtres overlay', async ({ page }) => {
+test('the lanes are configured from the Filtres overlay, in a full-screen sheet', async ({ page }) => {
+  // No share link any more (ADR-36): the view is remembered in the browser.
   await expect(page.getByRole('button', { name: 'Copier le lien' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Filtres' }).click();
-  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
-  await sidebar(page).getByRole('button', { name: 'Copier le lien' }).click();
-  const link = new URL(await page.evaluate(() => navigator.clipboard.readText()));
-  expect([...link.searchParams.keys()]).toEqual(['from', 'to']);
+  await page.getByRole('button', { name: 'Filtres', exact: true }).tap();
+  await expect(sidebar(page).getByRole('button', { name: 'Copier le lien' })).toHaveCount(0);
+  await sidebar(page).getByRole('button', { name: 'Modifier Data', exact: true }).tap();
+
+  const sheet = laneSettings(page);
+  await expect(sheet).toBeVisible();
+  await expect(sheet.getByRole('textbox', { name: 'Nom' })).toHaveValue('Data');
+  // Full screen on a phone (spec §4.4).
+  const box = (await sheet.boundingBox())!;
+  expect(box.x).toBeCloseTo(0, 0);
+  expect(box.y).toBeCloseTo(0, 0);
+  expect(box.width).toBeCloseTo(VIEWPORT.width, 0);
+  expect(box.height).toBeCloseTo(VIEWPORT.height, 0);
+  // Its footer stays reachable.
+  await expect(sheet.getByRole('button', { name: 'Appliquer', exact: true })).toBeInViewport();
+
+  await sheet.getByRole('button', { name: 'Annuler', exact: true }).tap();
+  await expect(sheet).toBeHidden();
 });

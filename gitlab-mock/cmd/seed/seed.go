@@ -497,7 +497,7 @@ func (s *seeder) readWorkItems(ctx context.Context) error {
 
 func (s *seeder) seedEpics(ctx context.Context) error {
 	for _, e := range s.ds.Epics {
-		ns := s.root + "/" + e.Group
+		ns := dataset.Under(s.root, e.Group)
 		start, due := "", ""
 		if e.First >= 0 && s.iters[e.First].StartDate != "" && s.iters[e.Last].DueDate != "" {
 			start, due = s.iters[e.First].StartDate, s.iters[e.Last].DueDate

@@ -9,7 +9,7 @@ interface Part {
   alert?: boolean;
 }
 
-/** "4 couloirs · 10 epics · 9 issues bloquantes · 12 blocages · 2 conflits": unique counts of
+/** "4 couloirs · 10 epics · 9 issues · 12 blocages · 2 conflits": unique counts of
  * what the board shows (spec §4.7). No pills: numbers in --text, words in secondary. */
 export function SummaryLine({ stats }: { stats: BoardStats }) {
   const parts: Part[] = [

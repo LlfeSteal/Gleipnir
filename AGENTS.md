@@ -64,12 +64,13 @@ frontend/
   src/main.tsx, App.tsx       entry point, app shell (state, preferences)
   src/api/types.ts            TypeScript mirror of model.go
   src/api/client.ts           fetch + ApiError
-  src/board/                  pure logic: types, lanes, window, format, layout, search, links, stats,
-                              share.ts (the view in the URL, ADR-31)
+  src/board/                  pure logic: types, lanes (lane filters, ADR-34), window, format, layout,
+                              search, links, stats
   src/components/ui/          primitives: Icons, Popover / MenuItem, SearchField, Switch,
-                              Checkbox, SelectList, SegmentedControl, StateViews, AppearanceMenu, CopyLinkButton
+                              Checkbox, SelectList, SegmentedControl, StateViews, AppearanceMenu, Sheet
   src/components/board/       the canvas: BoardCanvas, ItemGlyph, LinkSwatch…
-  src/components/             Toolbar, WindowControl, Sidebar (group tree, filters), Inspector, SummaryLine
+  src/components/             Toolbar, WindowControl, Sidebar (lanes, filters),
+                              LaneSettingsSheet (« Configurer les couloirs »), Inspector, SummaryLine
   src/hooks/                  useAppearance, usePreferences (useStoredState), useBoard
   src/strings/                UI texts (ui.ts, board.ts, app.ts, re-exported by index.ts)
   src/styles/                 theme.css (tokens + controls), board.css (canvas), app.css (shell)
@@ -159,7 +160,7 @@ Every variable is read by the backend, through `internal/config`.
     - Unknown groups are ignored; without a known group, the answer is 400 `invalid_scope`.
     - If all these groups were read less than 10 s ago, the cache answers (ADR-20).
     - No request starts a full sync, except when the backend has no data yet.
-  - **Per-group data**: `groups[].id` is the group's GID (`gid://gitlab/Group/N`): the URL of a view names groups by its last segment (ADR-31). `groups[].syncedAt` (RFC 3339) says when the group's items were read. The toolbar's « Mis à jour il y a… » is the oldest of these dates among the groups of the active lanes (`scopeSyncedAt`).
+  - **Per-group data**: `groups[].id` is the group's GID (`gid://gitlab/Group/N`): lanes name their groups by it (ADR-34), stable when a group is renamed or moved. `groups[].syncedAt` (RFC 3339) says when the group's items were read. The toolbar's « Mis à jour il y a… » is the oldest of these dates among the groups of the active lanes (`scopeSyncedAt`).
   - **Headers**:
     - `X-Fetched-At` (RFC 3339): the oldest read among the board's groups.
     - `X-Cache`: `HIT` (served from the cache) or `MISS` (read for this request).
@@ -258,17 +259,16 @@ They live in `internal/board`. All are covered by table-driven tests: a behavior
 
 1. **Identity**: an item is identified by the **GID of its work item** (`gid://gitlab/WorkItem/…`), everywhere: `Link.source/target`, `parentEpic`, `blocksEpics`, `criticalPath` and the keys on the frontend side.
    - The `&18` / `#110` references are **for display only**: issue IIDs repeat from one project to the next.
-2. **Shown issues** (§5.1): an issue is kept if it has at least one `blocks` link **to an epic** of the dataset.
-   - The others are only counted (`ignoredIssues`).
-   - They still count for the dates epics inherit (invariant 4).
-   - `blocksEpics` is never empty.
+2. **Issues** (§5.1, ADR-35): **every** issue of the dataset is sent. A lane's issue mode picks which ones it shows, on the frontend.
+   - `blocksEpics` lists the epics an issue blocks (it is the **source** of a `blocks` link to an epic of the dataset). It may be **empty**: "blocking issue" means a non-empty `blocksEpics`, there is no other flag.
+   - There is no `ignoredIssues` any more: the frontend counts blocking issues itself (« N sur M »).
 3. **Group of an item** (§5.3):
    - epic: the group that holds it;
    - issue: its project's namespace minus the last segment.
 4. **Placing an epic on the iterations** (§5.2). Iterations are sorted by start date; `start` and `end` are inclusive indexes.
    - **Start**: the iteration that holds the start date. If the date falls between two iterations, the **next** one.
    - **End**: the iteration that holds the end date. If the date falls between two iterations, the **previous** one.
-   - **No dates**: the min and max of the iterations of its child issues, all issues counted (not only the shown ones). The epic then carries `datesFromChildren`.
+   - **No dates**: the min and max of the iterations of its child issues, all issues counted (blocking or not). The epic then carries `datesFromChildren`.
    - **Otherwise**: `unplanned`, with `start` and `end` set to `null`.
    - Edge cases: see ADR-19 in `docs/decisions.md`.
 5. **Current iteration**: the one holding "today", according to an **injected clock** (`Build(raw, now)`) and `TZ`. `current` is -1 when no iteration holds the date. Iteration dates are inclusive.
@@ -276,17 +276,18 @@ They live in `internal/board`. All are covered by table-driven tests: a behavior
    - `blocks` and `is_blocked_by` give **one** directed link, blocker → blocked, without duplicates;
    - `relates` is stored as a sorted pair (`source < target`), without duplicates;
    - `parent` goes from the parent epic to the issue;
-   - a link with an end outside the dataset, or not shown, is ignored.
-7. **Conflict**: a `blocks` link whose blocker is **open** and ends in an iteration **strictly later** than the start iteration of the blocked item.
+   - a link with an end outside the dataset is ignored. Links join every item, issue → issue included; `parent` joins an epic to each of its issues.
+7. **Conflict**: on **every** `blocks` link (issue → issue included, ADR-35), a link whose blocker is **open** and ends in an iteration **strictly later** than the start iteration of the blocked item.
    - Same iteration: no conflict.
    - Closed blocker: never a conflict.
    - Unplanned item on either side: no conflict.
    - An epic's end is `end`, its start `start`; for an issue, it is its iteration.
 8. **Critical path**: the longest chain of `blocks` links between **open** items, in the directed graph.
+   - Scope: epics and **blocking issues** only (non-empty `blocksEpics`, ADR-35). A chain of non-blocking issues never makes it.
    - Cycles are detected, broken and reported in the logs.
    - On equal length, keep the chain that ends last, then the one that starts first, then the smallest list of IDs.
    - `criticalPath` lists the IDs, from the first blocker to the last blocked; it is empty without a "blocks" link.
-9. **Unplanned**: an epic with neither dates nor a planned child, or a shown issue without an iteration of the cadence. The frontend shows them in the « Non planifié » column, at the end of the board.
+9. **Unplanned**: an epic with neither dates nor a planned child, or any issue without an iteration of the cadence (ADR-35). The frontend shows them in the « Non planifié » column, at the end of the board.
 10. **Deterministic order**:
     - iterations by start date;
     - groups by path, root first;
@@ -308,8 +309,15 @@ They live in `internal/board`. All are covered by table-driven tests: a behavior
   - Tokens (names from `docs/style.md` §2) are defined **only** in `src/styles/theme.css`, with their light and dark values (`:root[data-theme='dark']`). `board.css` and `app.css` only use them.
   - **No hard-coded color** in components nor in TypeScript. A component exposes its states as `data-*` attributes (`data-kind`, `data-closed`, `data-conflict`, `data-lane-color`…), which CSS maps to tokens.
   - Only exception: a GitLab label's color, which is data. It goes through the `--label-color` property in an inline `style`.
-- **Lanes** (ADR-32): the checked groups of the GitLab group tree (`src/board/lanes.ts`: `groupTree`, `defaultChecked`, `lanesOf`, `laneOf`). **Read only**: no lane is created, renamed or edited. An item goes to the lane of its closest checked group, and to no other. Item types and labels are board-wide filters (`DisplayOptions`).
-- **Lane colors**: the color of the first-level subgroup the group descends from (`laneColor`), stable when groups are checked or unchecked. A fixed palette of Apple system color tokens (`--lane-indigo`, `--lane-blue`, `--lane-cyan`, `--lane-mint`, `--lane-yellow`, `--lane-orange`, `--lane-pink`, `--lane-brown`). CSS exposes them through `[data-lane-color='x'] { --lane: … }`.
+- **Lanes** (ADR-34): user-edited filters (`src/board/lanes.ts`), edited in `LaneSettingsSheet` with « Annuler » / « Appliquer ».
+  - A lane holds a name, a color, groups (by **GID**), `includeSubgroups`, `showEpics`, `issueMode` (`all` / `blocking` / `none`, ADR-35), labels with `labelMode` (`any` / `all`) and `active`. The array order is the display order.
+  - Matching (§5.1, §5.3): the item's group is a lane group, or a descendant when `includeSubgroups`; epics need `showEpics`; issues follow `issueMode`; an empty label list does not filter.
+  - Lanes may **overlap**: an item shows in every matching active lane, and counters count it once. A link joins the occurrence in the same lane as its other end, otherwise the first one.
+  - Default lanes (first visit, « Rétablir la configuration d'exemple »): one per direct subgroup of the root (the root if none), subgroups included, issues `blocking`.
+  - Groups are picked from the GitLab group tree (`board.groups`), never typed.
+  - Stored lanes are validated against the board: unknown groups and labels are dropped, a lane with no known group is dropped, a bad color or mode falls back to its default, an unreadable value gives the default lanes.
+- **Off-window and out-of-lane dependencies** (ADR-37): « › N hors fenêtre » for a linked item that matches an active lane outside the window; « N hors couloirs » (dotted, exit icon) for one that matches **no** active lane. Only `blocks` and `relates` links count, when their type is shown; membership ignores window, search and « Masquer les issues fermées ». In the inspector, an out-of-lane dependency is dotted, not a button.
+- **Lane colors**: picked per lane from a fixed palette (ADR-15); a new lane takes the first unused color. The palette of Apple system color tokens (`--lane-indigo`, `--lane-blue`, `--lane-cyan`, `--lane-mint`, `--lane-yellow`, `--lane-orange`, `--lane-pink`, `--lane-brown`). CSS exposes them through `[data-lane-color='x'] { --lane: … }`.
   - No red: it is reserved for conflicts.
   - No green, purple or teal: they already carry a meaning (purple = epic, teal = issue).
 - **Texts**: every UI text is in French and lives in `src/strings/`:
@@ -329,12 +337,10 @@ They live in `internal/board`. All are covered by table-driven tests: a behavior
   - `app.css`: the shell.
   
   `main.tsx` imports all three. No CSS framework and no external font: the app works offline.
-- **The view is in the URL** (`src/board/share.ts`, ADR-31): checked groups, collapsed lanes, window, item types, labels, display options, search, selection. Groups, iterations and items are named there by the last segment of their GID.
-  - `App` reads it once (`decodeView`), resolves it while rendering the first data (`resolveGroups`, `resolveWindow`, `resolveItem`), then rewrites it with `history.replaceState` (`encodeView`, defaults left out). The URL is not touched before the board has loaded.
-  - **Nothing of the view is saved** anywhere else: two tabs, two views. The future portfolio of saved views will build on this format.
-  - The « Copier le lien » button (`CopyLinkButton`) always writes the window (`fixedWindow`). On a phone, it sits in the header of the « Filtres » panel: the compact toolbar has no room.
-  - Any unknown or invalid parameter falls back to its default, field by field: add a case to `share.test.ts` for any new parameter.
-- **Preferences** (`localStorage`, read with validation and try/catch everywhere): only `gleipnir.appearance` and `gleipnir.sidebar`, which do not say what is shown.
+- **Persistence** (ADR-36, replaces the view in the URL of ADR-31): the app neither reads nor writes the URL, and there is no share link.
+  - `localStorage`, read with validation and try/catch everywhere: `gleipnir.lanes` (ADR-34), `gleipnir.window` (`{from, to}` iteration GIDs; an unknown iteration gives the default window), `gleipnir.sidebar`, `gleipnir.appearance`.
+  - Session only (React state): link types, « Masquer les issues fermées », the « Non planifié » column, the critical path, collapsed lanes, search, selection.
+  - Two tabs of the same browser share lanes and window: the last write wins.
 - **Theme**:
   - The inline script of `index.html` applies the appearance **before the first render**, to avoid a flash. Keep it in sync with `resolveScheme` (`src/hooks/useAppearance.ts`).
   - **Any change to that script changes its hash**: recompute it and update the CSP in `frontend/nginx.conf.template` (see Security), or the script is blocked in production.
@@ -371,16 +377,17 @@ They live in `internal/board`. All are covered by table-driven tests: a behavior
     - React reads a `timeStamp` of 0 as missing and replaces it with `Date.now()`: a simulated event starts at 1;
     - jsdom has no `PointerEvent`: a `MouseEvent` with `pointerId` and `pointerType` added stands in for it;
     - `getByTitle` and `getByText` normalize whitespace: for a text that starts or ends with a space, read the attribute directly;
-    - the app writes its view in the URL: `setup.ts` resets it to `/` after each test. To open the app on a view, call `window.history.replaceState(null, '', '/?…')` before rendering.
+    - the app saves lanes, window and sidebar in `localStorage`: `setup.ts` clears it after each test. To open the app on given lanes or a window, write `gleipnir.lanes` / `gleipnir.window` before rendering.
 - **Playwright** (`frontend/e2e/`, `playwright.config.ts`):
   - `*.spec.ts` run against the **real backend, wired to the fake GitLab**: `webServer` starts `gitlab-mock` (8082), the backend (8081) and Vite (5174), or the ports given by `E2E_MOCK_PORT` / `E2E_API_PORT` / `E2E_WEB_PORT` (see ADR-22). The GitLab client, pagination and targeted refresh are thus covered end to end.
   - The demo dataset lives in `gitlab-mock/dataset/dataset.go`. The e2e assertions (lanes, « Itération 15 » current, links, counts) depend on it: change them together.
-    - It has a nested group, `api/partenaires` (« Partenaires », &22), unchecked by default: &22 shows in the « API et intégrations » lane.
+    - It has a nested group, `api/partenaires` (« Partenaires », &22). The default lanes include subgroups, so &22 shows in the « API et intégrations » lane.
   - **Agnostic** (ADR-28): the same suite runs on the fake GitLab and on a real GitLab filled by the seeder.
     - An item is named by its dataset **key** (`'&18'`): `item(page, key)` and `boardItem(page, key)` find it by its **title**, never by its ref (on a real GitLab, `&1` exists in every group).
     - Any text showing a ref, an iteration, a path, the root or an assignee goes through `e2e/demo.ts`: `ref('&21')`, `title('#101')`, `it(14)` (« It. 14 »), `itTitle(15)`, `group('api')`, `groupKey('api')`, `root()`, `cadence()`, `assignee('#110')`. They read the board that `e2e/global-setup.ts` loads once (variable `E2E_DEMO_BOARD`); test titles keep the keys.
-    - A view URL names groups, iterations and items by the last segment of their GID: read them from `board()` (`groupKey('api')`…), never hard-code them.
-    - `ref()` of an ignored (not shown) issue fails: name it with `title()`.
+    - Stored lanes and windows name groups and iterations by their GID: read them from `board()`, never hard-code them.
+    - Every issue is in the board now (ADR-35): `ref()` works for non-blocking issues too.
+    - Each test starts with an empty `localStorage` (a fresh browser context): default lanes and window.
     - A search by ref checks that every item shown as a **match** fits (`shownKeys(page, true)`, without `data-search-context`), not a count: on a real GitLab, `#1` also finds `#10`.
     - The search brings back the dependency chain of the matches (ADR-30): for an assertion on the exact chain, search by **title**. By ref, each group has its `&1` and the chain grows.
     - The `globalSetup` requires `current === 3` (« Itération 15 »): on a filled GitLab, running the seeder again realigns the dates.
@@ -391,7 +398,7 @@ They live in `internal/board`. All are covered by table-driven tests: a behavior
   - `*.live.spec.ts` are tagged `@live`: they run against a real GitLab through `BASE_URL`, and assume nothing about the group's content.
   - Locale `fr-FR`, time zone `Europe/Paris`.
   - Tests use roles and labels, not CSS classes, except to measure geometry.
-  - Running both suites side by side (12 Chromium workers on 12 cores) makes every test about ten times slower: a 2 s test takes about 20 s. A heavy test (a second page or browser context, dozens of pop-up clicks: `share.spec.ts`, `window.spec.ts`) is marked `test.slow()`, or it times out. Measure with `--reporter=json` before raising anything else.
+  - Running both suites side by side (12 Chromium workers on 12 cores) makes every test about ten times slower: a 2 s test takes about 20 s. A heavy test (a second page or browser context, dozens of pop-up clicks: `persistence.spec.ts`, `window.spec.ts`) is marked `test.slow()`, or it times out. Measure with `--reporter=json` before raising anything else.
 - **Every new Playwright test is kept in the project**, never thrown away.
 
 ## Deployment (Docker)
@@ -489,7 +496,7 @@ They live in `internal/board`. All are covered by table-driven tests: a behavior
 - **The spec is the reference; the tests check it.**
   - The spec (`docs/specifications.md`) and the ADRs (`docs/decisions.md`) describe the behavior. Tests check that the code does what they say.
   - Every rule of the spec or of an ADR has at least one test, at the lowest level that holds it: Go for business rules, Vitest for frontend logic and components, Playwright for user flows.
-  - The test's name or a comment cites the section (`§4.4`, `ADR-32`) when the link is not obvious.
+  - The test's name or a comment cites the section (`§4.4`, `ADR-34`) when the link is not obvious.
   - **Changing a behavior starts with the spec** (or an ADR), then the tests that check it, then the code, all in the same commit.
 - **Spec unchanged, a test turns red**:
   - a **behavior test** (a rule of the spec or of an ADR, a result the user sees, an e2e flow) does **not** change. Red means a regression: fix the code, not the test;
@@ -518,7 +525,7 @@ They live in `internal/board`. All are covered by table-driven tests: a behavior
 - **Data of different ages**: after a targeted refresh, the other groups keep their data until the next full sync. An item moved out of the re-read subtree disappears until then.
 - **Links**: more than 100 per item and per direction are cut (`linkedItems(first: 100)`).
 - **No Helm chart** in v1: Docker and compose only. The cache is in memory, hence one instance per backend.
-- **View without saving**: checked groups, window and filters live only in the tab's URL (ADR-31). No named views nor server-side preferences. A link belongs to one GitLab instance (group, iteration and item GIDs).
-- **Lanes = GitLab groups** (ADR-32): no cross-cutting lane (two groups, a label); an item is in one lane only.
+- **Settings per browser** (ADR-36): lanes and window live in the browser's `localStorage`. No share link, no named views, no server-side preferences: a configuration follows neither the user nor another browser. Stored lanes name groups by GID, so they belong to one GitLab instance.
+- **Overlapping lanes** (ADR-34): an item that matches several active lanes shows in each; counters count it once.
 - **Read only**: a link can be neither created nor deleted from the board.
 - **Seeder not validated live**: its mutations were only checked against gitlab.com's schema and a stateful fake GitLab (ADR-27).

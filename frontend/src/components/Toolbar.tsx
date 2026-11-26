@@ -7,7 +7,6 @@ import { formatRelativeTime } from '../board/format';
 import { AppGlyph, RefreshIcon, SearchIcon, SidebarIcon } from './ui/Icons';
 import { SearchField } from './ui/SearchField';
 import { AppearanceMenu } from './ui/AppearanceMenu';
-import { CopyLinkButton } from './ui/CopyLinkButton';
 import { WindowControl } from './WindowControl';
 import { APP } from '../strings';
 
@@ -31,9 +30,6 @@ interface Props {
   /** Compact only: the search field replaces the first row (iOS). Ignored on wider screens. */
   searchOpen: boolean;
   onSearchOpenChange: (open: boolean) => void;
-  /** The link of the view, to share it; null before the board has loaded. Compact: no room
-   * here, the Filtres overlay has the button. */
-  shareLink: (() => string) | null;
 }
 
 /** "Mis à jour il y a 3 min" stays true while the page stays open. */
@@ -67,7 +63,6 @@ export function Toolbar({
   onToggleSidebar,
   searchOpen,
   onSearchOpenChange,
-  shareLink,
 }: Props) {
   const now = useNow(30_000);
   const sidebarLabel = compact ? APP.toolbar.filters : sidebarOpen ? APP.toolbar.hideSidebar : APP.toolbar.showSidebar;
@@ -185,7 +180,6 @@ export function Toolbar({
             ) : (
               searchField
             )}
-            {shareLink && !compact && <CopyLinkButton link={shareLink} />}
             <span className="toolbar-updated" aria-live="polite">
               {updated}
             </span>

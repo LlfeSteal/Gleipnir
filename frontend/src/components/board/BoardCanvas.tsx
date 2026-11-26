@@ -17,6 +17,7 @@ export interface BoardCanvasProps {
   selectedId: string | null;
   onSelect(id: string | null): void;
   onToggleLane(laneId: string): void;
+  onEditLane(laneId: string): void;
   revealId: string | null;
   onRevealed(): void;
   criticalPath: boolean;
@@ -36,6 +37,7 @@ export function BoardCanvas({
   selectedId,
   onSelect,
   onToggleLane,
+  onEditLane,
   revealId,
   onRevealed,
   criticalPath,
@@ -58,18 +60,16 @@ export function BoardCanvas({
   const selection = selectedId !== null && placedIds.has(selectedId) ? selectedId : null;
   const related = useMemo(() => (selection ? connectedIds(view, selection) : null), [view, selection]);
   const critical = useMemo(() => new Set(data.criticalPath), [data]);
-  const offRefs = useMemo(() => {
-    const refs = new Map<string, string[]>();
+  // Refs of the badges' dependencies, by placed key: outside the window, outside every lane.
+  const [offRefs, offLanesRefs] = useMemo(() => {
+    const refsOf = (ids: string[]) => ids.flatMap((id) => index.get(id)?.item.ref ?? []);
+    const window = new Map<string, string[]>();
+    const lanes = new Map<string, string[]>();
     for (const p of view.items) {
-      if (p.offWindow.length === 0) continue;
-      const list: string[] = [];
-      for (const id of p.offWindow) {
-        const entry = index.get(id);
-        if (entry) list.push(entry.item.ref);
-      }
-      refs.set(p.key, list);
+      if (p.offWindow.length > 0) window.set(p.key, refsOf(p.offWindow));
+      if (p.offLanes.length > 0) lanes.set(p.key, refsOf(p.offLanes));
     }
-    return refs;
+    return [window, lanes];
   }, [view, index]);
 
   // Reports the width left for the columns: window resize, sidebar or inspector toggled. The
@@ -146,7 +146,7 @@ export function BoardCanvas({
         data-critical-path={criticalPath || undefined}
       >
         <ColumnHeaders view={view} />
-        <LaneRail view={view} onToggleLane={onToggleLane} />
+        <LaneRail view={view} data={data} onToggleLane={onToggleLane} onEditLane={onEditLane} />
         {view.columns.map((c) => (
           <div
             key={c.key}
@@ -187,6 +187,7 @@ export function BoardCanvas({
             related: related?.has(p.itemId) ?? false,
             critical: critical.has(p.itemId),
             offWindowRefs: offRefs.get(p.key) ?? NO_IDS,
+            offLanesRefs: offLanesRefs.get(p.key) ?? NO_IDS,
             onToggle: toggle,
           };
           return entry.kind === 'epic' ? (

@@ -10,6 +10,7 @@ import { EpicBar } from './EpicBar';
 import { IssueCard } from './IssueCard';
 import { ColumnHeaders } from './ColumnHeaders';
 import { LinkLayer } from './LinkLayer';
+import { OffLanesPill } from './OffLanesPill';
 import { OffWindowPill } from './OffWindowPill';
 
 // Unit tests of the canvas parts, for the states the mockup dataset doesn't reach through
@@ -30,12 +31,13 @@ function placed(over: Partial<PlacedItem> = {}): PlacedItem {
     clippedEnd: false,
     unplanned: false,
     offWindow: [],
+    offLanes: [],
     searchContext: false,
     ...over,
   };
 }
 
-const common = { data, selected: false, related: false, critical: false, offWindowRefs: [] as string[] };
+const common = { data, selected: false, related: false, critical: false, offWindowRefs: [] as string[], offLanesRefs: [] as string[] };
 
 describe('EpicBar', () => {
   it('a plain bar: no clip, no pill, open', () => {
@@ -49,6 +51,17 @@ describe('EpicBar', () => {
     expect(bar.style.width).toBe('300px');
     expect(bar.querySelector('.epic-clip')).toBeNull();
     expect(bar.querySelector('.off-pill')).toBeNull();
+    expect(bar.querySelector('.off-lanes-pill')).toBeNull();
+  });
+
+  it('shows its dependencies outside every lane in full, after those off the window (spec §4.5)', () => {
+    render(<EpicBar {...common} offWindowRefs={['&21']} offLanesRefs={['&30', '#7']} placed={placed()} epic={baseEpic} onToggle={vi.fn()} />);
+    const bar = screen.getByRole('button');
+    const pill = bar.querySelector('.off-lanes-pill')!;
+    expect(pill).toHaveTextContent('2 hors couloirs');
+    expect(pill).toHaveAttribute('title', 'Dépendances hors couloirs : &30, #7');
+    expect(pill.querySelector('svg')).not.toBeNull();
+    expect(bar).toHaveAttribute('aria-description', 'Dépendance hors fenêtre : &21. Dépendances hors couloirs : &30, #7');
   });
 
   it('marks a dependency brought in by the search, not a match', () => {
@@ -122,14 +135,29 @@ describe('IssueCard', () => {
     expect(screen.getByRole('button').querySelector('.avatar')!.textContent).toBe(want);
   });
 
-  it('a closed issue without assignee, blocked epic or label', () => {
+  it('a closed issue without assignee, blocked epic or label: « Ne bloque aucun epic »', () => {
     card(issue({ state: 'closed', assignee: null, blocksEpics: ['unknown'], labels: [] }));
     const button = screen.getByRole('button', { name: new RegExp(`, fermée$`) });
     expect(button).toHaveAttribute('data-closed', 'true');
     expect(screen.getByText('Fermée')).toBeInTheDocument();
     expect(button.querySelector('.avatar')).toBeNull();
-    expect(button.querySelector('.issue-blocks')).toBeNull();
+    expect(button.querySelector('.issue-blocks')).toHaveTextContent('Ne bloque aucun epic');
+    expect(button.querySelector('.issue-blocks')).toHaveAttribute('data-none', 'true');
     expect(button.querySelector('.issue-labels')).toBeNull();
+  });
+
+  it('an issue that blocks no epic says so (spec §4.2)', () => {
+    card(issue({ blocksEpics: [] }));
+    expect(screen.getByText('Ne bloque aucun epic')).toBeInTheDocument();
+    expect(screen.getByRole('button').querySelector('.issue-blocks svg')).toBeNull();
+  });
+
+  it('shows its dependencies outside every lane as an icon and a number, the label in the tooltip', () => {
+    card(issue({}), { offLanesRefs: ['&30'] });
+    const pill = screen.getByTitle('Dépendance hors couloirs : &30');
+    expect(pill).toHaveTextContent(/^1$/);
+    expect(pill).toHaveAttribute('data-compact', 'true');
+    expect(screen.getByRole('button')).toHaveAttribute('aria-description', 'Dépendance hors couloirs : &30');
   });
 
   it('marks a dependency brought in by the search', () => {
@@ -170,10 +198,10 @@ describe('IssueCard', () => {
   });
 });
 
-describe('OffWindowPill', () => {
-  it('renders nothing without refs', () => {
-    const { container } = render(<OffWindowPill refs={[]} />);
-    expect(container).toBeEmptyDOMElement();
+describe('OffWindowPill and OffLanesPill', () => {
+  it('render nothing without refs', () => {
+    expect(render(<OffWindowPill refs={[]} />).container).toBeEmptyDOMElement();
+    expect(render(<OffLanesPill refs={[]} />).container).toBeEmptyDOMElement();
   });
 });
 

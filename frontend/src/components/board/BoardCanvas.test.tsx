@@ -3,7 +3,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { G, idOf, mockupBoard } from '../../board/fixtures';
-import { defaultChecked, lanesOf } from '../../board/lanes';
+import { defaultLanes } from '../../board/lanes';
 import { DEFAULT_OPTIONS, type BoardView } from '../../board/types';
 import { COMPACT_LAYOUT, computeBoardView } from '../../board/view';
 import { BoardCanvas, type BoardCanvasProps } from './BoardCanvas';
@@ -11,7 +11,8 @@ import { ItemGlyph } from './ItemGlyph';
 import { LinkSwatch } from './LinkSwatch';
 
 const data = mockupBoard();
-const lanes = lanesOf(data, new Set(defaultChecked(data)));
+const lanes = defaultLanes(data);
+const dataLane = lanes.find((l) => l.groups[0] === data.groups.find((g) => g.path === G.data)!.id)!.id;
 
 function makeView(collapsed: string[] = []): BoardView {
   return computeBoardView({
@@ -28,6 +29,7 @@ function setup(props: Partial<BoardCanvasProps> = {}) {
   const handlers = {
     onSelect: vi.fn(),
     onToggleLane: vi.fn(),
+    onEditLane: vi.fn(),
     onRevealed: vi.fn(),
   };
   const all: BoardCanvasProps = {
@@ -55,6 +57,9 @@ describe('BoardCanvas', () => {
     const epic = screen.getByRole('button', { name: "Epic &18 API d'export des données" });
     expect(epic).toHaveAttribute('aria-pressed', 'false');
     expect(within(epic).getByText('› 2')).toHaveAttribute('title', 'Dépendances hors fenêtre : &22, #140');
+    // &30, in the root group, is in no lane (spec §4.5).
+    const e15 = screen.getByRole('button', { name: 'Epic &15 Refonte du tableau de bord' });
+    expect(within(e15).getByText('1 hors couloirs').closest('.off-lanes-pill')).toHaveAttribute('title', 'Dépendance hors couloirs : &30');
     const closed = screen.getByRole('button', { name: 'Issue #131 Montée de version Kafka, fermée' });
     expect(closed).toHaveAttribute('data-closed');
     expect(within(closed).getByText('Fermée')).toBeInTheDocument();
@@ -103,16 +108,17 @@ describe('BoardCanvas', () => {
     expect(container.querySelector('.board-canvas')).not.toHaveAttribute('data-selection');
   });
 
-  it('collapses lanes, which cannot be edited', async () => {
+  it('collapses and edits lanes', async () => {
     const user = userEvent.setup();
-    const { onToggleLane, rerender } = setup();
+    const { onToggleLane, onEditLane, rerender } = setup();
     const collapse = screen.getByRole('button', { name: 'Replier le couloir Data' });
     expect(collapse).toHaveAttribute('aria-expanded', 'true');
     await user.click(collapse);
-    expect(onToggleLane).toHaveBeenCalledWith(G.data);
-    expect(screen.queryByRole('button', { name: /^Modifier/ })).toBeNull();
+    expect(onToggleLane).toHaveBeenCalledWith(dataLane);
+    await user.click(screen.getByRole('button', { name: 'Modifier le couloir Data' }));
+    expect(onEditLane).toHaveBeenCalledWith(dataLane);
 
-    rerender({ view: makeView([G.data]) });
+    rerender({ view: makeView([dataLane]) });
     const expand = screen.getByRole('button', { name: 'Déplier le couloir Data' });
     expect(expand).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByRole('button', { name: /Pipeline analytique/ })).toBeNull();
@@ -178,8 +184,8 @@ describe('BoardCanvas', () => {
 
   it('shows an empty lane message', () => {
     // Only the Identité lane holds "sécurité" items.
-    const options = { ...DEFAULT_OPTIONS, labels: ['sécurité'] };
-    const view = computeBoardView({ data, lanes, window: { from: 2, to: 6 }, options, query: '', collapsed: new Set() });
+    const labelled = lanes.map((l) => ({ ...l, labels: ['sécurité'] }));
+    const view = computeBoardView({ data, lanes: labelled, window: { from: 2, to: 6 }, options: DEFAULT_OPTIONS, query: '', collapsed: new Set() });
     setup({ view });
     expect(screen.getAllByText('Aucun élément de ce couloir dans la fenêtre.')).toHaveLength(lanes.length - 1);
   });

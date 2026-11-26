@@ -3,59 +3,77 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { G, mockupBoard } from '../../board/fixtures';
-import { lanesOf } from '../../board/lanes';
-import { DEFAULT_OPTIONS } from '../../board/types';
+import { defaultLanes } from '../../board/lanes';
+import { DEFAULT_OPTIONS, type Lane } from '../../board/types';
 import { computeBoardView } from '../../board/view';
 import { LaneRail } from './LaneRail';
 
 const data = mockupBoard();
+const gid = (path: string) => data.groups.find((g) => g.path === path)!.id;
+const api = defaultLanes(data)[0];
 
-function renderRail(groups: string[], collapsed: string[] = [], window = { from: 2, to: 6 }) {
-  const lanes = lanesOf(data, new Set(groups));
+function renderRail(lanes: Lane[], collapsed: string[] = [], window = { from: 2, to: 6 }) {
   const view = computeBoardView({ data, lanes, window, options: DEFAULT_OPTIONS, query: '', collapsed: new Set(collapsed) });
-  const handlers = { onToggleLane: vi.fn() };
-  render(<LaneRail view={view} {...handlers} />);
+  const handlers = { onToggleLane: vi.fn(), onEditLane: vi.fn() };
+  render(<LaneRail view={view} data={data} {...handlers} />);
   return { ...handlers, view, user: userEvent.setup() };
 }
 
 const header = (name: string) => screen.getByRole('region', { name });
 
 describe('LaneRail', () => {
-  it('names a lane after its GitLab group, with its path and counts by type', () => {
-    const { view } = renderRail([G.api]);
+  it('shows a lane: name, color, groups with subgroups, issue mode and counts by type (spec §4.1)', () => {
+    const { view } = renderRail([api]);
     const h = header('API & intégrations');
     expect(h).toHaveAttribute('data-lane-color', 'indigo');
-    expect(h).toHaveTextContent(G.api);
+    expect(h).toHaveTextContent('API & intégrations + sous-groupes');
+    expect(h).toHaveTextContent('issues bloquantes');
     const counts = view.lanes[0].counts;
     expect(within(h).getByTitle(`${counts.epics} epics`)).toBeInTheDocument();
     expect(within(h).getByTitle(`${counts.issues} issues`)).toBeInTheDocument();
-    expect(within(h).getByText('epics')).toBeInTheDocument();
-    expect(within(h).getByText('issues')).toBeInTheDocument();
   });
 
-  it('says where a sublane sits, and never offers to edit a lane', () => {
-    renderRail([G.partenaires], [], { from: 7, to: 9 });
-    const h = header('Partenaires');
-    expect(h).toHaveTextContent('API & intégrations › Partenaires');
-    expect(within(h).getByTitle(`${1} epic`)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^Modifier/ })).toBeNull();
+  it('shows the labels and their mode, and hides the counts of a type the lane leaves out', () => {
+    renderRail([{ ...api, groups: [gid(G.api), gid(G.data)], includeSubgroups: false, labels: ['API', 'bug'], labelMode: 'all', issueMode: 'none' }]);
+    const h = header('API & intégrations');
+    expect(h).toHaveTextContent('API & intégrations, Data');
+    expect(h).not.toHaveTextContent('sous-groupes');
+    expect(h).toHaveTextContent('aucune issue');
+    expect(within(h).getByText('API').closest<HTMLElement>('.lane-label')!.style.getPropertyValue('--label-color')).toBe('#14a08a');
+    expect(h).toHaveTextContent('· tous');
+    expect(within(h).queryByTitle(/issues?$/)).toBeNull();
+    renderRail([{ ...api, id: 'b', name: 'B', showEpics: false, issueMode: 'all', labels: ['API'] }]);
+    expect(header('B')).toHaveTextContent('toutes les issues');
+    expect(header('B')).toHaveTextContent('· au moins un');
+    expect(within(header('B')).queryByTitle(/epics?$/)).toBeNull();
   });
 
-  it('counts the items outside the window', () => {
-    const { view } = renderRail([data.rootGroup.path], [], { from: 3, to: 3 });
+  it('offers to edit the lane', async () => {
+    const { user, onEditLane } = renderRail([api]);
+    await user.click(screen.getByRole('button', { name: 'Modifier le couloir API & intégrations' }));
+    expect(onEditLane).toHaveBeenCalledWith(api.id);
+  });
+
+  it('counts the items outside the window; a lane without a known group says so', () => {
+    const { view } = renderRail([{ ...api, name: 'Tout', groups: [gid(data.rootGroup.path)] }, { ...api, id: 'x', name: 'X', groups: ['gid://gitlab/Group/999'] }], [], {
+      from: 3,
+      to: 3,
+    });
     const outside = view.lanes[0].counts.outside;
     expect(outside).toBeGreaterThan(0);
-    expect(header('Atlas')).toHaveTextContent(`${outside} hors fenêtre`);
+    expect(header('Tout')).toHaveTextContent(`${outside} hors fenêtre`);
+    expect(header('X')).toHaveTextContent('aucun groupe');
   });
 
-  it('a collapsed lane hides its path and offers to expand', async () => {
-    const { user, onToggleLane } = renderRail([G.data], [G.data]);
+  it('a collapsed lane hides its filters and offers to expand', async () => {
+    const lane = defaultLanes(data)[1];
+    const { user, onToggleLane } = renderRail([lane], [lane.id]);
     const h = header('Data');
     expect(h).toHaveAttribute('data-collapsed', 'true');
-    expect(h).not.toHaveTextContent(G.data);
+    expect(h).not.toHaveTextContent('issues bloquantes');
     const chevron = within(h).getByRole('button', { name: 'Déplier le couloir Data' });
     expect(chevron).toHaveAttribute('aria-expanded', 'false');
     await user.click(chevron);
-    expect(onToggleLane).toHaveBeenCalledWith(G.data);
+    expect(onToggleLane).toHaveBeenCalledWith(lane.id);
   });
 });

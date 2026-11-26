@@ -182,6 +182,15 @@ export const ExternalIcon = (props: IconProps) => (
   </Icon>
 );
 
+/** A door with an arrow leaving it, like SF Symbols' rectangle.portrait.and.arrow.right: a
+ * dependency outside every active lane. */
+export const ExitIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M14 4H6.5A1.5 1.5 0 0 0 5 5.5v13A1.5 1.5 0 0 0 6.5 20H14" />
+    <path d="M10 12h10M17 9l3 3-3 3" />
+  </Icon>
+);
+
 export const WarningIcon = (props: IconProps) => (
   <Icon {...props}>
     <path d="M12 3.5L2.5 20h19L12 3.5z" />

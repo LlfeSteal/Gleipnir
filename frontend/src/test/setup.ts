@@ -22,13 +22,20 @@ if (typeof window !== 'undefined') {
   window.ResizeObserver ??= ResizeObserverStub;
   Element.prototype.scrollTo ??= function () {};
   Element.prototype.scrollIntoView ??= function () {};
+  // jsdom has no <dialog> methods.
+  HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
+    this.setAttribute('open', '');
+  };
+  HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
+    this.removeAttribute('open');
+    this.dispatchEvent(new Event('close'));
+  };
 
   beforeEach(() => installMatchMedia());
   afterEach(() => {
     cleanup();
+    // The app remembers its lanes and window in localStorage (ADR-36): each test starts afresh.
     localStorage.clear();
     sessionStorage.clear();
-    // The app writes its view in the URL (ADR-31): each test starts from a plain one.
-    window.history.replaceState(null, '', '/');
   });
 }

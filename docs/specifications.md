@@ -1,7 +1,7 @@
 # Trame — Board des dépendances GitLab
 
-Spécifications fonctionnelles et techniques, version 0.1 (20 novembre 2026).
-Ce document décrit l'application telle que la maquette la montre (`board.html`).
+Spécifications fonctionnelles et techniques, version 0.3 (26 novembre 2026).
+Ce document décrit l'application telle que la maquette la montre (`board.html`). Les écarts assumés de l'application réelle sont consignés dans `docs/decisions.md` et signalés ici par leur ADR.
 
 > « Trame » est un nom de travail provisoire.
 
@@ -25,10 +25,10 @@ L'outil ne suit **pas l'avancement**. Il n'affiche ni pourcentage, ni poids, ni 
 | Inclus | Exclu |
 |---|---|
 | Epics | Milestones |
-| Issues **qui bloquent au moins un epic** | Issues sans lien « bloque » vers un epic |
+| Issues, selon le réglage de chaque couloir : toutes, uniquement celles qui bloquent un epic, ou aucune | |
 | Liens « bloque », « lié à », « epic parent → issue » | Indicateurs d'avancement (progression, poids, burndown) |
 | Itérations d'une cadence GitLab | Modification des données GitLab (lecture seule, v1) |
-| Couloirs = groupes GitLab cochés ; filtres de types et de labels | |
+| Couloirs configurables par groupes, types et labels | |
 
 ---
 
@@ -38,10 +38,12 @@ L'outil ne suit **pas l'avancement**. Il n'affiche ni pourcentage, ni poids, ni 
 |---|---|
 | **Itération** | Itération GitLab d'une cadence (par exemple « Itération 15, 18 nov. – 1 déc. »). Chaque itération est une **colonne** du board. |
 | **Fenêtre** | Plage d'itérations consécutives affichées (de *N* à *M*). |
-| **Couloir** | Ligne horizontale du board : un **groupe GitLab coché** dans l'arbre des groupes (§4.4). Il porte les éléments dont c'est le groupe coché le plus proche. |
+| **Couloir** | Ligne horizontale du board, définie par un **filtre** : groupes, types d'artefact et labels (ADR-34). |
 | **Epic** | Epic GitLab de niveau groupe, positionné de son itération de début à son itération de fin. |
 | **Issue bloquante** | Issue qui a au moins un lien « bloque » vers un epic. |
-| **Dépendance hors fenêtre** | Lien vers un élément affiché sur le board (couloirs et filtres), mais en dehors de la fenêtre. |
+| **Mode d'affichage des issues** | Réglage d'un couloir : *Toutes*, *Uniquement celles qui bloquent un epic* ou *Aucune* (ADR-35). |
+| **Dépendance hors fenêtre** | Lien vers un élément qui correspond à un couloir mais se trouve en dehors de la fenêtre. |
+| **Dépendance hors couloirs** | Lien vers un élément qui ne correspond à aucun couloir actif (ADR-37). |
 
 ---
 
@@ -50,16 +52,18 @@ L'outil ne suit **pas l'avancement**. Il n'affiche ni pourcentage, ni poids, ni 
 ### 4.1 Le board
 
 - **Colonnes** : une par itération de la fenêtre. Chaque colonne affiche le nom et les dates de l'itération. L'itération en cours est mise en évidence (fond teinté et badge « En cours »).
-- **Couloirs** : un par groupe coché, dans l'ordre de l'arbre des groupes (§4.4). Leurs en-têtes forment une **colonne fixe à gauche**, qui reste visible pendant le défilement horizontal.
+- **Couloirs** : un par couloir actif, dans l'ordre configuré. Leurs en-têtes forment une **colonne fixe à gauche**, qui reste visible pendant le défilement horizontal.
 - **Placement des éléments**, dans chaque couloir :
   1. les epics en barres horizontales, de l'itération de début à l'itération de fin. Les barres sont rangées sur le moins de lignes possible sans chevauchement ;
-  2. les issues bloquantes en cartes, empilées dans la colonne de leur itération.
+  2. les issues en cartes, selon le mode d'affichage du couloir, empilées dans la colonne de leur itération.
 - **Liens** : courbes dessinées entre les éléments (voir 4.5).
 - **En-tête de couloir** : il affiche
-  - le nom du groupe GitLab et la couleur du couloir ;
-  - le chemin du groupe, ou sa place pour un sous-couloir (« API et intégrations › Partenaires ») ;
+  - le nom et la couleur du couloir ;
+  - les groupes ciblés et l'option sous-groupes ;
+  - le mode d'affichage des issues ;
+  - les labels filtrés et le mode (« au moins un » ou « tous ») ;
   - le nombre d'epics et d'issues visibles, et le nombre d'éléments hors fenêtre ;
-  - un bouton **replier / déplier**. Rien ne s'y modifie : les couloirs sont en lecture seule.
+  - un bouton **replier / déplier** et un bouton **modifier**.
 - Un couloir sans élément dans la fenêtre affiche un message vide.
 
 ### 4.2 Identification visuelle des types
@@ -68,17 +72,19 @@ Chaque type est reconnaissable par sa **forme**, sa **couleur** et son **pictogr
 
 | Type | Forme | Couleur | Pictogramme |
 |---|---|---|---|
-| Epic | Barre pleine, coins arrondis, texte blanc, étiquette « EPIC » | Violet `#5b3fb0` | Pile de calques |
+| Epic | Barre pleine, coins arrondis, texte blanc, référence `&18` avant le titre | Violet `#5b3fb0` | Pile de calques |
 | Issue | Carte blanche avec en-tête teinté | En-tête bleu `#e8f0fd`, gris si fermée | Cercle avec point (ouverte) ou coche (fermée) |
+
+> Écart assumé (ADR-12) : la maquette porte une étiquette « EPIC » sur chaque barre ; l'application ne l'affiche pas, la forme, la couleur, le pictogramme et le libellé ARIA suffisent.
 
 - Un **epic coupé** par la fenêtre a un bord pointillé et une flèche ‹ ou › du côté coupé. L'infobulle donne l'itération réelle de début ou de fin.
 - Une **issue** affiche :
   - sa référence (`#110`) et la personne assignée (avatar) ;
   - son titre, sur deux lignes au plus ;
-  - la mention « Bloque &xx » avec les epics qu'elle bloque ;
+  - la mention « Bloque &xx » avec les epics qu'elle bloque, ou « Ne bloque aucun epic » ;
   - deux labels au plus, puis « +N » pour les suivants.
 - Une **issue fermée** reste visible, avec un en-tête gris et la mention « Fermée » : c'est un bloqueur levé.
-- La même forme miniature sert dans la légende, dans l'en-tête des couloirs et dans le panneau de détail.
+- La même forme miniature sert dans la légende, dans les réglages des couloirs et dans le panneau de détail.
 
 ### 4.3 Fenêtre temporelle
 
@@ -93,19 +99,38 @@ Chaque type est reconnaissable par sa **forme**, sa **couleur** et son **pictogr
 - Règles d'affichage :
   - un epic est affiché si sa période **chevauche** la fenêtre. Il est alors coupé aux bords ;
   - une issue est affichée si son itération est **dans** la fenêtre.
-- Les colonnes, « Non planifié » comprise, se partagent à parts égales la largeur disponible du board. Elles ne descendent pas sous 212 px, ou 180 px au-delà de 7 colonnes : en dessous, le board défile horizontalement.
-- La fenêtre fait partie de l'URL de la vue (voir §7).
+- Les colonnes, « Non planifié » comprise, se partagent à parts égales la largeur disponible du board. Elles ne descendent pas sous 212 px, ou 180 px au-delà de 7 colonnes : en dessous, le board défile horizontalement (ADR-29).
+- La fenêtre est mémorisée dans le navigateur (ADR-36).
 
-### 4.4 Couloirs : les groupes GitLab
+> Écart assumé (ADR-11) : les deux listes et les trois réglages rapides sont réunis dans un seul bouton pop-up `‹ [It. 14 – It. 18 ▾] ›`.
 
-Les couloirs sont les **groupes GitLab cochés** dans l'arbre des groupes (ADR-32). Ils sont en **lecture seule**, comme le reste de l'application : on ne crée, ne renomme ni ne modifie un couloir. Pour un nouveau couloir, on crée le groupe dans GitLab, puis on synchronise.
+### 4.4 Couloirs configurables
 
-- Un couloir porte le **nom** du groupe dans GitLab. Un sous-couloir dit où il se trouve : « API et intégrations › Partenaires ».
-- Un élément va dans le couloir de son **groupe coché le plus proche** : son groupe s'il est coché, sinon le premier ancêtre coché. Il n'apparaît que dans un couloir ; sans ancêtre coché, il n'est pas affiché.
-- Cocher un sous-groupe lui donne donc son propre couloir, et retire ses éléments du couloir de son parent.
-- Par défaut, les **sous-groupes directs** du groupe racine sont cochés (le groupe racine s'il n'en a pas).
-- L'ordre des couloirs est celui de l'arbre : un groupe, puis ses sous-groupes ; les frères par chemin.
-- La **couleur** d'un couloir est celle du sous-groupe de premier niveau dont il descend : un sous-couloir garde la couleur de son parent.
+Chaque couloir a les propriétés suivantes (ADR-34) :
+
+| Propriété | Description |
+|---|---|
+| Nom | Texte libre |
+| Couleur | Couleur du filet et de la pastille de l'en-tête, choisie dans une palette de 8 couleurs (ADR-15) |
+| Groupes GitLab | Un ou plusieurs groupes, choisis dans l'arbre des groupes lu dans GitLab |
+| Inclure les sous-groupes | Oui / non. Si oui, un élément de `a/b/c` correspond au groupe `a/b`. |
+| Afficher les epics | Oui / non |
+| Issues | Choix exclusif : **Toutes les issues**, **Uniquement celles qui bloquent un epic** (par défaut) ou **Aucune issue** (voir 5.1). |
+| Labels | Liste de labels (vide = pas de filtre) |
+| Mode de correspondance | « Au moins un » (OU) ou « Tous » (ET) |
+| Actif | Couloir affiché ou masqué |
+
+Le panneau **Configurer les couloirs** permet de :
+- créer, modifier, supprimer, monter ou descendre un couloir. L'ordre de la liste est l'ordre d'affichage ;
+- activer ou masquer un couloir ;
+- choisir les groupes d'un couloir dans l'**arbre des groupes GitLab** (le groupe racine et tous ses sous-groupes). On ne saisit pas de chemin : les groupes disponibles sont ceux que GitLab renvoie ;
+- rétablir la configuration d'exemple : un couloir par sous-groupe direct du groupe racine (le groupe racine s'il n'en a pas), sous-groupes inclus, issues bloquantes seulement.
+
+Un nouveau couloir prend la première couleur de la palette qu'aucun autre couloir n'utilise.
+
+Le panneau a des boutons **Annuler** et **Appliquer** : rien ne change sur le board avant « Appliquer ». Échap vaut « Annuler ». Sur mobile, il occupe tout l'écran.
+
+Les couloirs peuvent se **recouper**. Un élément qui correspond à plusieurs couloirs apparaît dans chacun.
 
 ### 4.5 Liens
 
@@ -115,13 +140,20 @@ Les couloirs sont les **groupes GitLab cochés** dans l'arbre des groupes (ADR-3
 | **Lié à** | Lien `relates_to` | Trait plein bleu `#2f6fdb` | Sans sens |
 | **Epic parent → issue** | Relation de hiérarchie | Tirets violets `#7a68c0` | Du parent vers l'enfant |
 
+> Écart assumé (ADR-11) : dans l'application, les liens sont neutres et se distinguent par leur forme (« Bloque » : trait plein fléché ; « Lié à » : pointillé ; « Parent » : tirets). Le rouge est réservé aux conflits, le noir au chemin critique.
+
 - Les liens sont tracés pour les couples **epic ↔ epic**, **issue → epic** et **issue ↔ issue**, ce dernier seulement si les deux issues sont affichées.
 - **Les filtres de type de lien s'appliquent à tout le board**, pas couloir par couloir. Par défaut : « Bloque » et « Lié à » sont affichés, « Epic parent → issue » est masqué.
 - Tracé des courbes :
   - deux éléments côte à côte : courbe horizontale, du bord droit au bord gauche ;
   - deux éléments l'un au-dessus de l'autre : courbe verticale, alignée sur l'élément le plus étroit ;
   - deux issues dans la même colonne : boucle sur le côté droit, pour ne pas traverser les cartes intermédiaires.
+- Élément présent dans plusieurs couloirs : on relie en priorité l'occurrence du même couloir, sinon la première.
 - **Dépendance hors fenêtre** : le lien n'est pas dessiné. L'élément visible porte un badge « › N hors fenêtre ».
+- **Dépendance hors couloirs** (ADR-37) : quand l'autre élément ne correspond à **aucun couloir actif**, le lien n'est pas dessiné et l'élément n'est pas ajouté au board. L'élément visible porte un badge distinct, en pointillés, avec une icône de sortie : « N hors couloirs ».
+  - Le test d'appartenance ignore la fenêtre, la recherche et l'option « Masquer les issues fermées ». Un élément exclu par la règle d'un couloir (par exemple une issue dans un couloir réglé sur « Aucune issue ») compte comme hors couloirs s'il ne correspond à aucun autre couloir.
+  - Seuls les liens « Bloque » et « Lié à » comptent, si leur type est affiché. Les liens de hiérarchie (epic parent → issue) sont exclus du badge, sinon chaque epic serait signalé à cause de ses issues masquées par choix.
+  - Sur un epic, le badge porte son libellé complet. Sur une carte d'issue, il est réduit à l'icône et au nombre, et l'infobulle donne le libellé. Les deux badges figurent dans la légende.
 
 ### 4.6 Sélection et panneau de détail
 
@@ -132,41 +164,41 @@ Les couloirs sont les **groupes GitLab cochés** dans l'arbre des groupes (ADR-3
 - Un nouveau clic, un clic dans une zone vide ou le bouton ✕ annule la sélection.
 - Le **panneau de détail** affiche :
   - le type, la référence, l'état et le titre ;
-  - le groupe, le couloir où l'élément apparaît (aucun s'il n'est sous aucun groupe coché), l'itération (issue) ou la période (epic) ;
+  - le groupe, les couloirs où l'élément apparaît, l'itération (issue) ou la période (epic) ;
   - pour une issue : l'epic parent et la personne assignée ;
   - les labels ;
   - les dépendances, regroupées par catégorie :
     - epic : « Bloque », « Bloqué par (epics) », « Bloqué par (issues) », « Lié à » ;
     - issue : « Bloque », « Lié à » ;
   - un lien « Ouvrir dans GitLab ».
+- Un élément listé dans le détail mais **hors couloirs** apparaît en pointillés, avec la mention « Hors couloirs · <groupe> ». Il n'est pas cliquable sur le board ; on l'ouvre dans GitLab, ou on ajuste un couloir pour l'inclure.
 - Un élément listé dans le détail mais **hors fenêtre** porte son itération ou sa période (`It. 13`). Le cliquer **déplace la fenêtre** jusqu'à lui, en gardant sa largeur, le sélectionne et le fait défiler dans la zone visible.
 - Sur mobile, le panneau de détail s'ouvre depuis le bas de l'écran.
 
 ### 4.7 Filtres et options globales
 
 - **Recherche** sur la référence (`#110`, `&18`) et sur le titre, dans tous les couloirs.
-  - Elle affiche les éléments trouvés **et toute leur chaîne de dépendances**, même si celles-ci ne contiennent pas le texte cherché :
+  - Elle affiche les éléments trouvés **et toute leur chaîne de dépendances**, même si celles-ci ne contiennent pas le texte cherché (ADR-30) :
     - en amont, ce qui les bloque, de proche en proche ;
     - en aval, ce qu'ils bloquent, de proche en proche.
   - Les deux sens sont parcourus séparément : un autre bloqueur d'un élément bloqué n'est pas ramené.
   - Seuls les types de lien cochés sont suivis. Un lien « lié à » se suit dans les deux sens.
   - Les dépendances ajoutées sont atténuées ; les éléments trouvés restent pleins.
-- **Types d'éléments** : epics, issues bloquantes (interrupteurs).
-- **Labels** : une liste de labels, avec « Au moins un » (OU) ou « Tous » (ET). Vide : pas de filtre.
 - **Masquer les issues fermées**.
 - **Types de lien** (voir 4.5).
-- Ces filtres s'appliquent à **tout le board**, après la recherche.
-- **Compteurs** en haut du board : couloirs actifs, epics, issues bloquantes et blocages visibles.
+- **Compteurs** en haut du board : couloirs actifs, epics, issues et blocages visibles. Un élément présent dans plusieurs couloirs n'est compté qu'une fois.
 
 ### 4.8 Panneau de configuration de gauche
 
 Le panneau contient :
-- l'**arbre des groupes GitLab**, avec une case à cocher par groupe (un groupe coché est un couloir), sa couleur et le nombre d'éléments affichés. Une branche se replie ; celles qui mènent à un groupe coché sont dépliées ;
-- les types d'éléments et le filtre de labels ;
+- la liste des couloirs, avec une case à cocher, la couleur et un bouton modifier ;
+- le bouton « Nouveau couloir » ;
 - les types de lien ;
 - les options d'affichage.
 
-Il est **repliable** avec le bouton ‹. Replié, il devient une bande de 52 px qui garde le bouton › et des pastilles de couleur pour les couloirs actifs. Son état est mémorisé dans le navigateur.
+Il est **repliable** avec le bouton ‹. Son état est mémorisé dans le navigateur.
+
+> Écart assumé (ADR-11) : la maquette replie le panneau en une bande de 52 px avec des pastilles de couleur ; l'application le masque entièrement, comme une sidebar macOS.
 
 Sur mobile (largeur ≤ 760 px), il est masqué et s'ouvre avec le bouton « Filtres ».
 
@@ -176,14 +208,20 @@ Sur mobile (largeur ≤ 760 px), il est masqué et s'ouvre avec le bouton « Fil
 
 ### 5.1 Issues affichées
 
-Une issue est affichable si **elle a au moins un lien `blocks` dont la cible est un epic**. Ensuite :
-- un de ses groupes, le sien ou un ancêtre, doit être coché (§4.4) ;
-- elle doit passer les filtres globaux : type « Issues bloquantes » activé, labels (§4.7) ;
+Le mode d'affichage des issues du couloir décide d'abord (ADR-35) :
+- **Toutes** : toutes les issues des groupes du couloir ;
+- **Uniquement celles qui bloquent un epic** : les issues qui ont au moins un lien `blocks` dont la cible est un epic ;
+- **Aucune** : aucune issue dans ce couloir.
+
+Ensuite :
+- elle doit correspondre au couloir (groupe, type « issues » activé, labels) ;
 - son itération doit être dans la fenêtre ;
 - elle doit correspondre à la recherche, ou appartenir à la chaîne de dépendances d'un élément qui y correspond (§4.7) ;
 - elle doit passer l'option « Masquer les issues fermées ».
 
-Les autres issues synchronisées sont ignorées. Le panneau de gauche en indique le nombre.
+Une issue sans itération de la cadence, quel que soit le mode, va dans la colonne « Non planifié » du couloir (ADR-10, ADR-35).
+
+Le panneau de gauche rappelle combien d'issues synchronisées bloquent un epic (par exemple « 9 sur 16 »).
 
 ### 5.2 Rattachement d'un epic aux itérations
 
@@ -191,13 +229,13 @@ GitLab ne relie pas un epic à des itérations. Il lui donne des dates de début
 - **itération de début** : celle qui contient la date de début de l'epic ;
 - **itération de fin** : celle qui contient sa date de fin ;
 - date tombant entre deux itérations : on prend l'itération **suivante** pour le début, la **précédente** pour la fin ;
-- epic sans date : on calcule ses dates à partir des itérations de ses issues enfants (min / max). S'il n'en a aucune, il va dans une zone « Non planifié » (à concevoir, voir § 9).
+- epic sans date : on calcule ses dates à partir des itérations de ses issues enfants (min / max). S'il n'en a aucune, il va dans une zone « Non planifié » (ADR-10 ; cas limites : ADR-19).
 
 ### 5.3 Appartenance d'un élément à un groupe
 
 - Epic : le groupe qui le porte.
 - Issue : le groupe parent du projet qui la porte.
-- Couloir d'un élément : le groupe coché le plus proche en remontant le chemin de son groupe (lui-même, puis ses ancêtres). Un élément n'est que dans un couloir ; sans groupe coché sur son chemin, il n'est pas affiché (ADR-32).
+- Avec l'option « sous-groupes », un chemin qui commence par `groupe/` correspond aussi.
 
 ### 5.4 Normalisation des liens
 
@@ -225,10 +263,10 @@ GitLab renvoie les liens dans les deux sens (`blocks` et `is_blocked_by`). On le
 Iteration { id, title, startDate, dueDate, cadenceId, isCurrent }
 Group     { id, fullPath, name }
 Epic      { id, iid, ref:"&18", groupPath, title, labels[], state, startIteration, endIteration, webUrl }
-Issue     { id, iid, ref:"#110", groupPath, projectPath, title, labels[], state, iterationId, parentEpicId, assignee, webUrl }
+Issue     { id, iid, ref:"#110", groupPath, projectPath, title, labels[], state, iterationId, parentEpicId, assignee, blocksEpics[], webUrl }   (toutes les issues ; blocksEpics vide si elle ne bloque aucun epic)
 Link      { sourceRef, targetRef, type: "blocks" | "relates" | "parent" }
-Lane      { id: groupPath, name, title: "Parent › Sous-groupe", color, depth }   (dérivé des groupes cochés, lecture seule)
-View      { groups[], fold[], window{from,to}, types, labels[], labelMode, linkTypes, hideClosed, showUnplanned, criticalPath, q, item }   (dans l'URL, ADR-31)
+Lane      { id, name, color, groups[] (GID des groupes), includeSubgroups, showEpics, issueMode: "all"|"blocking"|"none", labels[], labelMode: "any"|"all", active }   (ordre = ordre du tableau)
+Prefs     { navigateur : lanes, window{from,to}, sidebarCollapsed, appearance ; session : linkTypes{blocks,relates,parent}, hideClosed, showUnplanned, criticalPath, collapsedLanes[], search, selection }
 ```
 
 ### Synchronisation
@@ -242,20 +280,20 @@ View      { groups[], fold[], window{from,to}, types, labels[], labelMode, linkT
 
 ## 7. Persistance des préférences
 
-| Donnée | Portée actuelle | Portée cible proposée |
+| Donnée | Portée actuelle (ADR-36) | Portée cible proposée |
 |---|---|---|
-| Groupes cochés (couloirs) | URL de la vue | Par utilisateur, côté serveur, avec des **vues partageables** |
-| Fenêtre d'itérations | URL de la vue | Par vue |
-| Panneau replié ou déplié | Navigateur | Par utilisateur |
-| Types d'éléments, labels, types de lien, options d'affichage, couloirs repliés, recherche, sélection | URL de la vue | Par vue |
+| Couloirs | Navigateur (`localStorage`) | Par utilisateur, côté serveur, avec des **vues partageables** |
+| Fenêtre d'itérations | Navigateur (`localStorage`) | Par vue |
+| Panneau replié ou déplié, apparence | Navigateur (`localStorage`) | Par utilisateur |
+| Types de lien, masquer les fermées, colonne « Non planifié », chemin critique, couloirs repliés, recherche, sélection | Session (onglet) | Par vue |
 
-**Partage** (ADR-31) : la vue est dans l'URL de l'onglet. Le bouton **Copier le lien** copie un lien qui ouvre la même vue : groupes cochés, fenêtre fixe, filtres, options, recherche et élément sélectionné. Rien n'est sauvegardé ailleurs : deux onglets sur deux liens sont deux vues indépendantes.
+Rien n'est partagé : il n'y a pas de lien de vue. Deux onglets du même navigateur partagent les couloirs et la fenêtre mémorisés.
 
 ---
 
 ## 8. Exigences non fonctionnelles
 
-- **Performance** : jusqu'à environ 300 epics, 1 000 issues bloquantes et 3 000 liens affichés sans ralentissement visible (rendu en moins de 300 ms). Au-delà, envisager le rendu par canvas et la virtualisation des couloirs.
+- **Performance** : jusqu'à environ 300 epics, 2 000 issues et 3 000 liens affichés sans ralentissement visible (rendu en moins de 300 ms). Au-delà, envisager le rendu par canvas et la virtualisation des couloirs.
 - **Accessibilité** :
   - tous les éléments cliquables sont de vrais `<button>` ;
   - contraste du texte ≥ 4,5:1 ;
@@ -273,13 +311,13 @@ View      { groups[], fold[], window{from,to}, types, labels[], labelMode, linkT
 
 ## 9. Questions ouvertes
 
-1. **Epics sans date** : faut-il une zone « Non planifié » par couloir, ou les exclure ?
-2. **Issues sans itération** qui bloquent un epic : faut-il une colonne « Sans itération » ?
-3. **Plusieurs cadences** : choisir une seule cadence par board, ou les aligner sur le calendrier ?
+1. **Epics sans date** : faut-il une zone « Non planifié » par couloir, ou les exclure ? *Tranché par l'ADR-10 : colonne « Non planifié » en fin de board.*
+2. **Issues sans itération** qui bloquent un epic : faut-il une colonne « Sans itération » ? *Tranché par l'ADR-10 et l'ADR-35 : toute issue sans itération va dans « Non planifié ».*
+3. **Plusieurs cadences** : choisir une seule cadence par board, ou les aligner sur le calendrier ? *Une seule cadence (ADR-6).*
 4. **Liens epic ↔ epic** : faut-il les distinguer visuellement des liens issue → epic, avec un filtre séparé ?
-5. **Chemin critique** : faut-il calculer et mettre en évidence la plus longue chaîne de blocages ?
-6. **Alertes** : faut-il signaler un epic bloqué par un élément planifié **après** lui (conflit de dates) ?
-7. **Vues partagées** : faut-il pouvoir enregistrer une configuration de couloirs et une fenêtre comme une vue nommée, avec un lien partageable ? *Le lien partageable existe (ADR-31) ; l'enregistrement de vues nommées reste à faire.*
+5. **Chemin critique** : faut-il calculer et mettre en évidence la plus longue chaîne de blocages ? *Oui (ADR-10).*
+6. **Alertes** : faut-il signaler un epic bloqué par un élément planifié **après** lui (conflit de dates) ? *Oui (ADR-10).*
+7. **Vues partagées** : faut-il pouvoir enregistrer une configuration de couloirs et une fenêtre comme une vue nommée, avec un lien partageable ? *Le lien de vue de l'ADR-31 a été retiré (ADR-36) : couloirs et fenêtre sont mémorisés dans le navigateur. Les vues nommées et partageables restent à faire.*
 8. **Écriture** : en v2, faut-il pouvoir créer ou supprimer un lien « bloque » depuis le board ?
 
 ---

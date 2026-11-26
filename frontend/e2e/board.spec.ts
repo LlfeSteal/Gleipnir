@@ -15,7 +15,8 @@ import {
 import { cadence, it, itTitle, ref, root, title } from './demo';
 
 // The board of the demo dataset in its default state: window It. 14 – It. 18 (current − 1 …
-// current + 3), the four default lanes, the unplanned column shown.
+// current + 3), the four default lanes (issues that block an epic only, ADR-34), the unplanned
+// column shown.
 
 test.beforeEach(async ({ page }) => {
   await openBoard(page);
@@ -52,7 +53,7 @@ test('the four default lanes come from the demo subgroups, in path order', async
   for (const lane of DEMO_LANES) await expect(sidebar(page).getByRole('checkbox', { name: lane, exact: true })).toBeChecked();
 });
 
-test('epic bars and blocking issue cards are drawn, ignored issues never are', async ({ page }) => {
+test('epic bars and blocking issue cards are drawn, the other issues are not by default', async ({ page }) => {
   await expect(item(page, '&18')).toBeVisible();
   await expect(item(page, '&18')).toHaveAccessibleName(`Epic ${ref('&18')} API d'export des données`);
   await expect(item(page, '#110')).toBeVisible();
@@ -66,12 +67,15 @@ test('epic bars and blocking issue cards are drawn, ignored issues never are', a
   expect(await shownKeys(page)).toEqual(
     ['#104', '#107', '#110', '#113', '#114', '#125', '#130', '#131', '#132', '&12', '&13', '&15', '&17', '&18', '&19', '&21', '&25'].sort(),
   );
-  // #101 (and the other issues blocking no epic) are never drawn, whatever the window.
+  // #101 (and the other issues blocking no epic) are not drawn in the default « Bloquantes » mode
+  // (spec §5.1); issue-mode.spec.ts shows them in « Toutes » mode. &26, in the root group, is in
+  // no default lane (hors-couloirs.spec.ts).
   await expect(page.getByText(title('#101'), { exact: true })).toHaveCount(0);
   await expect(item(page, '#101')).toHaveCount(0);
+  await expect(item(page, '&26')).toHaveCount(0);
 });
 
-test('an ignored issue is never shown, even with every iteration in the window', async ({ page }) => {
+test('an issue that blocks no epic is not shown by default, even with every iteration in the window', async ({ page }) => {
   await windowButton(page).click();
   await page.getByRole('menuitemradio', { name: 'Toutes' }).click();
   await expectWindow(page, it(12), it(21));
@@ -81,14 +85,13 @@ test('an ignored issue is never shown, even with every iteration in the window',
   }
 });
 
-test('the sidebar tells how many synced issues are ignored', async ({ page }) => {
-  await expect(
-    sidebar(page).getByText(/^9 issues synchronisées ne bloquent aucun epic\s*:\s*elles ne sont pas affichées\.$/),
-  ).toBeVisible();
+test('the sidebar tells how many synced issues block an epic (spec §5.1)', async ({ page }) => {
+  // 19 issues in the dataset, 10 of them block an epic (#140 included, outside the window).
+  await expect(sidebar(page).getByText('10 sur 19 issues synchronisées bloquent un epic.', { exact: true })).toBeVisible();
 });
 
-test('the summary line counts lanes, epics, blocking issues, blocks and conflicts', async ({ page }) => {
-  await expect(summaryLine(page)).toHaveText('4 couloirs · 8 epics · 9 issues bloquantes · 12 blocages · 3 conflits');
+test('the summary line counts lanes, epics, issues, blocks and conflicts', async ({ page }) => {
+  await expect(summaryLine(page)).toHaveText('4 couloirs · 8 epics · 9 issues · 12 blocages · 3 conflits');
 });
 
 test('a lane collapses and expands, hiding then showing its items', async ({ page }) => {
@@ -163,7 +166,7 @@ test('the unplanned column holds &25 and #132 while "Afficher les non planifiés
   await expect(page.getByText('Non planifié', { exact: true })).toHaveCount(0);
   await expect(item(page, '&25')).toHaveCount(0);
   await expect(item(page, '#132')).toHaveCount(0);
-  await expect(summaryLine(page)).toHaveText('4 couloirs · 7 epics · 8 issues bloquantes · 12 blocages · 3 conflits');
+  await expect(summaryLine(page)).toHaveText('4 couloirs · 7 epics · 8 issues · 12 blocages · 3 conflits');
 
   await unplanned.click();
   await expect(item(page, '&25')).toBeVisible();

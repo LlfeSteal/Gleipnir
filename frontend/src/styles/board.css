@@ -71,6 +71,10 @@
 .lane-chevron svg { transform: rotate(90deg); transition: transform 0.2s var(--ease); }
 .lane-header[data-collapsed] .lane-chevron svg { transform: none; }
 .lane-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+/* The pencil appears on hover or keyboard focus; always there without a hover-capable pointer. */
+.lane-edit { opacity: 0; }
+.lane-header:hover .lane-edit, .lane-edit:focus-visible { opacity: 1; }
+@media (hover: none) { .lane-edit { opacity: 1; } }
 .lane-meta {
   padding-left: 28px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 11px; line-height: 16px; color: var(--text-secondary);
@@ -79,13 +83,16 @@
   display: flex; align-items: center; gap: 10px; padding-left: 28px; min-height: 18px;
   font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap;
 }
+.lane-labels { display: flex; align-items: center; gap: 8px; }
+.lane-label { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.lane-label-mode { flex: none; }
 .lane-count { display: inline-flex; align-items: center; gap: 5px; }
 .lane-outside { font-size: 11px; }
 .label-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--label-color, var(--undated)); }
 
 /* ---------- Compact rail (phones, COMPACT_LAYOUT) ----------
-   The rail keeps what identifies and acts on a lane: the color edge, the chevron and the name on
-   two lines. The group path and counts stay in the sidebar sheet. */
+   The rail keeps what identifies and acts on a lane: the color edge, the chevron, the name on two
+   lines and the pencil below it. Filters and counts stay in the sidebar sheet and the settings. */
 .board-canvas[data-compact] .board-corner { padding: 0 8px 10px 12px; }
 .board-canvas[data-compact] .lane-header { padding: 8px 6px 8px 7px; gap: 0; }
 .board-canvas[data-compact] .lane-header-top {
@@ -97,6 +104,8 @@
   white-space: normal; overflow-wrap: anywhere; hyphens: auto;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
 }
+/* Aligned on the name's first letter: the 14 px glyph sits 5 px inside its 24 px button. */
+.board-canvas[data-compact] .lane-edit { grid-row: 2; grid-column: 2; margin-left: -5px; }
 .board-canvas[data-compact] :is(.lane-meta, .lane-counts) { display: none; }
 .board-canvas[data-compact] .lane-empty { max-width: 140px; }
 
@@ -114,6 +123,12 @@
 }
 .item-ref { flex: none; font-weight: 600; font-variant-numeric: tabular-nums; }
 .off-pill { flex: none; }
+/* Dependencies in no active lane: dotted, with an exit icon (spec §4.5). */
+.off-lanes-pill {
+  flex: none; display: inline-flex; align-items: center; gap: 3px;
+  background: transparent; border: 1px dotted currentColor;
+}
+.off-lanes-pill svg { flex: none; }
 
 /* ---------- Epic bar ---------- */
 /* White 12 px text needs 4.5:1: the system purple only gives 4.1 (light) and 3.5 (dark), so the
@@ -133,6 +148,7 @@
 .epic-bar[data-clipped-start] { --rs: 0; padding-left: 4px; }
 .epic-bar[data-clipped-end] { --re: 0; padding-right: 4px; }
 .epic-bar .off-pill { background: color-mix(in srgb, #fff 24%, transparent); color: #fff; }
+.epic-bar .off-lanes-pill { color: #fff; }
 /* Closed: hatched like closed bars, secondary text. */
 .epic-bar[data-closed] {
   background: repeating-linear-gradient(45deg, var(--closed-bg) 0 3px, var(--closed-stroke) 3px 5px), var(--card);
@@ -145,6 +161,8 @@
 }
 .epic-bar[data-unplanned] .epic-icon { color: var(--epic); }
 .epic-bar:is([data-closed], [data-unplanned]) .off-pill { background: var(--fill); color: var(--text-secondary); }
+.epic-bar:is([data-closed], [data-unplanned]) .off-lanes-pill { color: var(--text-secondary); }
+.issue-card .off-lanes-pill { color: var(--text-secondary); }
 
 /* ---------- Issue card ---------- */
 .issue-card {

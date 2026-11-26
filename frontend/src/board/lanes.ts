@@ -1,11 +1,14 @@
-// Lanes are the checked groups of the GitLab group tree (ADR-32, spec §4.4): read only, named
-// and colored after GitLab. An item goes to the lane of its closest checked group, itself or
-// the first checked one up its path: one lane per item.
+// Lanes are filters edited by the user (spec §4.4, ADR-34): GitLab groups (and their subgroups),
+// item types with the issue mode, and labels. They may overlap: an item shows in every active
+// lane it matches. Groups are named by their global ID, so a renamed group keeps its lanes.
 
-import type { BoardData } from '../api/types';
-import { LANE_COLORS, type GroupNode, type Lane, type LaneColor } from './types';
+import type { BoardData, Epic, Group, Issue } from '../api/types';
+import { BOARD } from '../strings/board';
+import { matchesLabels } from './items';
+import { ISSUE_MODES, LANE_COLORS, type GroupNode, type ItemKind, type Lane, type LaneColor } from './types';
 
 const treeCache = new WeakMap<BoardData, GroupNode[]>();
+const pathCache = new WeakMap<BoardData, Map<string, string>>();
 
 /** The parent path of a group path, null at the top. */
 function parentPath(path: string): string | null {
@@ -43,61 +46,161 @@ export function groupTree(data: BoardData): GroupNode[] {
   return nodes;
 }
 
-/** The groups checked by default: the direct subgroups of the root, or the root without any. */
-export function defaultChecked(data: BoardData): string[] {
-  const [root] = groupTree(data);
-  return root.children.length > 0 ? [...root.children] : [root.path];
+/** Group paths by global ID, cached per BoardData. */
+function groupPaths(data: BoardData): Map<string, string> {
+  let paths = pathCache.get(data);
+  if (!paths) {
+    paths = new Map(groupTree(data).map((node) => [node.id, node.path]));
+    pathCache.set(data, paths);
+  }
+  return paths;
 }
 
-/** A stable color: that of the direct subgroup the group belongs to, by its place among them
- * (a sublane takes its parent's color); the root has the last one. Checking a group never
- * changes another lane's color. */
-export function laneColor(data: BoardData, path: string): LaneColor {
+/** The paths of a lane's groups; unknown IDs are left out. */
+export function lanePaths(lane: Lane, data: BoardData): string[] {
+  const paths = groupPaths(data);
+  return lane.groups.flatMap((id) => paths.get(id) ?? []);
+}
+
+/** The first color not used by the lanes, else the palette again from the start. */
+export function nextLaneColor(existing: readonly Lane[]): LaneColor {
+  const used = new Set(existing.map((l) => l.color));
+  return LANE_COLORS.find((c) => !used.has(c)) ?? LANE_COLORS[existing.length % LANE_COLORS.length];
+}
+
+/** One lane per direct subgroup of the root, in tree order (the root alone when it has none),
+ * with its subgroups, its epics and the issues that block an epic: the example configuration.
+ * Ids derive from the group, so collapsed lanes survive a reset. */
+export function defaultLanes(data: BoardData): Lane[] {
   const tree = groupTree(data);
   const [root] = tree;
-  if (path === root.path) return LANE_COLORS[LANE_COLORS.length - 1];
-  const nodes = new Map(tree.map((n) => [n.path, n]));
-  let node = nodes.get(path);
-  while (node?.parent && node.parent !== root.path) node = nodes.get(node.parent);
-  const index = node ? root.children.indexOf(node.path) : -1;
-  return LANE_COLORS[Math.max(0, index) % LANE_COLORS.length];
+  const byPath = new Map(tree.map((node) => [node.path, node]));
+  const sources = root.children.length > 0 ? root.children.map((path) => byPath.get(path)!) : [root];
+  return sources.map((node, i) => ({
+    id: `group:${node.id || node.path}`,
+    name: node.name,
+    color: LANE_COLORS[i % LANE_COLORS.length],
+    groups: [node.id],
+    includeSubgroups: true,
+    showEpics: true,
+    issueMode: 'blocking',
+    labels: [],
+    labelMode: 'any',
+    active: true,
+  }));
 }
 
-/** The lanes of the checked groups, in tree order; unknown paths are left out. */
-export function lanesOf(data: BoardData, checked: ReadonlySet<string>): Lane[] {
-  const tree = groupTree(data);
-  const names = new Map(tree.map((n) => [n.path, n]));
-  return tree
-    .filter((node) => checked.has(node.path))
-    .map((node) => {
-      const chain: string[] = [];
-      for (let n: GroupNode | undefined = node; n && n.depth > 0; n = n.parent ? names.get(n.parent) : undefined) {
-        chain.unshift(n.name);
-      }
-      return {
-        id: node.path,
-        name: node.name,
-        title: node.depth === 0 ? node.name : chain.join(' › '),
-        color: laneColor(data, node.path),
-        depth: node.depth,
-      };
+/** A new lane: the first free color, every type, no group yet. */
+export function newLane(existing: readonly Lane[]): Lane {
+  const ids = new Set(existing.map((l) => l.id));
+  let n = existing.length + 1;
+  while (ids.has(`lane-${n}`)) n++;
+  return {
+    id: `lane-${n}`,
+    name: BOARD.newLaneName,
+    color: nextLaneColor(existing),
+    groups: [],
+    includeSubgroups: true,
+    showEpics: true,
+    issueMode: 'blocking',
+    labels: [],
+    labelMode: 'any',
+    active: true,
+  };
+}
+
+/** Whether an item matches a lane's filters (spec §5.1, §5.3), whatever the window, the search
+ * and the closed filter. Resolved once against the data, to test many items quickly. A lane
+ * without a known group matches nothing. */
+export type LaneMatcher = (item: Epic | Issue, kind: ItemKind) => boolean;
+
+export function laneMatcher(lane: Lane, data: BoardData): LaneMatcher {
+  const paths = lanePaths(lane, data);
+  const exact = new Set(paths);
+  const prefixes = lane.includeSubgroups ? paths.map((p) => `${p}/`) : [];
+  return (item, kind) => {
+    if (kind === 'epic') {
+      if (!lane.showEpics) return false;
+    } else if (lane.issueMode === 'none' || (lane.issueMode === 'blocking' && (item as Issue).blocksEpics.length === 0)) {
+      return false;
+    }
+    const path = item.groupPath;
+    if (!exact.has(path) && !prefixes.some((p) => path.startsWith(p))) return false;
+    return matchesLabels(item.labels, lane.labels, lane.labelMode);
+  };
+}
+
+export function groupName(path: string, groups: Group[]): string {
+  return groups.find((g) => g.path === path)?.name ?? path.split('/').pop() ?? path;
+}
+
+/** The names of a lane's groups, in its order; unknown IDs are left out. */
+export function laneGroupNames(lane: Lane, data: BoardData): string[] {
+  return lanePaths(lane, data).map((path) => groupName(path, data.groups));
+}
+
+/** One line describing a lane: "Identité · epics, issues bloquantes · au moins un de : bug". */
+export function laneSummary(lane: Lane, data: BoardData): string {
+  const names = laneGroupNames(lane, data);
+  const groups = names.length ? names.join(', ') : BOARD.noGroup;
+  const types = [lane.showEpics ? BOARD.typeEpics : '', lane.issueMode === 'none' ? '' : BOARD.issueModes[lane.issueMode]]
+    .filter(Boolean)
+    .join(', ');
+  return `${groups} · ${types || BOARD.noType} · ${labelsText(lane)}`;
+}
+
+/** "tous les labels", "au moins un de : bug, UX" or "tous : bug, UX". */
+export function labelsText(lane: Pick<Lane, 'labels' | 'labelMode'>): string {
+  if (lane.labels.length === 0) return BOARD.allLabels;
+  return lane.labelMode === 'all' ? BOARD.labelsAll(lane.labels) : BOARD.labelsAny(lane.labels);
+}
+
+const isObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
+const isStringArray = (value: unknown): value is string[] => Array.isArray(value) && value.every((v) => typeof v === 'string');
+
+/**
+ * Lanes read back from storage, checked field by field against the data: unknown groups and
+ * labels are dropped, a lane left without a group is dropped, a bad color takes the palette's
+ * by index, a bad issue mode the default, a bad flag its default. null when the value is not a
+ * list at all (nothing stored, or garbage): the default lanes then apply. An empty list stays
+ * empty: the user removed every lane.
+ */
+export function validateLanes(value: unknown, data: BoardData): Lane[] | null {
+  if (!Array.isArray(value)) return null;
+  const known = groupPaths(data);
+  const labels = new Set(data.labels.map((l) => l.title));
+  const ids = new Set<string>();
+  const lanes: Lane[] = [];
+  value.forEach((raw, index) => {
+    if (!isObject(raw)) return;
+    const groups = isStringArray(raw.groups) ? [...new Set(raw.groups.filter((id) => known.has(id)))] : [];
+    if (groups.length === 0) return;
+    let id = typeof raw.id === 'string' && raw.id ? raw.id : `lane-${index + 1}`;
+    for (let n = index + 1; ids.has(id); n++) id = `lane-${n}`;
+    ids.add(id);
+    const name = typeof raw.name === 'string' ? raw.name.trim() : '';
+    const flag = (v: unknown, fallback: boolean) => (typeof v === 'boolean' ? v : fallback);
+    lanes.push({
+      id,
+      name: name || BOARD.untitledLane,
+      color: (LANE_COLORS as readonly unknown[]).includes(raw.color) ? (raw.color as LaneColor) : LANE_COLORS[index % LANE_COLORS.length],
+      groups,
+      includeSubgroups: flag(raw.includeSubgroups, true),
+      showEpics: flag(raw.showEpics, true),
+      issueMode: (ISSUE_MODES as readonly unknown[]).includes(raw.issueMode) ? (raw.issueMode as Lane['issueMode']) : 'blocking',
+      labels: isStringArray(raw.labels) ? [...new Set(raw.labels.filter((l) => labels.has(l)))] : [],
+      labelMode: raw.labelMode === 'all' ? 'all' : 'any',
+      active: flag(raw.active, true),
     });
+  });
+  return lanes;
 }
 
-/** The lane of an item of the group at path: the closest checked group, itself or up its
- * path; null when none is checked. */
-export function laneOf(path: string, checked: ReadonlySet<string>): string | null {
-  for (let p: string | null = path; p !== null; p = parentPath(p)) {
-    if (checked.has(p)) return p;
-  }
-  return null;
-}
-
-/** The groups Synchroniser reads again: the checked ones, sorted, without a group whose
- * ancestor is listed (the backend reads each one with its whole subtree: an unchecked subgroup
- * shows in its checked parent's lane). */
-export function refreshScope(checked: ReadonlySet<string>): string[] {
-  const paths = [...checked].sort();
+/** The groups Synchroniser reads again: those of the active lanes, sorted, without a group
+ * whose ancestor is listed (the backend reads each one with its whole subtree: the issues live
+ * in projects, below the group, even for a lane without subgroups). */
+export function refreshScope(lanes: readonly Lane[], data: BoardData): string[] {
+  const paths = [...new Set(lanes.filter((lane) => lane.active).flatMap((lane) => lanePaths(lane, data)))].sort();
   const scope: string[] = [];
   for (const path of paths) {
     // Sorted: an ancestor comes before its descendants.
@@ -106,13 +209,19 @@ export function refreshScope(checked: ReadonlySet<string>): string[] {
   return scope;
 }
 
-/** When the oldest group shown by a lane was read from GitLab, null when unknown. Groups are
- * refreshed separately, so this is how old the board in front of the user is. */
-export function scopeSyncedAt(data: BoardData, checked: ReadonlySet<string>): string | null {
+/** When the oldest group shown by the active lanes was read from GitLab, null when unknown.
+ * Groups are refreshed separately, so this is how old the board in front of the user is. */
+export function scopeSyncedAt(data: BoardData, lanes: readonly Lane[]): string | null {
+  const covers = lanes
+    .filter((lane) => lane.active)
+    .map((lane) => {
+      const paths = lanePaths(lane, data);
+      return (path: string) => paths.some((p) => path === p || (lane.includeSubgroups && path.startsWith(`${p}/`)));
+    });
   let oldest: string | null = null;
   let oldestTime = Infinity;
   for (const group of data.groups) {
-    if (!group.syncedAt || laneOf(group.path, checked) === null) continue;
+    if (!group.syncedAt || !covers.some((cover) => cover(group.path))) continue;
     const time = Date.parse(group.syncedAt);
     if (time < oldestTime) {
       oldestTime = time;

@@ -93,3 +93,28 @@ export function focusWindow(w: BoardWindow, span: { start: number; end: number }
   from = Math.max(0, Math.min(from, count - 1 - width));
   return { from, to: from + width };
 }
+
+/** The window as stored in the browser (gleipnir.window, spec §4.3): its first and last
+ * iterations by global ID, so it keeps pointing at the same iterations when the cadence grows. */
+export interface StoredWindow {
+  from: string;
+  to: string;
+}
+
+export function storeWindow(w: BoardWindow, data: BoardData): StoredWindow | null {
+  const from = data.iterations[w.from];
+  const to = data.iterations[w.to];
+  return from && to ? { from: from.id, to: to.id } : null;
+}
+
+/** The stored window, back as iteration indexes; null when it is missing, malformed or names an
+ * iteration the cadence no longer has: the default window then applies. */
+export function restoreWindow(value: unknown, data: BoardData): BoardWindow | null {
+  if (!value || typeof value !== 'object') return null;
+  const { from, to } = value as Record<string, unknown>;
+  if (typeof from !== 'string' || typeof to !== 'string') return null;
+  const a = data.iterations.findIndex((it) => it.id === from);
+  const b = data.iterations.findIndex((it) => it.id === to);
+  if (a < 0 || b < 0) return null;
+  return { from: Math.min(a, b), to: Math.max(a, b) };
+}

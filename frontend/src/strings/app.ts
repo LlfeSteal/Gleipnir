@@ -1,5 +1,5 @@
-// Texts of the app shell: toolbar, window control, sidebar, summary line, inspector, loading /
-// error / empty states.
+// Texts of the app shell: toolbar, window control, sidebar, summary line, inspector, lane
+// settings sheet, loading / error / empty states.
 
 const plural = (n: number, one: string, many: string) => (n > 1 ? many : one);
 
@@ -39,22 +39,14 @@ export const APP = {
   sidebar: {
     label: 'Filtres',
     close: 'Fermer les filtres',
-    lanes: 'Couloirs · groupes GitLab',
-    groups: 'Groupes GitLab',
-    expandGroup: (name: string) => `Déplier ${name}`,
-    collapseGroup: (name: string) => `Replier ${name}`,
+    lanes: 'Couloirs',
+    /** The lane's checkbox (active or hidden) is named after the lane. */
+    showLane: (name: string) => name,
+    editLane: (name: string) => `Modifier ${name}`,
     laneCount: (n: number) => `${n} ${plural(n, 'élément affiché', 'éléments affichés')}`,
-    lanesHelp: 'Chaque groupe coché est un couloir. Pour en ajouter, créez le groupe dans GitLab puis synchronisez.',
-    items: 'Éléments',
-    epics: 'Epics',
-    issues: 'Issues bloquantes',
-    labels: 'Labels',
-    labelsButton: (labels: readonly string[]) => (labels.length === 0 ? 'Tous les labels' : labels.join(', ')),
-    labelsSearch: 'Filtrer les labels',
-    noLabel: 'Aucun label.',
-    labelMode: 'Correspondance',
-    labelModes: { any: 'Au moins un', all: 'Tous' },
-    clearLabels: 'Tous les labels',
+    newLane: 'Nouveau couloir',
+    configure: 'Configurer…',
+    noLane: 'Aucun couloir.',
     links: 'Liens · tous les couloirs',
     linkTypes: { blocks: 'Bloque', relates: 'Lié à', parent: 'Epic parent → issue' },
     display: 'Affichage',
@@ -62,10 +54,12 @@ export const APP = {
     showUnplanned: 'Afficher les non planifiés',
     criticalPath: 'Chemin critique',
     criticalPathHelp: 'Plus longue chaîne de blocages ouverts',
-    ignored: (n: number) =>
-      n === 1
-        ? '1 issue synchronisée ne bloque aucun epic : elle n’est pas affichée.'
-        : `${n} issues synchronisées ne bloquent aucun epic : elles ne sont pas affichées.`,
+    /** Spec §5.1: how many synced issues block an epic, e.g. "9 sur 16". */
+    blockingIssues: (n: number, total: number) =>
+      `${n} sur ${total} ${plural(total, 'issue synchronisée', 'issues synchronisées')} ${plural(n, 'bloque', 'bloquent')} un epic.`,
+    legend: 'Repères',
+    legendOffWindow: 'Dépendances dans un couloir, hors de la fenêtre',
+    legendOffLanes: 'Dépendances dans aucun couloir actif',
     touchHint:
       'Touchez un élément pour mettre en évidence ses dépendances. Dans le détail, un élément hors fenêtre déplace la fenêtre jusqu’à lui.',
   },
@@ -73,7 +67,7 @@ export const APP = {
   summary: {
     lanes: (n: number) => plural(n, 'couloir', 'couloirs'),
     epics: (n: number) => plural(n, 'epic', 'epics'),
-    issues: (n: number) => plural(n, 'issue bloquante', 'issues bloquantes'),
+    issues: (n: number) => plural(n, 'issue', 'issues'),
     blocks: (n: number) => plural(n, 'blocage', 'blocages'),
     conflicts: (n: number) => plural(n, 'conflit', 'conflits'),
   },
@@ -88,7 +82,7 @@ export const APP = {
       issue: { open: 'Ouverte', closed: 'Fermée' },
     },
     group: 'Groupe',
-    lanes: 'Couloir',
+    lanes: 'Couloirs',
     iteration: 'Itération',
     period: 'Période',
     parent: 'Epic parent',
@@ -107,15 +101,72 @@ export const APP = {
     conflict: 'Conflit',
     conflictHelp: 'Le bloqueur finit après le début de l’élément bloqué',
     outside: 'hors fenêtre',
+    /** A dependency in no active lane: not on the board, so not a button (spec §4.6). */
+    outsideLanes: (group: string) => `Hors couloirs · ${group}`,
+    outsideLanesHelp: 'Dans aucun couloir actif : ouvrez-le dans GitLab, ou ajustez un couloir pour l’inclure.',
     openInGitLab: 'Ouvrir dans GitLab',
+  },
+
+  settings: {
+    title: 'Configurer les couloirs',
+    subtitle:
+      'Chaque couloir est un filtre : groupes GitLab, epics et issues, labels. L’ordre de la liste est l’ordre du board.',
+    list: 'Liste des couloirs',
+    showLane: (name: string) => `Afficher ${name}`,
+    moveUp: (name: string) => `Monter ${name}`,
+    moveDown: (name: string) => `Descendre ${name}`,
+    remove: (name: string) => `Supprimer ${name}`,
+    newLane: 'Nouveau couloir',
+    untitled: 'Couloir sans nom',
+    noLane: 'Aucun couloir. Créez-en un pour afficher des éléments.',
+    pick: 'Choisissez un couloir à modifier.',
+    name: 'Nom',
+    color: 'Couleur',
+    colors: {
+      indigo: 'Indigo',
+      blue: 'Bleu',
+      cyan: 'Cyan',
+      mint: 'Menthe',
+      yellow: 'Jaune',
+      orange: 'Orange',
+      pink: 'Rose',
+      brown: 'Marron',
+    },
+    groups: 'Groupes GitLab',
+    groupsSearch: 'Filtrer les groupes',
+    noGroup: 'Aucun groupe disponible.',
+    noGroupPicked: 'Choisissez au moins un groupe.',
+    includeSubgroups: 'Inclure les sous-groupes',
+    includeSubgroupsHelp: 'Un élément de a/b/c correspond au groupe a/b.',
+    show: 'Afficher',
+    epics: 'Epics',
+    issues: 'Issues',
+    issueModes: { all: 'Toutes', blocking: 'Bloquantes', none: 'Aucune' },
+    issueModesHelp: {
+      all: 'Toutes les issues des groupes du couloir.',
+      blocking: 'Uniquement les issues qui bloquent un epic.',
+      none: 'Aucune issue dans ce couloir.',
+    },
+    labels: 'Labels',
+    labelsSearch: 'Filtrer les labels',
+    noLabelAvailable: 'Aucun label.',
+    labelMode: 'Correspondance des labels',
+    any: 'Au moins un',
+    all: 'Tous',
+    noLabel: 'Aucun label choisi : tous les éléments sont gardés.',
+    labelsApply: 'S’applique aux epics et aux issues.',
+    missingGroups: 'Chaque couloir doit avoir au moins un groupe.',
+    reset: 'Rétablir la configuration d’exemple',
+    cancel: 'Annuler',
+    apply: 'Appliquer',
   },
 
   states: {
     noIterationTitle: 'Aucune itération',
     noIterationMessage: (cadence: string) => `La cadence « ${cadence} » n’a aucune itération à afficher.`,
     noLaneTitle: 'Aucun couloir affiché',
-    noLaneMessage: 'Cochez un groupe GitLab dans la barre latérale.',
-    defaultLanes: 'Afficher les couloirs par défaut',
+    noLaneMessage: 'Activez un couloir dans la barre latérale, ou créez-en un.',
+    configure: 'Configurer les couloirs',
     emptyWindowTitle: 'Rien dans cette fenêtre',
     emptyWindowMessage: (range: string) => `Les couloirs affichés n’ont aucun élément en ${range}.`,
     showAll: 'Afficher toutes les itérations',

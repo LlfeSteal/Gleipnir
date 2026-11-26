@@ -494,10 +494,14 @@ func TestBoardBodyIsTheBuiltBoard(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"syncedAt", "gitlabUrl", "rootGroup", "cadence", "iterations", "current", "epics", "issues", "links", "criticalPath", "ignoredIssues"} {
+	for _, key := range []string{"syncedAt", "gitlabUrl", "rootGroup", "cadence", "iterations", "current", "epics", "issues", "links", "criticalPath"} {
 		if _, ok := body[key]; !ok {
 			t.Fatalf("missing %q in %s", key, rec.Body)
 		}
+	}
+	// ADR-35: every issue is sent, the frontend counts the blocking ones itself.
+	if _, ok := body["ignoredIssues"]; ok {
+		t.Errorf("ignoredIssues is gone from the contract: %s", rec.Body)
 	}
 }
 

@@ -1,6 +1,6 @@
 // Package board turns the raw GitLab data into the normalized board served to the frontend:
-// iterations of one cadence, epics placed on them, the issues that block an epic, and the
-// links between them (spec §5). It holds the business rules; the frontend only lays it out.
+// iterations of one cadence, epics placed on them, the issues, and the links between them
+// (spec §5). It holds the business rules; the frontend only lays it out.
 package board
 
 import "time"
@@ -16,15 +16,16 @@ type Board struct {
 	Iterations []Iteration `json:"iterations"` // sorted by start date
 	Current    int         `json:"current"`    // index of the current iteration, -1 when none
 	Groups     []Group     `json:"groups"`     // the root group, then its descendants, sorted by path
-	Labels     []Label     `json:"labels"`     // every label used by an epic or a shown issue, sorted by title
+	Labels     []Label     `json:"labels"`     // every label used by an epic or an issue, sorted by title
 	Epics      []Epic      `json:"epics"`
-	Issues     []Issue     `json:"issues"` // only the issues that block at least one epic
-	Links      []Link      `json:"links"`
-	// CriticalPath is the longest chain of open blocking links, as item IDs from the first
-	// blocker to the last blocked item (empty when there is no blocking link).
+	// Issues holds every synced issue, blocking an epic or not: each lane's issue mode picks
+	// the ones it shows (ADR-35).
+	Issues []Issue `json:"issues"`
+	Links  []Link  `json:"links"`
+	// CriticalPath is the longest chain of open blocking links between epics and issues that
+	// block an epic, as item IDs from the first blocker to the last blocked item (empty when
+	// there is no such link).
 	CriticalPath []string `json:"criticalPath"`
-	// IgnoredIssues counts the synced issues that block no epic, hence not shown.
-	IgnoredIssues int `json:"ignoredIssues"`
 }
 
 type Group struct {
@@ -102,7 +103,8 @@ type Issue struct {
 	Iteration  *int    `json:"iteration"`
 	ParentEpic string  `json:"parentEpic"` // epic ID, "" when none
 	Assignee   *Person `json:"assignee"`
-	// BlocksEpics lists the IDs of the epics this issue blocks (never empty).
+	// BlocksEpics lists the IDs of the epics this issue blocks, sorted; empty when it blocks
+	// none (spec §5.1: such an issue only shows in a lane set to « Toutes »).
 	BlocksEpics []string `json:"blocksEpics"`
 	Unplanned   bool     `json:"unplanned"`
 	WebURL      string   `json:"webUrl"`
@@ -115,7 +117,7 @@ const (
 	LinkParent  = "parent"
 )
 
-// Link joins two shown items. blocks: Source blocks Target. relates: unordered, Source < Target.
+// Link joins two items of the board. blocks: Source blocks Target. relates: unordered, Source < Target.
 // parent: Source is the parent epic of the Target issue.
 type Link struct {
 	Source string `json:"source"`

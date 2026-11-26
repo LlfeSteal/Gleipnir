@@ -2,7 +2,7 @@ import { useMemo, useRef } from 'react';
 import type { CSSProperties, PointerEvent, ReactNode } from 'react';
 import type { BoardData } from '../api/types';
 import type { BoardWindow, ItemKind, Lane } from '../board/types';
-import { laneOf } from '../board/lanes';
+import { groupName, laneMatcher } from '../board/lanes';
 import { itemIndex } from '../board/items';
 import type { BoardItem } from '../board/items';
 import { isInWindow } from '../board/window';
@@ -146,9 +146,11 @@ export function Inspector({ data, itemId, lanes, window: win, onSelect, onClose 
   const { kind, item } = entry;
   const closed = item.state === 'closed';
   const group = data.groups.find((g) => g.path === item.groupPath);
-  // One lane at most: the closest checked group up the item's path.
-  const laneId = laneOf(item.groupPath, new Set(lanes.map((lane) => lane.id)));
-  const laneNames = lanes.filter((lane) => lane.id === laneId);
+  // Every active lane the item matches (they may overlap); a dependency in none is "hors
+  // couloirs": not on the board, so not a button.
+  const matchers = lanes.filter((lane) => lane.active).map((lane) => ({ lane, matches: laneMatcher(lane, data) }));
+  const laneNames = matchers.filter(({ matches }) => matches(item, kind)).map(({ lane }) => lane);
+  const inLanes = (other: Entry) => matchers.some(({ matches }) => matches(other.item, other.kind));
   const labelColors = new Map(data.labels.map((label) => [label.title, label.color]));
   const url = safeUrl(item.webUrl);
 
@@ -171,7 +173,7 @@ export function Inspector({ data, itemId, lanes, window: win, onSelect, onClose 
           {laneNames.map((lane) => (
             <span key={lane.id} className="inspector-lane" data-lane-color={lane.color}>
               <span className="lane-dot" aria-hidden="true" />
-              {lane.title}
+              {lane.name}
             </span>
           ))}
         </span>
@@ -283,16 +285,37 @@ export function Inspector({ data, itemId, lanes, window: win, onSelect, onClose 
               <ul className="dependency-list">
                 {dependencies.items.map((dep) => {
                   const other = index.get(dep.id)!;
+                  const closedOther = other.item.state === 'closed';
+                  const conflict = dep.conflict && (
+                    <span className="conflict-tag" title={APP.inspector.conflictHelp}>
+                      {APP.inspector.conflict}
+                    </span>
+                  );
+                  if (!inLanes(other)) {
+                    return (
+                      <li key={dep.id}>
+                        <div className="dependency-row" data-off-lanes="true" data-closed={closedOther || undefined} title={APP.inspector.outsideLanesHelp}>
+                          <ItemGlyph kind={other.kind} closed={closedOther} size="small" />
+                          <span className="dependency-ref">{other.item.ref}</span>
+                          <span className="dependency-title">{other.item.title}</span>
+                          <span className="dependency-when">
+                            {APP.inspector.outsideLanes(groupName(other.item.groupPath, data.groups))}
+                          </span>
+                          {conflict}
+                        </div>
+                      </li>
+                    );
+                  }
                   const inside = isInWindow(data, dep.id, win);
                   return (
                     <li key={dep.id}>
                       <button
                         type="button"
                         className="dependency-row"
-                        data-closed={other.item.state === 'closed' || undefined}
+                        data-closed={closedOther || undefined}
                         onClick={() => onSelect(dep.id)}
                       >
-                        <ItemGlyph kind={other.kind} closed={other.item.state === 'closed'} size="small" />
+                        <ItemGlyph kind={other.kind} closed={closedOther} size="small" />
                         <span className="dependency-ref">{other.item.ref}</span>
                         <span className="dependency-title">{other.item.title}</span>
                         {!inside && (
@@ -300,11 +323,7 @@ export function Inspector({ data, itemId, lanes, window: win, onSelect, onClose 
                             {whenLabel(data, other)}
                           </span>
                         )}
-                        {dep.conflict && (
-                          <span className="conflict-tag" title={APP.inspector.conflictHelp}>
-                            {APP.inspector.conflict}
-                          </span>
-                        )}
+                        {conflict}
                         <ChevronRightIcon size={12} className="dependency-chevron" />
                       </button>
                     </li>

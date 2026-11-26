@@ -140,8 +140,8 @@ test('"Masquer les issues fermées" hides the closed blockers #131 and #140', as
   await expect(item(page, '#140')).toHaveCount(0);
   // The open blockers stay.
   await expect(item(page, '#110')).toBeVisible();
-  expect(issues).toBe('10 issues bloquantes');
-  await expect(summaryPart(page, 'issues')).toHaveText('8 issues bloquantes');
+  expect(issues).toBe('10 issues');
+  await expect(summaryPart(page, 'issues')).toHaveText('8 issues');
 
   await hideClosed.click();
   await expect(item(page, '#131')).toBeVisible();
@@ -173,7 +173,7 @@ test('the link-type checkboxes add and remove the links drawn on the whole board
   await expect(blocks).toHaveAccessibleDescription('0');
   await expect(drawnLinks(page, 'blocks')).toHaveCount(0);
   // No block drawn: neither blocks nor conflicts in the summary.
-  await expect(summaryLine(page)).toHaveText('4 couloirs · 8 epics · 9 issues bloquantes');
+  await expect(summaryLine(page)).toHaveText('4 couloirs · 8 epics · 9 issues');
 
   await relates.uncheck();
   await expect(drawnLinks(page, 'relates')).toHaveCount(0);

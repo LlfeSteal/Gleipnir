@@ -125,7 +125,7 @@ func DemoRaw(now time.Time) *Raw {
 
 	sso, webhooks, export := identite+"/sso", api+"/webhooks", api+"/export"
 	web, mobile, pipeline := xp+"/web", xp+"/mobile", data+"/pipeline"
-	// Issues that block an epic (shown).
+	// Issues that block an epic.
 	issue(104, sso, "Corriger la déconnexion intempestive", 3, 12, StateOpen, "TR", "bug", "priorité::haute", "backend")
 	issue(114, sso, "Audit de sécurité du SSO", 4, 12, StateOpen, "TR", "sécurité")
 	issue(140, webhooks, "Contrat d’interface des webhooks", 1, 19, StateClosed, "SN", "API")
@@ -136,7 +136,7 @@ func DemoRaw(now time.Time) *Raw {
 	issue(131, pipeline, "Montée de version Kafka", 2, 21, StateClosed, "JP", "data", "backend")
 	issue(130, pipeline, "Schéma d'événements v2", 6, 21, StateOpen, "JP", "data")
 	issue(132, pipeline, "Purge des données personnelles", -1, 23, StateOpen, "AL", "data", "sécurité")
-	// Issues that block no epic (ignored, but they still date their parent epic).
+	// Issues that block no epic: shown in a lane set to « Toutes », and they date their parent epic.
 	issue(101, sso, "Configurer le fournisseur SAML", 2, 12, StateClosed, "AL", "backend", "sécurité")
 	issue(103, sso, "Gestion des sessions et refresh token", 3, 12, StateOpen, "AL", "backend", "sécurité")
 	issue(106, web, "Widgets configurables", 4, 15, StateOpen, "MB", "frontend")
@@ -185,7 +185,7 @@ func DemoRaw(now time.Time) *Raw {
 	blocks("&21", "&23", false, true)
 	relates("&16", "&22", false)
 	relates("&24", "&17", true)
-	// Issue → epic (only these issues are shown).
+	// Issue → epic.
 	blocks("#104", "&13", true, true)
 	blocks("#114", "&18", true, false)
 	blocks("#140", "&18", true, true)
@@ -196,7 +196,7 @@ func DemoRaw(now time.Time) *Raw {
 	blocks("#131", "&21", true, true)
 	blocks("#130", "&23", true, true)
 	blocks("#132", "&23", true, true)
-	// Issue ↔ issue: dropped unless both issues are shown.
+	// Issue ↔ issue, between issues that block an epic or not.
 	relates("#107", "#110", true)
 	relates("#103", "#104", true)
 	blocks("#109", "#110", true, true)

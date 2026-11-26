@@ -43,6 +43,14 @@ type Project struct {
 // Path is the project's path under the root ("identite/sso").
 func (p Project) Path() string { return p.Group + "/" + p.Slug }
 
+// Under returns the full path of the group slug below root; slug "" is root itself.
+func Under(root, slug string) string {
+	if slug == "" {
+		return root
+	}
+	return root + "/" + slug
+}
+
 type Label struct {
 	Title string
 	Color string // "#rrggbb"
@@ -66,7 +74,7 @@ type Person struct {
 // Epic lives in a group. Key is its reference in the mockup ("&18"); titles are unique.
 type Epic struct {
 	Key   string
-	Group string // Group.Slug
+	Group string // Group.Slug, "" for the root group itself
 	Title string
 	// First and Last are the indexes of the iterations it spans, -1 when it has no dates. A
 	// GitLab whose iterations differ (automatic cadence) dates it from its own iterations.
@@ -107,7 +115,10 @@ type Link struct {
 // New builds the demo data around now: ten two-week iterations, "Itération 15" starting on the
 // Monday on or before now, with a one-week holiday gap between Itération 17 and 18. On top of
 // the mockup it holds an epic dated by its children (&24), an epic with neither dates nor
-// children (&25) and an open issue that blocks an epic without an iteration (#132).
+// children (&25), an open issue that blocks an epic without an iteration (#132), an issue →
+// issue link between two issues that block no epic (#106 → #108) and an epic of the root
+// group itself (&26), outside every default lane, that blocks a lane's epic (« hors
+// couloirs », ADR-37).
 func New(now time.Time) *Dataset {
 	y, m, d := now.Date()
 	today := time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
@@ -134,8 +145,8 @@ func New(now time.Time) *Dataset {
 			{"experience", "Expérience produit"},
 			{"api", "API et intégrations"},
 			{"data", "Data"},
-			// Nested: lanes follow the group tree (ADR-32). Unchecked by default, so its
-			// items show in the API et intégrations lane.
+			// Nested: the default lanes include subgroups (ADR-34), so its items show in the
+			// API et intégrations lane.
 			{"api/partenaires", "Partenaires"},
 		},
 		Projects: []Project{
@@ -194,11 +205,13 @@ func New(now time.Time) *Dataset {
 	// Extra cases: dates inherited from children, and no date nor child at all.
 	epic("&24", "experience", "Notifications push", -1, -1, "mobile")
 	epic("&25", "experience", "Accessibilité RGAA", -1, -1, "UX", "frontend")
+	// In the root group: no default lane holds it, so &21 shows it « hors couloirs ».
+	epic("&26", "", "Socle d'observabilité", 3, 5, "backend")
 
 	const open, closed = false, true
 	sso, webhooks, export := "identite/sso", "api/webhooks", "api/export"
 	web, mobile, pipeline := "experience/web", "experience/mobile", "data/pipeline"
-	// Issues that block an epic (shown).
+	// Issues that block an epic.
 	issue("#104", sso, "Corriger la déconnexion intempestive", 3, "&12", open, "TR", "bug", "priorité::haute", "backend")
 	issue("#114", sso, "Audit de sécurité du SSO", 4, "&12", open, "TR", "sécurité")
 	issue("#140", webhooks, "Contrat d’interface des webhooks", 1, "&19", closed, "SN", "API")
@@ -209,7 +222,8 @@ func New(now time.Time) *Dataset {
 	issue("#131", pipeline, "Montée de version Kafka", 2, "&21", closed, "JP", "data", "backend")
 	issue("#130", pipeline, "Schéma d'événements v2", 6, "&21", open, "JP", "data")
 	issue("#132", pipeline, "Purge des données personnelles", -1, "&23", open, "AL", "data", "sécurité")
-	// Issues that block no epic (ignored by the board, but they still date their parent epic).
+	// Issues that block no epic: shown in a lane set to « Toutes » (ADR-35), and they date
+	// their parent epic.
 	issue("#101", sso, "Configurer le fournisseur SAML", 2, "&12", closed, "AL", "backend", "sécurité")
 	issue("#103", sso, "Gestion des sessions et refresh token", 3, "&12", open, "AL", "backend", "sécurité")
 	issue("#106", web, "Widgets configurables", 4, "&15", open, "MB", "frontend")
@@ -238,7 +252,7 @@ func New(now time.Time) *Dataset {
 	blocks("&21", "&23", false, true)
 	relates("&16", "&22", false)
 	relates("&24", "&17", true)
-	// Issue → epic (only these issues are shown).
+	// Issue → epic.
 	blocks("#104", "&13", true, true)
 	blocks("#114", "&18", true, false)
 	blocks("#140", "&18", true, true)
@@ -249,10 +263,14 @@ func New(now time.Time) *Dataset {
 	blocks("#131", "&21", true, true)
 	blocks("#130", "&23", true, true)
 	blocks("#132", "&23", true, true)
-	// Issue ↔ issue: dropped unless both issues are shown.
+	// Issue ↔ issue. #106 → #108: both block no epic, It. 16 then It. 17, no conflict.
 	relates("#107", "#110", true)
 	relates("#103", "#104", true)
 	blocks("#109", "#110", true, true)
+	blocks("#106", "#108", true, true)
+	// Out of every default lane: &26 (root group, It. 15 – 17) blocks &21 (It. 17 – 19).
+	// Same iteration, no conflict; &26 → &21 → &23 is shorter than the critical path.
+	blocks("&26", "&21", true, true)
 	return ds
 }
 

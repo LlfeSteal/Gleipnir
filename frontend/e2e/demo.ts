@@ -21,6 +21,7 @@ const TITLES: Record<string, string> = {
   '&23': 'Modèles prédictifs',
   '&24': 'Notifications push',
   '&25': 'Accessibilité RGAA',
+  '&26': "Socle d'observabilité",
   '#101': 'Configurer le fournisseur SAML',
   '#103': 'Gestion des sessions et refresh token',
   '#104': 'Corriger la déconnexion intempestive',
@@ -76,7 +77,7 @@ export function keyOf(itemTitle: string): string {
 export function ref(key: string): string {
   const t = title(key);
   const found = [...board().epics, ...board().issues].find((it) => it.title === t);
-  if (!found) throw new Error(`${key} (${t}) is not on the board: only epics and blocking issues are`);
+  if (!found) throw new Error(`${key} (${t}) is not in the served board`);
   return found.ref;
 }
 
@@ -113,12 +114,13 @@ export function group(slug: string): string {
   return `${root().path}/${slug}`;
 }
 
-/** The key a view URL names a group by (ADR-31): the last segment of its GitLab id. */
-export function groupKey(slug: string): string {
+/** A group of the board by its slug under the root ("api", "" for the root itself): its GitLab
+ * global ID, which lanes store (ADR-34), and its name. */
+export function groupOf(slug: string): { id: string; path: string; name: string } {
   const path = slug === '' ? root().path : group(slug);
   const found = board().groups.find((g) => g.path === path);
   if (!found) throw new Error(`no group ${path} in the board`);
-  return found.id.slice(found.id.lastIndexOf('/') + 1);
+  return found;
 }
 
 /** The name of the iteration cadence. */

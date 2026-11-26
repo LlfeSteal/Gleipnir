@@ -1,4 +1,4 @@
-/* App shell: toolbar, sidebar, main area, summary line, inspector.
+/* App shell: toolbar, sidebar, main area, summary line, inspector, lane settings sheet.
    Tokens, generic controls and the shared keyframes (sheet-up, fade-in) come from theme.css,
    the board canvas from board.css. No color literal here, except the modal backdrop allowed
    by style.md §2.4. */
@@ -248,10 +248,6 @@
   align-items: center;
   justify-content: space-between;
 }
-.sidebar-header-actions {
-  display: flex;
-  gap: 8px;
-}
 .sidebar-header h2 {
   margin: 0;
   font-size: 17px;
@@ -324,72 +320,77 @@
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
 }
-/* The group tree: one indent per level, a disclosure chevron (or its room) before each row. */
-.sidebar-lane {
-  padding-left: calc(var(--depth, 0) * 12px);
-}
-.sidebar-disclosure {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 18px;
-  height: 22px;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
+.sidebar .sidebar-edit {
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  width: 24px;
+  height: 24px;
+  margin-top: -12px;
   background: none;
   color: var(--text-secondary);
-  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s var(--ease);
 }
-.sidebar-disclosure:empty {
-  cursor: default;
+.sidebar-edit:hover {
+  color: var(--text);
 }
-.sidebar-disclosure svg {
-  transition: transform 0.15s var(--ease);
+.sidebar-lane:hover .sidebar-edit,
+.sidebar-edit:focus-visible {
+  opacity: 1;
 }
-.sidebar-disclosure[aria-expanded='true'] svg {
-  transform: rotate(90deg);
+.sidebar-lane:hover .checkbox-detail,
+.sidebar-lane:has(.sidebar-edit:focus-visible) .checkbox-detail {
+  visibility: hidden;
 }
-/* An unchecked group is not a lane: its color is only a hint. */
+/* Touch: no hover, so the pencil stays, after the count; link rows keep its room. */
+@media (hover: none) {
+  .sidebar .sidebar-edit {
+    position: static;
+    margin: 0;
+    opacity: 1;
+  }
+  .sidebar-lane {
+    padding-right: 2px;
+  }
+  .sidebar-lane:hover .checkbox-detail {
+    visibility: visible;
+  }
+  .sidebar-link {
+    padding-right: 28px;
+  }
+}
+.sidebar-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  margin-top: 2px;
+}
+.sidebar-actions .button.plain {
+  padding: 0 6px;
+}
+/* An inactive lane: its color is only a hint. */
 .sidebar-lane:not([data-checked]) .lane-dot {
   opacity: 0.35;
 }
-@media (prefers-reduced-motion: reduce) {
-  .sidebar-disclosure svg {
-    transition: none;
-  }
-}
-/* Label filter: "Labels" then a button naming the labels picked. */
-.sidebar-labels {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-height: 28px;
-}
-.sidebar-labels-button {
-  min-width: 0;
-  max-width: 150px;
-}
-.sidebar-labels-button[data-active] {
-  color: var(--blue);
-}
-.sidebar-labels-text {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-/* As wide as its row: the sidebar scrolls, so a wider pop-up would be cut. */
-.sidebar-labels-popover {
-  right: 0;
+/* Legend of the dependency badges (spec §4.5). */
+.sidebar-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0 6px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-  padding: 8px;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
-.sidebar-labels-popover .segmented {
-  align-self: stretch;
+.sidebar-legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sidebar-legend .pill {
+  flex: none;
 }
 .sidebar-switches {
   display: flex;
@@ -414,7 +415,8 @@
 
 /* Lane color dots (the color comes from [data-lane-color] on an ancestor). */
 .sidebar .lane-dot,
-.inspector .lane-dot {
+.inspector .lane-dot,
+.lane-settings .lane-dot {
   flex: none;
   width: 10px;
   height: 10px;
@@ -663,6 +665,17 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+/* A dependency in no active lane (spec §4.6): dotted, not clickable. */
+.dependency-row[data-off-lanes] {
+  border: 1px dotted var(--text-secondary);
+  cursor: default;
+}
+.dependency-row[data-off-lanes]:is(:hover, :active) {
+  background: none;
+}
+.dependency-list li + li .dependency-row[data-off-lanes] {
+  margin-top: 2px;
+}
 .dependency-row[data-closed] .dependency-title {
   color: var(--text-secondary);
 }
@@ -696,6 +709,235 @@
   text-decoration: none;
 }
 
+/* ---------- Lane settings sheet ---------- */
+/* Wider than the default sheet for the master–detail layout; full screen on phones. */
+@media (min-width: 761px) {
+  .lane-settings {
+    width: min(880px, calc(100vw - 32px));
+  }
+}
+.lane-settings-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  gap: 16px;
+  min-height: 420px;
+}
+.lane-settings-master {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.lane-settings-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-radius: 10px;
+  background: var(--card);
+}
+.lane-settings-list:empty {
+  display: none;
+}
+.lane-settings-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 4px 8px;
+  border-radius: 7px;
+  transition: background 0.15s var(--ease);
+}
+.lane-settings-item:hover {
+  background: var(--row-hover);
+}
+.lane-settings-item[data-selected] {
+  background: color-mix(in srgb, var(--blue) 14%, transparent);
+}
+.lane-settings-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.lane-settings-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.lane-settings-name {
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.lane-settings-summary {
+  font-size: 11px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.lane-settings-tools {
+  flex: none;
+  display: inline-flex;
+  gap: 0;
+  opacity: 0;
+  transition: opacity 0.15s var(--ease);
+}
+.lane-settings-tools .button.icon {
+  width: 24px;
+  height: 24px;
+  background: none;
+  color: var(--text-secondary);
+}
+.lane-settings-item:hover .lane-settings-tools,
+.lane-settings-item[data-selected] .lane-settings-tools,
+.lane-settings-tools:focus-within {
+  opacity: 1;
+}
+@media (hover: none) {
+  .lane-settings-tools {
+    opacity: 1;
+  }
+}
+.lane-settings-add {
+  align-self: flex-start;
+}
+.lane-settings-detail {
+  min-width: 0;
+  padding: 16px;
+  border-radius: 10px;
+  background: var(--card);
+}
+.lane-settings-empty {
+  margin: 0;
+}
+.lane-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.form-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+/* An inset grouped list of switches, rows split by hairlines (iOS Settings). */
+.form-group {
+  padding: 0 12px;
+  border-radius: 10px;
+  background: var(--inset-bg);
+}
+.form-group > .switch-row {
+  padding: 6px 0;
+}
+.form-group > .switch-row + .switch-row {
+  border-top: 0.5px solid var(--separator);
+}
+/* The switch that qualifies a list sits right under it. */
+.select-list + .form-group,
+.select-list + .label-mode {
+  margin-top: 4px;
+}
+.text-field {
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--fill);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.text-field:focus {
+  outline: 3px solid color-mix(in srgb, var(--blue) 45%, transparent);
+  outline-offset: 0;
+}
+.color-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 2px;
+}
+.color-swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--lane);
+  cursor: pointer;
+  transition: transform 0.1s var(--ease);
+}
+.color-swatch:active {
+  transform: scale(0.92);
+}
+.color-swatch[aria-checked='true'] {
+  box-shadow:
+    0 0 0 2px var(--card),
+    0 0 0 4px var(--lane);
+}
+.label-mode {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.plain-fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.plain-fieldset:disabled {
+  opacity: 0.5;
+}
+.sheet-footer-spacer {
+  flex: 1 1 auto;
+}
+
+/* A lane still without a group: Appliquer waits for one. */
+.lane-settings-item[data-incomplete] .lane-settings-summary,
+.form-warning {
+  color: var(--red);
+}
+.form-warning {
+  margin: 0;
+}
+.form-sublabel {
+  font-size: 13px;
+}
+.issue-mode {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--inset-bg);
+}
+.issue-mode .hint {
+  flex-basis: 100%;
+  margin: 0;
+}
+.sheet-footer-hint {
+  margin: 0;
+}
+
 /* ---------- Narrower windows ---------- */
 @media (max-width: 1180px) {
   .toolbar-search {
@@ -706,6 +948,14 @@
 
 /* ---------- Mobile (≤ 760 px): sidebar overlay, inspector bottom sheet ---------- */
 @media (max-width: 760px) {
+  .lane-settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+  }
+  .lane-settings-tools {
+    opacity: 1;
+  }
+
   .app-main {
     padding: 12px;
   }

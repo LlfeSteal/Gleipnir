@@ -8,7 +8,9 @@ import {
   isInWindow,
   itemSpan,
   presetWindow,
+  restoreWindow,
   shiftWindow,
+  storeWindow,
 } from './window';
 
 const data = mockupBoard(); // 10 iterations, current = 3
@@ -110,5 +112,27 @@ describe('focusWindow', () => {
   });
   it('stays inside the cadence', () => {
     expect(focusWindow({ from: 0, to: 1 }, { start: 9, end: 9 }, 10)).toEqual({ from: 8, to: 9 });
+  });
+});
+
+describe('storeWindow / restoreWindow (spec §4.3: the window is remembered)', () => {
+  const data = mockupBoard();
+  const it500 = (n: number) => `gid://gitlab/Iteration/${500 + n}`;
+
+  it('stores the window by iteration ids, and reads it back', () => {
+    expect(storeWindow({ from: 2, to: 6 }, data)).toEqual({ from: it500(2), to: it500(6) });
+    expect(restoreWindow({ from: it500(2), to: it500(6) }, data)).toEqual({ from: 2, to: 6 });
+    // Swapped ends are put back in order.
+    expect(restoreWindow({ from: it500(6), to: it500(2) }, data)).toEqual({ from: 2, to: 6 });
+  });
+
+  it('stores nothing outside the cadence', () => {
+    expect(storeWindow({ from: 2, to: 40 }, data)).toBeNull();
+  });
+
+  it('falls back (null) on anything missing, malformed or unknown', () => {
+    for (const value of [null, undefined, 'x', 3, {}, { from: 2, to: 6 }, { from: it500(2) }, { from: it500(2), to: 'gid://gitlab/Iteration/1' }]) {
+      expect(restoreWindow(value, data)).toBeNull();
+    }
   });
 });

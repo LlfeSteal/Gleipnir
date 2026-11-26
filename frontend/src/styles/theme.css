@@ -327,6 +327,27 @@ button.pill:hover { background: var(--fill-pressed); color: var(--text); }
 .select-list-detail { flex: 0 1 auto; min-width: 0; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--text-secondary); }
 .select-list-empty { padding: 10px; font-size: 13px; color: var(--text-secondary); text-align: center; }
 
+/* ---------- Sheet: native modal <dialog> ---------- */
+.sheet {
+  width: min(720px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px);
+  padding: 0; border: 0; border-radius: 14px; overflow: hidden;
+  background: var(--bg); color: var(--text); box-shadow: var(--popover-shadow);
+}
+.sheet[open] { display: flex; flex-direction: column; animation: sheet-in 0.15s var(--ease); }
+/* Literal colors: ::backdrop doesn't inherit custom properties in every browser. */
+.sheet::backdrop { background: rgba(0, 0, 0, 0.5); animation: fade-in 0.15s var(--ease); }
+:root[data-theme='dark'] .sheet::backdrop { background: rgba(0, 0, 0, 0.65); }
+.sheet-header { flex: none; display: flex; align-items: center; gap: 12px; padding: 14px 12px 12px 16px; }
+.sheet-title { flex: 1; min-width: 0; }
+.sheet-title h2 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 600; }
+.sheet-title p { margin: 2px 0 0; font-size: 12px; color: var(--text-secondary); }
+.sheet-close { border-radius: 50%; }
+.sheet-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 16px 16px; }
+.sheet-footer {
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px;
+  padding: 12px 16px; border-top: 0.5px solid var(--separator);
+}
+
 /* ---------- States ---------- */
 .banner {
   display: flex; align-items: center; gap: 12px; padding: 12px 16px;
@@ -367,12 +388,21 @@ button.pill:hover { background: var(--fill-pressed); color: var(--text); }
   from { opacity: 0; transform: translateX(-50%) scale(0.96); }
   to { opacity: 1; transform: translateX(-50%); }
 }
+@keyframes sheet-in { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: none; } }
 @keyframes sheet-up { from { transform: translateY(100%); } to { transform: none; } }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 
 /* ---------- Phones ---------- */
 @media (max-width: 760px) {
+  /* Sheets take the whole screen, rising from the bottom edge. */
+  .sheet {
+    width: 100%; height: 100dvh; max-height: 100dvh; margin: 0;
+    border-radius: 0;
+  }
+  .sheet[open] { animation: sheet-up 0.22s var(--ease); }
+  .sheet-header { padding-top: max(14px, env(safe-area-inset-top)); }
+  .sheet-footer { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
   .search-field { width: 100%; }
 }
 /* Touch: bigger hit targets for the switch and the checkboxes. */

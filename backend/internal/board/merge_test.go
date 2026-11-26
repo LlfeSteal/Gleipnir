@@ -196,12 +196,13 @@ func TestMergeScopeThenBuild(t *testing.T) {
 	epicBlocked.BlockedBy = []string{iid(1)}
 
 	prev := &Raw{RootGroup: Group{Path: "root"}, Iterations: testIterations(), Items: []RawItem{epicBlocked, issue}}
-	if b := Build(prev, testNow); len(b.Issues) != 1 {
-		t.Fatalf("before: issues = %+v", b.Issues)
+	if b := Build(prev, testNow); len(b.Issues) != 1 || len(b.Issues[0].BlocksEpics) != 1 || len(b.Links) != 1 {
+		t.Fatalf("before: issues = %+v, links = %+v", b.Issues, b.Links)
 	}
-	// The link was removed in GitLab, and only root/a was refreshed.
+	// The link was removed in GitLab, and only root/a was refreshed: the issue stays, but
+	// blocks no epic any more.
 	merged := MergeScope(prev, subtrees([]string{"root/a"}), []RawItem{epic})
-	if b := Build(merged, testNow); len(b.Issues) != 0 || len(b.Links) != 0 {
+	if b := Build(merged, testNow); len(b.Issues) != 1 || len(b.Issues[0].BlocksEpics) != 0 || len(b.Links) != 0 {
 		t.Errorf("after: issues = %+v, links = %+v", b.Issues, b.Links)
 	}
 }

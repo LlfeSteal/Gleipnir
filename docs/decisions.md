@@ -10,8 +10,8 @@ Ce fichier consigne les choix qui structurent Gleipnir, sous forme de courts ADR
 | 1 | Backend Go sans dépendance externe | 2026-11-23 |
 | 2 | GraphQL GitLab écrit à la main | 2026-11-23 |
 | 3 | Cache mémoire « stale-while-revalidate » (remplacé par ADR-24) | 2026-11-23 |
-| 4 | Le backend normalise, le frontend met en page | 2026-11-23 |
-| 5 | Couloirs stockés dans le navigateur | 2026-11-23 |
+| 4 | Le backend normalise, le frontend met en page (amendé par ADR-35) | 2026-11-23 |
+| 5 | Couloirs stockés dans le navigateur (remplacé par ADR-31 et ADR-32, repris par ADR-34 et ADR-36) | 2026-11-23 |
 | 6 | Une seule cadence par board | 2026-11-23 |
 | 7 | Frontend sans dépendance d'exécution | 2026-11-23 |
 | 8 | Déploiement en deux images | 2026-11-23 |
@@ -35,6 +35,15 @@ Ce fichier consigne les choix qui structurent Gleipnir, sous forme de courts ADR
 | 26 | Jeton de démo vérifié par le faux GitLab | 2026-11-24 |
 | 27 | Seeder : le jeu de démo dans un vrai GitLab | 2026-11-24 |
 | 28 | E2E agnostiques : même suite sur le faux et le vrai GitLab | 2026-11-24 |
+| 29 | Colonnes à la largeur du board | 2026-11-24 |
+| 30 | La recherche montre la chaîne de dépendances des résultats | 2026-11-24 |
+| 31 | La vue dans l'URL, partageable par un lien (remplacé par ADR-36) | 2026-11-24 |
+| 32 | Couloirs en lecture seule : les groupes cochés de l'arbre GitLab (remplacé par ADR-34) | 2026-11-24 |
+| 33 | `AGENTS.md` en anglais | 2026-11-24 |
+| 34 | Couloirs éditables | 2026-11-26 |
+| 35 | Mode d'affichage des issues par couloir | 2026-11-26 |
+| 36 | Vue mémorisée dans le navigateur | 2026-11-26 |
+| 37 | Dépendances hors couloirs | 2026-11-26 |
 
 ---
 
@@ -108,7 +117,7 @@ Les erreurs sont typées : `ErrUnauthorized`, `ErrGroupNotFound`, `ErrPremiumReq
 
 ## ADR-4 — Le backend normalise, le frontend met en page
 
-*2026-11-23 · Accepté*
+*2026-11-23 · Accepté · Amendé par l'ADR-35 : le backend envoie toutes les issues, le couloir décide lesquelles afficher*
 
 **Contexte.** Les règles métier (§5) doivent être identiques pour tous et testables sans navigateur. La mise en page, elle, dépend de choix d'interface faits dans le navigateur : couloirs, fenêtre, recherche.
 
@@ -117,7 +126,7 @@ Les erreurs sont typées : `ErrUnauthorized`, `ErrGroupNotFound`, `ErrPremiumReq
 - Le backend (`internal/board`) calcule tout ce qui est **métier et stable** :
   - le rattachement des epics aux itérations (§5.2) ;
   - la normalisation des liens (§5.4) ;
-  - les issues affichables (§5.1) ;
+  - les issues bloquantes (`blocksEpics`, §5.1) ; depuis l'ADR-35, il envoie **toutes** les issues, et le mode d'affichage du couloir choisit côté frontend ;
   - les éléments non planifiés ;
   - les conflits ;
   - le chemin critique.
@@ -130,7 +139,7 @@ Les erreurs sont typées : `ErrUnauthorized`, `ErrGroupNotFound`, `ErrPremiumReq
 
 ## ADR-5 — Couloirs stockés dans le navigateur
 
-*2026-11-23 · Remplacé par l'ADR-31 (vue dans l'URL) et l'ADR-32 (couloirs = groupes GitLab)*
+*2026-11-23 · Remplacé par l'ADR-31 (vue dans l'URL) et l'ADR-32 (couloirs = groupes GitLab) · Repris par l'ADR-34 (couloirs éditables, mêmes couloirs par défaut, groupes choisis dans GitLab) et l'ADR-36 (couloirs et fenêtre mémorisés dans le navigateur)*
 
 **Contexte.** La spec (§7) vise des vues partagées côté serveur. Mais les couloirs sont une préférence d'interface, pas une donnée GitLab, et la v1 n'a ni base de données ni identité utilisateur.
 
@@ -231,22 +240,22 @@ Les erreurs sont typées : `ErrUnauthorized`, `ErrGroupNotFound`, `ErrPremiumReq
 
 ## ADR-10 — Règles pour les questions ouvertes de la spec
 
-*2026-11-23 · Accepté*
+*2026-11-23 · Accepté · Amendé par l'ADR-35 : toute issue sans itération est non planifiée*
 
 **Contexte.** La spec laisse ouvertes la zone « Non planifié » (§9.1, §9.2), le chemin critique (§9.5) et les conflits de dates (§9.6). La v1 les traite.
 
 **Décision.**
 
-- **Conflit** : un lien « bloque » dont l'itération de fin du bloqueur est **strictement postérieure** à l'itération de début de l'élément bloqué.
+- **Conflit** : un lien « bloque » dont l'itération de fin du bloqueur est **strictement postérieure** à l'itération de début de l'élément bloqué. Depuis l'ADR-35, cela vaut pour tout lien « bloque », issue → issue compris.
   - Même itération : pas de conflit.
   - Bloqueur fermé : jamais de conflit.
   - Le conflit est affiché en rouge, seul usage du rouge sur le board.
-- **Chemin critique** : la plus longue chaîne de liens « bloque » entre éléments **ouverts**, dans le graphe orienté.
+- **Chemin critique** : la plus longue chaîne de liens « bloque » entre éléments **ouverts**, dans le graphe orienté. Il ne passe que par les epics et les issues qui bloquent un epic (ADR-35).
   - Les cycles sont détectés, cassés et signalés dans les logs.
   - À longueur égale, on garde la chaîne qui finit le plus tard.
 - **Non planifié** :
   - un epic sans dates ni enfant planifié ;
-  - une issue bloquante sans itération.
+  - une issue sans itération de la cadence (seulement les issues bloquantes avant l'ADR-35).
   
   Ces éléments vont dans une colonne « Non planifié », en fin de board, que l'on peut masquer.
 
@@ -334,7 +343,7 @@ Les erreurs sont typées : `ErrUnauthorized`, `ErrGroupNotFound`, `ErrPremiumReq
 
 ## ADR-15 — Palette fixe pour les couleurs des couloirs
 
-*2026-11-23 · Accepté*
+*2026-11-23 · Accepté · Amendé par l'ADR-34 : la couleur se choisit dans la palette, par couloir*
 
 **Contexte.** La spec prévoit une couleur libre par couloir. Un sélecteur libre permettrait du rouge (conflits), du violet (epics) ou du teal (issues), et donnerait des couleurs illisibles en mode sombre.
 
@@ -342,13 +351,14 @@ Les erreurs sont typées : `ErrUnauthorized`, `ErrGroupNotFound`, `ErrPremiumReq
 
 - Un couloir choisit parmi **8 couleurs système Apple**, définies en jetons clair et sombre : indigo, bleu, cyan, menthe, jaune, orange, rose et brun (`--lane-*`).
 - Rouge, vert, violet et teal sont exclus : ils portent déjà un sens.
-- La couleur d'un couloir est celle du sous-groupe de premier niveau dont descend son groupe, dans l'ordre de l'arbre (ADR-32) : stable, et partagée par un sous-couloir et son parent. Elle n'était, avant l'ADR-32, que la couleur libre suivante d'un nouveau couloir.
+- La couleur d'un couloir se **choisit dans la palette**, dans le panneau de réglages (ADR-34). Un nouveau couloir prend la première couleur qu'aucun autre couloir n'utilise, sinon la palette recommence. Les couloirs par défaut prennent la palette dans l'ordre. (Sous l'ADR-32, la couleur venait du sous-groupe de premier niveau.)
 - Le composant n'expose que `data-lane-color` ; le CSS en déduit `--lane`.
 
 **Conséquences.**
 
 - Couleurs harmonieuses et lisibles dans les deux apparences, sans conflit de sens.
 - Au-delà de 8 couloirs, les couleurs se répètent.
+- Une couleur stockée invalide retombe sur une couleur de la palette, selon la place du couloir.
 
 ## ADR-16 — Documentation en français, code en anglais
 
@@ -437,10 +447,10 @@ Les erreurs sont typées : `ErrUnauthorized`, `ErrGroupNotFound`, `ErrPremiumReq
 - **Une seule date** : le côté manquant vient des issues enfants (min pour le début, max pour la fin), sans jamais dépasser le côté connu. Sans enfant, l'epic tient sur une itération. `datesFromChildren` reste faux.
 - **Dates propres et enfants planifiés** : les dates de l'epic priment toujours. Les enfants ne servent que s'il n'a pas de date, ou n'en a qu'une.
 - **Sans date** : le min et le max des itérations de **toutes** les issues enfants de la cadence, affichées ou ignorées, ouvertes ou fermées. Sans enfant planifié, l'epic est non planifié.
-- **Issue affichée** : seulement si elle est la **source** d'un lien `blocks` vers un epic. Une issue bloquée par un epic n'est pas affichée pour cette raison.
+- **Issue bloquante** : seulement si elle est la **source** d'un lien `blocks` vers un epic. Une issue bloquée par un epic n'est pas bloquante pour cette raison. Depuis l'ADR-35, toutes les issues sont envoyées ; ce critère sert au mode « Uniquement celles qui bloquent un epic » et au chemin critique.
 - **Liens** :
   - deux liens `blocks` A→B et B→A sont gardés tous les deux, comme un cycle ;
-  - les liens `parent` ne relient qu'un epic à une issue affichée : la hiérarchie entre epics n'est pas dessinée.
+  - les liens `parent` ne relient qu'un epic à une de ses issues (toutes depuis l'ADR-35) : la hiérarchie entre epics n'est pas dessinée.
 - **Labels** : en cas de doublon de titre, la première couleur rencontrée l'emporte.
 - **Conflit** : seul l'état du bloqueur compte. Un côté non planifié ne donne jamais de conflit, car il n'y a rien à comparer.
 - **Chemin critique** :
@@ -532,7 +542,7 @@ Une synchro en cours reste partagée par toutes les requêtes. Sans données en 
 
 - **Synchro complète périodique** (`cache.Store.Run`) : au démarrage, puis `CACHE_TTL` après la fin de chaque synchro, pour qu'elles ne se chevauchent pas. Le board en cache reste servi pendant la synchro (`X-Cache: HIT`). Une requête ne lance une synchro complète que s'il n'y a encore aucune donnée.
 - **Rafraîchissement ciblé** : `GET /api/board?refresh=1&groups=a,b`.
-  - Le frontend envoie les groupes des couloirs actifs, sans ceux dont un ancêtre est déjà listé (`refreshScope`).
+  - Le frontend envoie les groupes des couloirs actifs (tous les groupes de chaque couloir, ADR-34), sans ceux dont un ancêtre est déjà listé (`refreshScope`).
   - Le backend relit **seulement** les work items du sous-arbre de chaque groupe (`group(fullPath)` + `includeDescendants`), jusqu'à 4 en parallèle. Il ne relit ni les groupes, ni la cadence, ni les itérations.
   - Le sous-arbre est toujours lu en entier, même pour un couloir sans sous-groupes : les issues vivent dans les projets, sous le groupe.
   - Les groupes inconnus sont ignorés. Sans groupe connu : HTTP 400 `invalid_scope`. Il n'y a plus de synchro complète depuis l'interface.
@@ -700,7 +710,7 @@ Une synchro en cours reste partagée par toutes les requêtes. Sans données en 
   Ils ne se mélangent pas : un autre bloqueur d'un élément bloqué n'est pas ramené, sinon la chaîne s'étendrait à presque tout le board.
 - Seuls les **types de lien cochés** sont suivis, comme pour le dessin. `relates`, sans direction, se suit dans les deux sens dans chacun des parcours. `parent` va de l'epic vers l'issue.
 - Le parcours traverse aussi les éléments masqués (issues fermées avec « Masquer les issues fermées ») : la chaîne existe, ils ne sont juste pas dessinés.
-- Couloirs, fenêtre et « Masquer les issues fermées » s'appliquent ensuite comme avant. Une dépendance hors fenêtre donne la pastille « › N ».
+- Couloirs, fenêtre et « Masquer les issues fermées » s'appliquent ensuite comme avant. Une dépendance hors fenêtre donne la pastille « › N », une dépendance qui ne correspond à aucun couloir actif la pastille « hors couloirs » (ADR-37).
 - Les dépendances ajoutées portent `data-search-context` et sont **voilées** comme les éléments atténués de la sélection. La sélection et le chemin critique, quand ils sont actifs, reprennent la main sur l'atténuation.
 
 **Conséquences.**
@@ -711,7 +721,7 @@ Une synchro en cours reste partagée par toutes les requêtes. Sans données en 
 
 ## ADR-31 — La vue dans l'URL, partageable par un lien
 
-*2026-11-24 · Accepté · Remplace l'ADR-5 pour la fenêtre · Amende la spec §4.3, §7 et §9.7*
+*2026-11-24 · Remplacé par ADR-36 · Remplaçait l'ADR-5 pour la fenêtre · Amendait la spec §4.3, §7 et §9.7*
 
 **Contexte.** On veut envoyer à quelqu'un un lien qui ouvre le board avec les mêmes filtres. La fenêtre était dans `localStorage`, commune à tous les onglets ; les options, la recherche et la sélection ne vivaient que dans la session. Des vues enregistrées et nommées (« portfolio ») viendront plus tard ; en attendant, aucune configuration de vue n'est sauvegardée.
 
@@ -746,7 +756,7 @@ Une synchro en cours reste partagée par toutes les requêtes. Sans données en 
 
 ## ADR-32 — Couloirs en lecture seule : les groupes cochés de l'arbre GitLab
 
-*2026-11-24 · Accepté · Remplace l'ADR-5 pour les couloirs · Amende la spec §4.4, §4.7 et §4.8*
+*2026-11-24 · Remplacé par ADR-34 · Remplaçait l'ADR-5 pour les couloirs · Amendait la spec §4.4, §4.7 et §4.8*
 
 **Contexte.** Les couloirs étaient des filtres éditables : nom, couleur, groupes, sous-groupes, types, labels, création et suppression. Or Gleipnir est en **lecture seule** : un couloir ne doit rien porter que GitLab ne dise. Un nouveau couloir, c'est un nouveau groupe dans GitLab.
 
@@ -781,3 +791,111 @@ Une synchro en cours reste partagée par toutes les requêtes. Sans données en 
 
 - Une règle de travail s'écrit en anglais dans `AGENTS.md`, une décision en français ici.
 - `AGENTS.md` renvoie aux sections de la spec et aux ADR par leur numéro (`§4.4`, `ADR-32`), pas par leur titre.
+
+## ADR-34 — Couloirs éditables
+
+*2026-11-26 · Accepté · Remplace l'ADR-32 · Reprend les couloirs par défaut de l'ADR-5 · Amende l'ADR-15 · Spec v0.3 §3, §4.1, §4.4, §4.8, §5.3*
+
+**Contexte.** L'ADR-32 avait fait des couloirs les groupes cochés de l'arbre GitLab, en lecture seule : un élément dans un seul couloir, types et labels en filtres globaux. À l'usage, c'est trop rigide : on veut un couloir « Mobile + Web », un couloir par label, ou un couloir qui ne montre que les epics. La spec v0.3 revient à des couloirs **définis par un filtre**. La lecture seule concerne les données GitLab, pas la mise en page du board.
+
+**Décision.**
+
+- **Un couloir est un filtre** édité par l'utilisateur (spec §4.4) :
+  - nom libre ;
+  - couleur choisie dans la palette (ADR-15) ;
+  - un ou plusieurs groupes, avec ou sans leurs sous-groupes ;
+  - « Afficher les epics » ;
+  - mode d'affichage des issues (ADR-35) ;
+  - labels, avec « Au moins un » ou « Tous » ;
+  - actif ou masqué.
+  
+  L'ordre de la liste est l'ordre d'affichage.
+- **Correspondance** (§5.1, §5.3) : le groupe de l'élément (invariant 3 d'`AGENTS.md`) est un groupe du couloir, ou un de ses descendants si les sous-groupes sont inclus. Un epic demande « Afficher les epics », une issue le mode du couloir. Une liste de labels vide ne filtre pas.
+- **Recoupement** : un élément apparaît dans **chaque** couloir actif auquel il correspond. Les compteurs ne le comptent qu'une fois.
+- **Groupes choisis dans GitLab** : le panneau propose l'arbre des groupes lu par le backend (`board.groups`), comme le voulait l'ADR-5. On ne saisit pas de chemin : un chemin hors du groupe racine ne pourrait pas être lu.
+- Les couloirs désignent leurs groupes par leur **GID**, stable si un groupe est renommé ou déplacé.
+- **Couloirs par défaut** (premier chargement et « Rétablir la configuration d'exemple ») : un couloir par sous-groupe direct du groupe racine (la racine s'il n'en a pas), nommé comme le groupe, sous-groupes inclus, epics affichés, issues bloquantes seulement, sans label, couleurs de la palette dans l'ordre.
+- **Panneau « Configurer les couloirs »** (`LaneSettingsSheet`) :
+  - créer, modifier, supprimer, monter, descendre, activer ;
+  - « Annuler » et « Appliquer » : rien ne change sur le board avant « Appliquer » ; Échap annule ;
+  - plein écran sur mobile.
+  
+  La barre latérale liste les couloirs (case « actif », couleur, bouton « Modifier ») et porte le bouton « Nouveau couloir ». L'en-tête de chaque couloir rappelle son filtre et a aussi un bouton « Modifier ».
+- **Validation au chargement** : les groupes inconnus sont retirés, un couloir sans groupe connu est retiré, une couleur ou un mode invalide retombe sur sa valeur par défaut, les labels inconnus sont retirés. Une valeur illisible redonne les couloirs par défaut ; une liste vide enregistrée reste vide.
+- Les filtres globaux de types et de labels de l'ADR-32 disparaissent : ils reviennent dans chaque couloir.
+
+**Conséquences.**
+
+- Avec le jeu de démo, les couloirs par défaut sont les mêmes qu'avant : `api/partenaires` (&22) tombe dans le couloir « API et intégrations », sous-groupes inclus.
+- Un élément peut figurer plusieurs fois sur le board. Ses liens relient l'occurrence du même couloir que l'autre bout, sinon la première (ADR-37).
+- La configuration est propre au navigateur (ADR-36) : elle ne suit pas l'utilisateur et ne se partage pas.
+- Les couloirs restent sans effet sur GitLab : seule la mise en page change.
+
+## ADR-35 — Mode d'affichage des issues par couloir
+
+*2026-11-26 · Accepté · Amende l'ADR-4, l'ADR-10 et l'ADR-19 · Spec v0.3 §2, §3, §5.1*
+
+**Contexte.** Le board ne montrait que les issues qui bloquent un epic : le backend écartait les autres et n'en donnait que le nombre (`ignoredIssues`). Une équipe veut parfois voir toutes ses issues, ou aucune, couloir par couloir.
+
+**Décision.**
+
+- Chaque couloir a un **mode d'affichage des issues** :
+  - « Toutes » ;
+  - « Uniquement celles qui bloquent un epic », le mode par défaut ;
+  - « Aucune ».
+- **Le backend envoie toutes les issues** du groupe. `Issue.blocksEpics` peut être vide : une issue est bloquante si la liste ne l'est pas. Il n'y a pas d'autre indicateur. `ignoredIssues` est supprimé : le frontend compte lui-même les issues bloquantes (« 9 sur 16 » dans la barre latérale).
+- `labels` réunit les labels de tous les epics et de toutes les issues. `links` relie tous les éléments du board, et un lien `parent` relie un epic à chacune de ses issues.
+- **Non planifié** : toute issue sans itération de la cadence, bloquante ou non, va dans la colonne « Non planifié » (amende l'ADR-10).
+- **Conflits** : calculés sur **tous** les liens « bloque », issue → issue compris. Ils s'affichent quand les deux bouts sont à l'écran.
+- **Chemin critique** : sa portée ne change pas. Il ne passe que par les epics et les issues qui bloquent un epic. Ainsi une chaîne d'issues masquées par le mode « Bloquantes » ne le détourne pas, et son résultat sur le jeu de démo reste le même.
+
+**Conséquences.**
+
+- La réponse de `GET /api/board` grossit : jusqu'à environ 2 000 issues (spec §8). Elle reste gzippée par nginx.
+- La règle « issue affichée » de l'ADR-19 devient « issue bloquante » : elle sert au mode par défaut et au chemin critique.
+- Le contrat `model.go` ↔ `types.ts` change : `ignoredIssues` disparaît, et `blocksEpics` peut être vide.
+
+## ADR-36 — Vue mémorisée dans le navigateur
+
+*2026-11-26 · Accepté · Remplace l'ADR-31 · Spec v0.3 §4.3, §7, §9.7*
+
+**Contexte.** L'ADR-31 mettait toute la vue dans l'URL, avec un bouton « Copier le lien ». Avec des couloirs éditables (ADR-34), une URL devrait porter des filtres entiers. Et on veut retrouver ses couloirs et sa fenêtre en rouvrant l'application, sans garder un lien. La spec v0.3 revient à une mémorisation dans le navigateur.
+
+**Décision.**
+
+- **`localStorage`**, lu avec validation et `try/catch` :
+  - `gleipnir.lanes` : les couloirs (ADR-34) ;
+  - `gleipnir.window` : la fenêtre, `{from, to}`, par GID d'itération. Une itération inconnue redonne la fenêtre par défaut ;
+  - `gleipnir.sidebar` : le panneau latéral replié ;
+  - `gleipnir.appearance` : l'apparence.
+- **Session seulement**, dans l'état React : types de lien, « Masquer les issues fermées », colonne « Non planifié », chemin critique, couloirs repliés, recherche et sélection.
+- **Plus de vue dans l'URL** : l'application ne lit ni n'écrit l'URL. Le bouton « Copier le lien » et `src/board/share.ts` sont supprimés.
+
+**Conséquences.**
+
+- Deux onglets du même navigateur partagent couloirs et fenêtre : le dernier qui écrit l'emporte.
+- On ne peut plus envoyer une vue à quelqu'un. Les vues nommées et partageables (§9.7) restent à faire, côté serveur.
+- `groups[].id` reste servi : il désigne les groupes des couloirs.
+
+## ADR-37 — Dépendances hors couloirs
+
+*2026-11-26 · Accepté · Spec v0.3 §3, §4.5, §4.6*
+
+**Contexte.** Avec des couloirs choisis (ADR-34), un élément affiché peut dépendre d'un élément qu'aucun couloir ne montre. Sans signe, la dépendance disparaît du board en silence. La pastille « hors fenêtre » ne couvre que les éléments d'un couloir placés hors de la fenêtre.
+
+**Décision.**
+
+- **Hors fenêtre** : l'autre élément correspond à un couloir actif mais tombe hors de la fenêtre. La pastille « › N hors fenêtre » ne change pas.
+- **Hors couloirs** : l'autre élément ne correspond à **aucun couloir actif**.
+  - Le lien n'est pas dessiné et l'élément n'est pas ajouté au board.
+  - L'élément visible porte une pastille distincte, en pointillés, avec une icône de sortie : « N hors couloirs ». Sur un epic, avec le libellé complet ; sur une carte d'issue, l'icône et le nombre, avec le libellé en infobulle et en libellé ARIA. Les deux pastilles figurent dans la légende.
+- **Ce qui compte** :
+  - seuls les liens « Bloque » et « Lié à », si leur type est affiché. Les liens `parent` ne comptent jamais, sinon chaque epic serait signalé pour ses issues masquées par choix ;
+  - l'appartenance ignore la fenêtre, la recherche et « Masquer les issues fermées ». Un élément exclu par la règle de son couloir (issue d'un couloir réglé sur « Aucune ») est hors couloirs s'il ne correspond à aucun autre.
+- **Panneau de détail** : une dépendance hors couloirs est en pointillés, avec « Hors couloirs · <groupe> ». Ce n'est pas un bouton : on l'ouvre dans GitLab, ou on ajuste un couloir. Une dépendance hors fenêtre garde son comportement (elle déplace la fenêtre).
+- **Occurrences multiples** : un élément présent dans plusieurs couloirs est relié par l'occurrence du même couloir que l'autre bout, sinon par la première dans l'ordre des couloirs.
+
+**Conséquences.**
+
+- Une dépendance n'est jamais perdue de vue : elle est dessinée, ou comptée dans l'une des deux pastilles.
+- Le calcul se fait dans le frontend (`src/board/view.ts`), à partir des couloirs actifs, et se teste en Vitest.

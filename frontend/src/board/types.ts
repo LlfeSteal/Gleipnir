@@ -11,15 +11,27 @@ export type ItemKind = 'epic' | 'issue';
 export const LANE_COLORS = ['indigo', 'blue', 'cyan', 'mint', 'yellow', 'orange', 'pink', 'brown'] as const;
 export type LaneColor = (typeof LANE_COLORS)[number];
 
-/** A lane is a checked GitLab group (ADR-32): read only, derived from the group tree. It
- * holds the items whose closest checked group, up their path, is this one. */
+/** Which issues a lane shows (spec §4.4, §5.1): every one, those that block an epic, or none. */
+export const ISSUE_MODES = ['all', 'blocking', 'none'] as const;
+export type IssueMode = (typeof ISSUE_MODES)[number];
+
+export type LabelMode = 'any' | 'all';
+
+/** A lane is a filter edited by the user (spec §4.4, ADR-34): GitLab groups, item types and
+ * labels. Lanes may overlap: an item shows in every active lane it matches. Stored in
+ * localStorage (gleipnir.lanes), in display order. */
 export interface Lane {
-  id: string; // the group's full path
-  name: string; // the group's name in GitLab
-  /** Names from below the root down to the group: "API et intégrations › Partenaires". */
-  title: string;
+  id: string; // local id, stable across edits
+  name: string;
   color: LaneColor;
-  depth: number; // 0: the root group, 1: a direct subgroup…
+  groups: string[]; // group global IDs (gid://gitlab/Group/N): stable when a group is renamed
+  /** An item of a/b/c matches the group a/b. */
+  includeSubgroups: boolean;
+  showEpics: boolean;
+  issueMode: IssueMode;
+  labels: string[]; // label titles; empty: no label filter
+  labelMode: LabelMode;
+  active: boolean;
 }
 
 /** A group in the tree, in tree order (parent first, siblings by path). */
@@ -38,19 +50,11 @@ export interface BoardWindow {
   to: number;
 }
 
-export type LabelMode = 'any' | 'all';
-
 export interface DisplayOptions {
   linkTypes: Record<LinkType, boolean>;
   hideClosed: boolean;
   showUnplanned: boolean;
   criticalPath: boolean;
-  /** Item types shown, on the whole board. */
-  showEpics: boolean;
-  showIssues: boolean;
-  /** Label filter on the whole board; empty: no filter. */
-  labels: string[];
-  labelMode: LabelMode;
 }
 
 export const DEFAULT_OPTIONS: DisplayOptions = {
@@ -58,15 +62,11 @@ export const DEFAULT_OPTIONS: DisplayOptions = {
   hideClosed: false,
   showUnplanned: true,
   criticalPath: false,
-  showEpics: true,
-  showIssues: true,
-  labels: [],
-  labelMode: 'any',
 };
 
 export interface ViewInput {
   data: BoardData;
-  lanes: Lane[]; // the checked groups, in tree order (lanesOf)
+  lanes: Lane[]; // in display order; inactive ones are skipped
   window: BoardWindow;
   options: DisplayOptions;
   query: string; // search on ref and title, case-insensitive, already trimmed
@@ -102,8 +102,11 @@ export interface PlacedItem {
   clippedStart: boolean; // epic starting before the window (dashed / open left side)
   clippedEnd: boolean; // epic ending after the window
   unplanned: boolean; // placed in the unplanned column
-  /** Ids of linked items that match the lane filters but sit outside the window (badge "› N"). */
+  /** Ids of linked items that match an active lane but sit outside the window (badge "› N"). */
   offWindow: string[];
+  /** Ids of items linked by a shown "bloque" or "lié à" link that match no active lane, whatever
+   * the window, search and closed filter (badge "N hors couloirs", spec §4.5). */
+  offLanes: string[];
   /** Brought in by the search as a dependency of a match, not a match itself (dimmed). */
   searchContext: boolean;
 }
@@ -134,7 +137,7 @@ export interface LinkPath {
 export interface BoardStats {
   lanes: number; // active lanes
   epics: number; // unique epics shown (an item in several lanes counts once)
-  issues: number; // unique blocking issues shown
+  issues: number; // unique issues shown
   blocks: number; // unique blocks links drawn
   conflicts: number; // unique blocks links drawn in conflict
 }

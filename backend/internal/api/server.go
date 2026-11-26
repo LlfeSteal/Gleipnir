@@ -163,7 +163,7 @@ func (s *Server) encodeBoard(raw *board.Raw, synced map[string]time.Time) ([]byt
 	}
 	s.log.Info("board built",
 		"iterations", len(b.Iterations), "epics", len(b.Epics), "issues", len(b.Issues),
-		"links", len(b.Links), "ignoredIssues", b.IgnoredIssues, "kb", len(body)/1024)
+		"links", len(b.Links), "kb", len(body)/1024)
 	return body, nil
 }
 

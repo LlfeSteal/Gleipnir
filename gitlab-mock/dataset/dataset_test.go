@@ -60,7 +60,9 @@ func TestStorableInGitLab(t *testing.T) {
 	}
 
 	titles := map[string]bool{}
-	keys := map[string]string{} // key → group of the epic, "" for an issue
+	keys := map[string]bool{}
+	epicGroup := map[string]string{} // epic key → its group ("" is the root group)
+	groups[""] = true                // an epic may live in the root group itself
 	checkLabels := func(key string, ls []string) {
 		for _, l := range ls {
 			if !labels[l] {
@@ -69,10 +71,10 @@ func TestStorableInGitLab(t *testing.T) {
 		}
 	}
 	for _, e := range d.Epics {
-		if titles[e.Title] || keys[e.Key] != "" || !strings.HasPrefix(e.Key, "&") || !groups[e.Group] {
+		if titles[e.Title] || keys[e.Key] || !strings.HasPrefix(e.Key, "&") || !groups[e.Group] {
 			t.Errorf("epic %+v: duplicate title or key, or unknown group", e)
 		}
-		titles[e.Title], keys[e.Key] = true, e.Group
+		titles[e.Title], keys[e.Key], epicGroup[e.Key] = true, true, e.Group
 		if (e.First < 0) != (e.Last < 0) || e.First > e.Last || e.Last >= len(d.Iterations) {
 			t.Errorf("epic %s: iterations %d – %d", e.Key, e.First, e.Last)
 		}
@@ -87,16 +89,16 @@ func TestStorableInGitLab(t *testing.T) {
 			t.Errorf("issue %+v: duplicate title or bad key", is)
 		}
 		titles[is.Title] = true
-		if _, dup := keys[is.Key]; dup {
+		if keys[is.Key] {
 			t.Errorf("duplicate key %s", is.Key)
 		}
-		keys[is.Key] = ""
+		keys[is.Key] = true
 		group, ok := projects[is.Project]
 		if !ok {
 			t.Errorf("issue %s: unknown project %q", is.Key, is.Project)
 		}
 		// GitLab only lets an epic of the project's group (or an ancestor) parent an issue.
-		if is.Parent != "" && keys[is.Parent] != group {
+		if g, isEpic := epicGroup[is.Parent]; is.Parent != "" && (!isEpic || g != group) {
 			t.Errorf("issue %s: parent %s is not an epic of group %s", is.Key, is.Parent, group)
 		}
 		if is.Iteration < -1 || is.Iteration >= len(d.Iterations) {
@@ -110,8 +112,7 @@ func TestStorableInGitLab(t *testing.T) {
 
 	pairs := map[string]bool{}
 	for _, l := range d.Links {
-		_, from := keys[l.From]
-		_, to := keys[l.To]
+		from, to := keys[l.From], keys[l.To]
 		if !from || !to || l.From == l.To || (l.Kind != Blocks && l.Kind != Relates) || !(l.FromSide || l.ToSide) {
 			t.Errorf("link %+v", l)
 		}
@@ -131,7 +132,7 @@ func TestStorableInGitLab(t *testing.T) {
 			t.Errorf("iteration %s overlaps or is out of order", it.Title)
 		}
 	}
-	if len(d.Epics) != 12 || len(d.Issues) != 19 || len(d.Links) != 24 {
+	if len(d.Epics) != 13 || len(d.Issues) != 19 || len(d.Links) != 26 {
 		t.Fatalf("got %d epics, %d issues, %d links", len(d.Epics), len(d.Issues), len(d.Links))
 	}
 }
@@ -164,5 +165,14 @@ func TestLookups(t *testing.T) {
 	}
 	if p := (Project{Group: "api", Slug: "export"}).Path(); p != "api/export" {
 		t.Fatalf("Path = %q", p)
+	}
+}
+
+func TestUnder(t *testing.T) {
+	if got := Under("demo/gleipnir", ""); got != "demo/gleipnir" {
+		t.Errorf("root: %q", got)
+	}
+	if got := Under("demo/gleipnir", "api/partenaires"); got != "demo/gleipnir/api/partenaires" {
+		t.Errorf("nested: %q", got)
 	}
 }

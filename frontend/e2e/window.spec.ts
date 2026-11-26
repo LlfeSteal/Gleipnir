@@ -96,20 +96,30 @@ test('the quick settings set the window, and the active one is checked', async (
   }
 });
 
-test('the window is kept in the URL, through a reload', async ({ page }) => {
+test('the window is remembered in the browser, through a reload, and the URL stays bare', async ({ page }) => {
   await openWindowMenu(page);
   await page.getByRole('menuitemradio', { name: '6 prochaines', exact: true }).click();
   await expectWindow(page, it(15), it(20));
   await page.getByRole('button', { name: 'Itération suivante' }).click();
   await expectWindow(page, it(16), it(21));
-  // Iterations are named by the last segment of their GitLab id (ADR-31).
-  const key = (index: number) => board().iterations[index].id.split('/').pop();
-  await expect.poll(() => new URL(page.url()).search).toBe(`?from=${key(4)}&to=${key(9)}`);
+  // Its first and last iterations by GitLab id (ADR-36), not by index.
+  const ids = board().iterations.map((iteration) => iteration.id);
+  await expect
+    .poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('gleipnir.window') ?? 'null')))
+    .toEqual({ from: ids[4], to: ids[9] });
+  expect(new URL(page.url()).search).toBe('');
 
   await page.reload();
   await expectWindow(page, it(16), it(21));
   await expect(page.getByText(itTitle(21), { exact: true })).toBeVisible();
   await expect(page.getByText(itTitle(15), { exact: true })).toHaveCount(0);
+  expect(new URL(page.url()).search).toBe('');
+});
+
+test('a stored window naming unknown iterations falls back to the default one', async ({ page }) => {
+  await page.evaluate(() => localStorage.setItem('gleipnir.window', JSON.stringify({ from: 'gid://gitlab/Iteration/0', to: 'nope' })));
+  await page.reload();
+  await expectWindow(page, it(14), it(18));
 });
 
 test('an epic cut by the window shows a chevron on its cut side with its real bound', async ({ page }) => {

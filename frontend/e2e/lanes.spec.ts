@@ -1,133 +1,277 @@
 import { expect, test } from '@playwright/test';
-import type { Page } from '@playwright/test';
-import { boardItem, boardItems, boardLanes, DEFAULT_LANES, openBoard, sidebar } from './helpers2';
-import { groupKey, root, title } from './demo';
+import type { Locator, Page } from '@playwright/test';
+import {
+  applyLaneSettings,
+  boardItem,
+  boardItems,
+  boardLanes,
+  DEFAULT_LANES,
+  groupOption,
+  issueModeRadio,
+  laneBox,
+  laneSettings,
+  openBoard,
+  openLaneSettings,
+  selectSettingsLane,
+  settingsLane,
+  showAllIterations,
+  sidebar,
+} from './helpers2';
+import { itemName, summaryPart } from './helpers';
+import { title } from './demo';
 
-// Lanes (spec §4.4, ADR-32): the checked groups of the GitLab group tree, read only. An item
-// shows in the lane of its closest checked group. Item types and labels filter the whole board
-// (§4.7). The demo has one nested group: Partenaires, under API et intégrations, holding &22.
+// Lanes (spec §4.4, ADR-34): editable filters on the GitLab groups, item types and labels, kept
+// in the browser. By default one per subgroup of the root, subgroups included, issues that
+// block an epic only. Lanes may overlap: an item shows in every lane it matches, and is counted
+// once. The demo has one nested group, Partenaires (under API et intégrations), holding &22.
 
 test.beforeEach(async ({ page }) => {
   await openBoard(page);
   await expect.poll(() => boardLanes(page)).toEqual(DEFAULT_LANES);
 });
 
-const groupBox = (page: Page, name: string) => sidebar(page).getByRole('checkbox', { name, exact: true });
+/** Every drawn occurrence of an item (one per lane it shows in). */
+const occurrences = (page: Page, key: string) => page.getByRole('button', { name: itemName(key) });
 
-/** The groups the URL names, null when it names none: the default ones. */
-function urlGroups(page: Page): string[] | null {
-  const groups = new URL(page.url()).searchParams.get('groups');
-  return groups === null ? null : groups.split(',').filter(Boolean);
+/** The lanes an item is drawn in, by the vertical extent of the lane headers. */
+async function lanesOf(page: Page, key: string): Promise<string[]> {
+  const headers = page.locator('.lane-rail section[aria-label]');
+  const boxes = await headers.evaluateAll((els) =>
+    els.map((el) => ({ name: el.getAttribute('aria-label') ?? '', top: el.getBoundingClientRect().top, bottom: el.getBoundingClientRect().bottom })),
+  );
+  const items = await occurrences(page, key).evaluateAll((els) =>
+    els.map((el) => {
+      const box = el.getBoundingClientRect();
+      return box.top + box.height / 2;
+    }),
+  );
+  return items.map((y) => boxes.find((b) => y >= b.top && y < b.bottom)?.name ?? '?');
 }
 
-/** Every iteration in the window, so that &22 (It. 19 → It. 21) shows. */
-async function showAllIterations(page: Page): Promise<void> {
-  await page.getByRole('button', { name: /^Fenêtre\s*:/ }).click();
-  await page.getByRole('menuitemradio', { name: 'Toutes', exact: true }).click();
+async function editLane(page: Page, name: string): Promise<Locator> {
+  await page.getByRole('button', { name: `Modifier le couloir ${name}`, exact: true }).click();
+  const sheet = laneSettings(page);
+  await expect(sheet.getByRole('textbox', { name: 'Nom' })).toHaveValue(name);
+  return sheet;
 }
 
-test('the lanes are the GitLab groups, read only: nothing to create, rename or edit', async ({ page }) => {
-  const tree = sidebar(page).getByRole('list', { name: 'Groupes GitLab' });
-  await expect(tree.getByRole('checkbox')).toHaveCount(1 + DEFAULT_LANES.length);
-  await expect(groupBox(page, root().name)).not.toBeChecked();
-  for (const name of DEFAULT_LANES) await expect(groupBox(page, name)).toBeChecked();
-  await expect(sidebar(page).getByText(/créez le groupe dans GitLab puis synchronisez/)).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Modifier|Nouveau couloir/ })).toHaveCount(0);
-  await expect(page.getByRole('dialog')).toHaveCount(0);
+test('the default lanes: one per subgroup of the root, subgroups included, blocking issues only', async ({ page }) => {
+  for (const name of DEFAULT_LANES) await expect(laneBox(page, name)).toBeChecked();
+  const lanes = sidebar(page).getByRole('checkbox');
+  // The four lanes and the three link types: the GitLab group tree is no longer in the sidebar.
+  await expect(lanes).toHaveCount(DEFAULT_LANES.length + 3);
+  await expect(sidebar(page).getByRole('button', { name: 'Nouveau couloir' })).toBeVisible();
+
+  // The header tells the lane's groups and issue mode.
+  const api = page.getByRole('region', { name: 'API et intégrations' });
+  await expect(api).toContainText('API et intégrations + sous-groupes');
+  await expect(api).toContainText('issues bloquantes');
+
+  const sheet = await openLaneSettings(page);
+  await expect(sheet.getByRole('list', { name: 'Liste des couloirs' }).getByRole('listitem')).toHaveCount(DEFAULT_LANES.length);
+  await selectSettingsLane(sheet, 'API et intégrations');
+  await expect(groupOption(sheet, 'api')).toHaveAttribute('aria-selected', 'true');
+  await expect(groupOption(sheet, 'api/partenaires')).toHaveAttribute('aria-selected', 'false');
+  await expect(sheet.getByRole('switch', { name: 'Inclure les sous-groupes' })).toBeChecked();
+  await expect(sheet.getByRole('switch', { name: 'Epics' })).toBeChecked();
+  await expect(issueModeRadio(sheet, 'Bloquantes')).toBeChecked();
 });
 
-test('checking a nested group gives it its own lane, taken out of its parent\'s', async ({ page }) => {
+test('the nested group sits in its parent\'s lane while subgroups are included', async ({ page }) => {
   await showAllIterations(page);
-  const api = groupBox(page, 'API et intégrations');
-  // The count of shown items, the checkbox's description.
-  const apiCount = Number(await api.evaluate((el) => document.getElementById(el.getAttribute('aria-describedby') ?? '')?.textContent));
-  await expect(boardItem(page, '&22')).toBeVisible();
+  await expect.poll(() => lanesOf(page, '&22')).toEqual(['API et intégrations']);
 
-  await sidebar(page).getByRole('button', { name: 'Déplier API et intégrations' }).click();
-  await groupBox(page, 'Partenaires').check();
-  await expect.poll(() => boardLanes(page)).toEqual(['API et intégrations', 'Partenaires', ...DEFAULT_LANES.slice(1)]);
-  await expect(page.getByRole('region', { name: 'Partenaires' })).toContainText('API et intégrations › Partenaires');
-  await expect(groupBox(page, 'Partenaires')).toHaveAccessibleDescription('1');
-  await expect(api).toHaveAccessibleDescription(String(apiCount - 1));
-  await expect(page.getByRole('button', { name: new RegExp(`^Epic [&#]\\d+ ${title('&22')}`) })).toHaveCount(1);
-  await expect
-    .poll(() => urlGroups(page))
-    .toEqual(['api', 'api/partenaires', 'data', 'experience', 'identite'].map(groupKey));
+  const sheet = await editLane(page, 'API et intégrations');
+  await sheet.getByRole('switch', { name: 'Inclure les sous-groupes' }).click();
+  await applyLaneSettings(sheet);
+  await expect(occurrences(page, '&22')).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'API et intégrations' })).not.toContainText('+ sous-groupes');
+  await expect(boardItem(page, '&18')).toBeVisible();
+});
 
-  // The URL keeps it, folded branch unfolded again after a reload.
-  await page.reload();
-  await expect.poll(() => boardLanes(page)).toContain('Partenaires');
-  await expect(groupBox(page, 'Partenaires')).toBeChecked();
+test('« Nouveau couloir » creates a lane, which needs a group before it applies', async ({ page }) => {
+  await showAllIterations(page);
+  await sidebar(page).getByRole('button', { name: 'Nouveau couloir' }).click();
+  const sheet = laneSettings(page);
+  await expect(sheet).toBeVisible();
+  const name = sheet.getByRole('textbox', { name: 'Nom' });
+  await expect(name).toHaveValue('Nouveau couloir');
+  // No group yet: nothing to apply.
+  await expect(sheet.getByText('Chaque couloir doit avoir au moins un groupe.')).toBeVisible();
+  await expect(sheet.getByRole('button', { name: 'Appliquer', exact: true })).toBeDisabled();
 
-  await groupBox(page, 'Partenaires').uncheck();
+  await name.fill('Partenaires');
+  await groupOption(sheet, 'api/partenaires').click();
+  await expect(sheet.getByRole('button', { name: 'Appliquer', exact: true })).toBeEnabled();
+  await applyLaneSettings(sheet);
+
+  await expect.poll(() => boardLanes(page)).toEqual([...DEFAULT_LANES, 'Partenaires']);
+  await expect(laneBox(page, 'Partenaires')).toBeChecked();
+  // &22 is in both lanes now: API et intégrations (subgroups included) and Partenaires.
+  await expect.poll(() => lanesOf(page, '&22')).toEqual(['API et intégrations', 'Partenaires']);
+});
+
+test('lanes may overlap: an item shows in each lane it matches, and is counted once', async ({ page }) => {
+  const epics = await summaryPart(page, 'epics').textContent();
+  const issues = await summaryPart(page, 'issues').textContent();
+  const before = await boardItems(page).count();
+
+  // A second lane on the Data group.
+  await sidebar(page).getByRole('button', { name: 'Nouveau couloir' }).click();
+  const sheet = laneSettings(page);
+  await sheet.getByRole('textbox', { name: 'Nom' }).fill('Data bis');
+  await groupOption(sheet, 'data').click();
+  await applyLaneSettings(sheet);
+
+  await expect.poll(() => lanesOf(page, '&21')).toEqual(['Data', 'Data bis']);
+  await expect.poll(() => lanesOf(page, '#130')).toEqual(['Data', 'Data bis']);
+  // Drawn twice, counted once.
+  expect(await boardItems(page).count()).toBeGreaterThan(before);
+  await expect(summaryPart(page, 'lanes')).toHaveText('5 couloirs');
+  await expect(summaryPart(page, 'epics')).toHaveText(epics!);
+  await expect(summaryPart(page, 'issues')).toHaveText(issues!);
+
+  // The inspector lists both lanes.
+  await occurrences(page, '&21').first().click();
+  const lanes = page.getByRole('complementary', { name: 'Détail de l’élément' }).getByRole('term').filter({ hasText: /^Couloirs$/ });
+  await expect(lanes.locator('xpath=following-sibling::dd[1]')).toHaveText(/Data\s*Data bis/);
+});
+
+test('editing a lane: its name and its groups', async ({ page }) => {
+  const sheet = await editLane(page, 'Data');
+  await sheet.getByRole('textbox', { name: 'Nom' }).fill('Data et identité');
+  await groupOption(sheet, 'identite').click();
+  // The list follows the draft.
+  await expect(settingsLane(sheet, 'Data et identité')).toBeVisible();
+  await applyLaneSettings(sheet);
+
+  await expect.poll(() => boardLanes(page)).toEqual(['API et intégrations', 'Data et identité', 'Expérience produit', 'Identité et sécurité']);
+  await expect(laneBox(page, 'Data et identité')).toBeChecked();
+  await expect(page.getByRole('region', { name: 'Data et identité' })).toContainText('Data, Identité et sécurité');
+  // &12 (Identité et sécurité) is now in both lanes.
+  await expect.poll(() => lanesOf(page, '&12')).toEqual(['Data et identité', 'Identité et sécurité']);
+});
+
+test('reordering and deleting lanes', async ({ page }) => {
+  const sheet = await openLaneSettings(page);
+  await settingsLane(sheet, 'Data').getByRole('button', { name: 'Monter Data' }).click();
+  await settingsLane(sheet, 'Identité et sécurité').getByRole('button', { name: 'Supprimer Identité et sécurité' }).click();
+  await expect(settingsLane(sheet, 'Identité et sécurité')).toHaveCount(0);
+  // The first lane cannot go up, the last one cannot go down.
+  await expect(settingsLane(sheet, 'Data').getByRole('button', { name: 'Monter Data' })).toBeDisabled();
+  await expect(settingsLane(sheet, 'Expérience produit').getByRole('button', { name: 'Descendre Expérience produit' })).toBeDisabled();
+  await applyLaneSettings(sheet);
+
+  await expect.poll(() => boardLanes(page)).toEqual(['Data', 'API et intégrations', 'Expérience produit']);
+  await expect(laneBox(page, 'Identité et sécurité')).toHaveCount(0);
+  await expect(occurrences(page, '&12')).toHaveCount(0);
+});
+
+test('« Annuler » and Escape leave the board unchanged', async ({ page }) => {
+  for (const close of ['Annuler', 'Escape']) {
+    const sheet = await openLaneSettings(page);
+    await settingsLane(sheet, 'Data').getByRole('button', { name: 'Supprimer Data' }).click();
+    await sheet.getByRole('button', { name: 'Nouveau couloir' }).click();
+    if (close === 'Escape') await page.keyboard.press('Escape');
+    else await sheet.getByRole('button', { name: 'Annuler', exact: true }).click();
+    await expect(sheet).toBeHidden();
+    await expect.poll(() => boardLanes(page)).toEqual(DEFAULT_LANES);
+    await expect(boardItem(page, '&21')).toBeVisible();
+  }
+  // Nothing was stored.
+  expect(await page.evaluate(() => localStorage.getItem('gleipnir.lanes'))).toBeNull();
+});
+
+test('« Rétablir la configuration d’exemple » brings the default lanes back', async ({ page }) => {
+  let sheet = await openLaneSettings(page);
+  for (const name of ['Data', 'Expérience produit']) {
+    await settingsLane(sheet, name).getByRole('button', { name: `Supprimer ${name}` }).click();
+  }
+  await applyLaneSettings(sheet);
+  await expect.poll(() => boardLanes(page)).toEqual(['API et intégrations', 'Identité et sécurité']);
+
+  sheet = await openLaneSettings(page);
+  await sheet.getByRole('button', { name: 'Rétablir la configuration d’exemple' }).click();
+  await expect(sheet.getByRole('list', { name: 'Liste des couloirs' }).getByRole('listitem')).toHaveCount(DEFAULT_LANES.length);
+  await applyLaneSettings(sheet);
   await expect.poll(() => boardLanes(page)).toEqual(DEFAULT_LANES);
-  await expect.poll(() => urlGroups(page)).toBeNull();
 });
 
-test('the root group holds what no checked subgroup takes', async ({ page }) => {
-  for (const name of DEFAULT_LANES.slice(1)) await groupBox(page, name).uncheck();
-  await groupBox(page, root().name).check();
-  await expect.poll(() => boardLanes(page)).toEqual([root().name, 'API et intégrations']);
-  await expect(boardItem(page, '&21')).toBeVisible(); // a Data epic, in the root's lane
-  await expect.poll(() => urlGroups(page)).toEqual([groupKey(''), groupKey('api')]);
+test('« Modifier » on a lane header opens the sheet on that lane', async ({ page }) => {
+  const sheet = await editLane(page, 'Expérience produit');
+  await expect(settingsLane(sheet, 'Expérience produit').getByRole('button', { name: /^Expérience produit/ })).toHaveAttribute(
+    'aria-current',
+    'true',
+  );
+  await expect(groupOption(sheet, 'experience')).toHaveAttribute('aria-selected', 'true');
+  await sheet.getByRole('button', { name: 'Annuler', exact: true }).click();
+  // The sidebar's pencil too.
+  await sidebar(page).getByRole('button', { name: 'Modifier Data', exact: true }).click();
+  await expect(laneSettings(page).getByRole('textbox', { name: 'Nom' })).toHaveValue('Data');
 });
 
-test('without a checked group, an empty state brings the default lanes back', async ({ page }) => {
-  for (const name of DEFAULT_LANES) await groupBox(page, name).uncheck();
-  await expect(page.getByText('Aucun couloir affiché')).toBeVisible();
-  await expect.poll(() => urlGroups(page)).toEqual([]);
-  await page.getByRole('button', { name: 'Afficher les couloirs par défaut' }).click();
-  await expect.poll(() => boardLanes(page)).toEqual(DEFAULT_LANES);
-  await expect.poll(() => urlGroups(page)).toBeNull();
-});
-
-test('unchecking a lane in the sidebar hides it, and the URL keeps it hidden', async ({ page }) => {
-  const box = groupBox(page, 'Data');
-  await box.uncheck();
+test('unchecking a lane in the sidebar hides it, through a reload', async ({ page }) => {
+  await laneBox(page, 'Data').uncheck();
   await expect.poll(() => boardLanes(page)).toEqual(DEFAULT_LANES.filter((name) => name !== 'Data'));
-  await expect(boardItem(page, '&21')).toHaveCount(0);
+  await expect(occurrences(page, '&21')).toHaveCount(0);
 
   await page.reload();
   await expect(boardItem(page, '&18')).toBeVisible();
-  await expect(groupBox(page, 'Data')).not.toBeChecked();
-  await expect(boardItem(page, '&21')).toHaveCount(0);
+  await expect(laneBox(page, 'Data')).not.toBeChecked();
+  await expect(occurrences(page, '&21')).toHaveCount(0);
 
-  await groupBox(page, 'Data').check();
+  await laneBox(page, 'Data').check();
   await expect.poll(() => boardLanes(page)).toEqual(DEFAULT_LANES);
   await expect(boardItem(page, '&21')).toBeVisible();
 });
 
-test('the label filter "priorité::haute" shows #104 and #113 only, on every lane', async ({ page }) => {
-  const button = sidebar(page).getByRole('button', { name: /^Labels\s*:/ });
-  await expect(button).toHaveAccessibleName(/Tous les labels$/);
-  await button.click();
-  const popup = page.getByRole('dialog', { name: 'Labels' });
-  await popup.getByRole('searchbox', { name: 'Filtrer les labels' }).fill('priorité');
-  await popup.getByRole('option', { name: 'priorité::haute' }).click();
-  await page.keyboard.press('Escape');
-  await expect(button).toHaveAccessibleName(/priorité::haute$/);
+test('without an active lane, an empty state opens the lane settings', async ({ page }) => {
+  for (const name of DEFAULT_LANES) await laneBox(page, name).uncheck();
+  await expect(page.getByText('Aucun couloir affiché')).toBeVisible();
+  await page.getByRole('button', { name: 'Configurer les couloirs' }).click();
+  const sheet = laneSettings(page);
+  await expect(sheet).toBeVisible();
+  await settingsLane(sheet, 'Data').getByRole('checkbox', { name: 'Afficher Data' }).check();
+  await applyLaneSettings(sheet);
+  await expect.poll(() => boardLanes(page)).toEqual(['Data']);
+});
+
+test('a lane\'s labels filter its epics and issues: "priorité::haute", then with "bug" too', async ({ page }) => {
+  // One lane on the whole group, labelled; the others hidden.
+  await sidebar(page).getByRole('button', { name: 'Nouveau couloir' }).click();
+  const sheet = laneSettings(page);
+  await sheet.getByRole('textbox', { name: 'Nom' }).fill('Urgent');
+  await groupOption(sheet, '').click();
+  // A new lane includes the subgroups by default.
+  await expect(sheet.getByRole('switch', { name: 'Inclure les sous-groupes' })).toBeChecked();
+  const labels = sheet.getByRole('listbox', { name: 'Labels', exact: true });
+  await labels.getByRole('option', { name: 'priorité::haute', exact: true }).click();
+  for (const name of DEFAULT_LANES) await settingsLane(sheet, name).getByRole('checkbox', { name: `Afficher ${name}` }).uncheck();
+  await applyLaneSettings(sheet);
+
+  await expect.poll(() => boardLanes(page)).toEqual(['Urgent']);
+  await expect(page.getByRole('region', { name: 'Urgent' })).toContainText('priorité::haute');
+  await expect(page.getByRole('region', { name: 'Urgent' })).toContainText('· au moins un');
   await expect(boardItems(page)).toHaveCount(2);
   await expect(boardItem(page, '#104')).toBeVisible();
   await expect(boardItem(page, '#113')).toBeVisible();
-  await expect.poll(() => new URL(page.url()).searchParams.getAll('label')).toEqual(['priorité::haute']);
 
   // "Tous" with "bug" too: both issues carry both labels.
-  await button.click();
-  await popup.getByRole('searchbox', { name: 'Filtrer les labels' }).fill('bug');
-  await popup.getByRole('option', { name: 'bug' }).click();
-  await popup.getByRole('radio', { name: 'Tous' }).click();
-  await page.keyboard.press('Escape');
+  const again = await editLane(page, 'Urgent');
+  await again.getByRole('listbox', { name: 'Labels', exact: true }).getByRole('option', { name: 'bug', exact: true }).click();
+  await again.getByRole('radiogroup', { name: 'Correspondance des labels' }).getByRole('radio', { name: 'Tous' }).click();
+  await applyLaneSettings(again);
+  await expect(page.getByRole('region', { name: 'Urgent' })).toContainText('· tous');
   await expect(boardItems(page)).toHaveCount(2);
-  await expect.poll(() => new URL(page.url()).searchParams.get('labelMode')).toBe('all');
 });
 
-test('the type filters hide the epics or the issues of every lane', async ({ page }) => {
-  await sidebar(page).getByRole('switch', { name: 'Epics' }).click();
-  await expect(page.getByRole('button', { name: /^Epic &\d+/ })).toHaveCount(0);
+test('« Epics » off hides a lane\'s epics, its issues stay', async ({ page }) => {
+  const sheet = await editLane(page, 'API et intégrations');
+  await sheet.getByRole('switch', { name: 'Epics' }).click();
+  await applyLaneSettings(sheet);
+  await expect(occurrences(page, '&18')).toHaveCount(0);
   await expect(boardItem(page, '#110')).toBeVisible();
-  await expect.poll(() => new URL(page.url()).searchParams.get('types')).toBe('issues');
-  await sidebar(page).getByRole('switch', { name: 'Epics' }).click();
-  await sidebar(page).getByRole('switch', { name: 'Issues bloquantes' }).click();
-  await expect(page.getByRole('button', { name: /^Issue #\d+/ })).toHaveCount(0);
-  await expect(boardItem(page, '&18')).toBeVisible();
+  // The other lanes keep theirs.
+  await expect(boardItem(page, '&21')).toBeVisible();
+  await expect(page.getByText(title('&18'), { exact: true })).toHaveCount(0);
 });

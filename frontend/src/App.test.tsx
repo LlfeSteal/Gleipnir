@@ -1,10 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
 import { mockupBoard } from './board/fixtures';
-import { decodeView } from './board/share';
 
 // The mockup dataset: It. 12 → It. 21, It. 15 current, so the default window is It. 14 – It. 18.
 // Default lanes: one per subgroup of plateforme/atlas.
@@ -33,7 +32,7 @@ async function renderApp() {
 
 const windowButton = () => screen.getByRole('button', { name: /^Fenêtre :/ });
 const inspector = () => screen.queryByRole('complementary', { name: 'Détail de l’élément' });
-const urlView = () => decodeView(window.location.search);
+const stored = (key: string) => JSON.parse(localStorage.getItem(key) ?? 'null');
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -47,11 +46,14 @@ describe('App', () => {
     expect(screen.getByRole('heading', { name: 'Dépendances' })).toBeInTheDocument();
     expect(screen.getByText('Atlas · Sprints produit')).toBeInTheDocument();
     expect(windowButton()).toHaveAccessibleName('Fenêtre : It. 14 – It. 18');
-    expect(document.querySelector('.summary-line')).toHaveTextContent(/^4 couloirs · \d+ epics · \d+ issues bloquantes/);
-    expect(within(sidebar).getByText(/7 issues synchronisées ne bloquent aucun epic/)).toBeInTheDocument();
-    // The default view has a plain URL, and nothing is stored in the browser.
+    expect(document.querySelector('.summary-line')).toHaveTextContent(/^4 couloirs · \d+ epics · \d+ issues · /);
+    expect(within(sidebar).getByText('9 sur 12 issues synchronisées bloquent un epic.')).toBeInTheDocument();
+    // Nothing is stored until the user changes something, and the URL is never touched (ADR-36).
     expect(window.location.search).toBe('');
     expect(localStorage.getItem('gleipnir.lanes')).toBeNull();
+    expect(localStorage.getItem('gleipnir.window')).toBeNull();
+    // &30, in the root group, is in no default lane: &15 says so (spec §4.5).
+    expect(within(screen.getByRole('button', { name: /^Epic &15 / })).getByText('1 hors couloirs')).toBeInTheDocument();
   });
 
   it('shows a French error banner on 401, and retries', async () => {
@@ -132,37 +134,74 @@ describe('App', () => {
     expect(within(sidebar).getByRole('checkbox', { name: LANES[0] })).toBeInTheDocument();
   });
 
-  it('checking a subgroup gives it its own lane, out of its parent\'s, and writes the groups in the URL', async () => {
+  it('creates a lane in « Configurer les couloirs »: overlapping lanes show an item in each, and it is remembered', async () => {
     stubFetch();
     const { user, sidebar } = await renderApp();
-    await user.click(screen.getByRole('button', { name: 'Itération suivante' }));
-    await user.click(screen.getByRole('button', { name: 'Itération suivante' }));
-    await user.click(screen.getByRole('button', { name: 'Itération suivante' }));
+    for (let i = 0; i < 3; i++) await user.click(screen.getByRole('button', { name: 'Itération suivante' }));
     const portal = () => screen.getAllByRole('button', { name: /^Epic &22 / });
-    expect(within(screen.getByRole('region', { name: LANES[0] })).getByText('API & intégrations')).toBeInTheDocument();
     expect(portal()).toHaveLength(1);
 
-    await user.click(within(sidebar).getByRole('button', { name: `Déplier ${LANES[0]}` }));
-    await user.click(within(sidebar).getByRole('checkbox', { name: 'Partenaires' }));
-    expect(screen.getByRole('region', { name: 'Partenaires' })).toHaveTextContent('API & intégrations › Partenaires');
-    expect(portal()).toHaveLength(1);
-    await waitFor(() => expect(urlView().groups).toEqual(['41', '45', '42', '43', '44']));
-    // Read only: no lane to create or edit.
-    expect(screen.queryByRole('button', { name: /^Modifier|Nouveau couloir/ })).toBeNull();
+    await user.click(within(sidebar).getByRole('button', { name: 'Nouveau couloir' }));
+    const sheet = screen.getByRole('dialog', { name: 'Configurer les couloirs' });
+    const name = within(sheet).getByRole('textbox', { name: 'Nom' });
+    await user.clear(name);
+    await user.type(name, 'Partenaires');
+    await user.click(within(sheet).getByRole('option', { name: /^Partenaires/ }));
+    await user.click(within(sheet).getByRole('button', { name: 'Appliquer' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    // &22 is in API (with its subgroups) and in the new lane.
+    expect(screen.getByRole('region', { name: 'Partenaires' })).toBeInTheDocument();
+    expect(portal()).toHaveLength(2);
+    expect(document.querySelector('.summary-line')).toHaveTextContent(/^5 couloirs/);
+    expect(stored('gleipnir.lanes')).toHaveLength(5);
+    expect(window.location.search).toBe('');
+
+    // A new visit finds the lanes again.
+    cleanup();
+    await renderApp();
+    expect(screen.getByRole('region', { name: 'Partenaires' })).toBeInTheDocument();
   });
 
-  it('shows an empty state when no lane is active', async () => {
+  it('edits a lane from its header: « Toutes » shows the issues that block no epic', async () => {
+    stubFetch();
+    const { user } = await renderApp();
+    expect(screen.queryByRole('button', { name: /^Issue #150 / })).toBeNull();
+    await user.click(screen.getByRole('button', { name: `Modifier le couloir ${LANES[0]}` }));
+    const sheet = screen.getByRole('dialog', { name: 'Configurer les couloirs' });
+    expect(within(sheet).getByRole('textbox', { name: 'Nom' })).toHaveValue(LANES[0]);
+    await user.click(within(within(sheet).getByRole('radiogroup', { name: 'Issues' })).getByRole('radio', { name: 'Toutes' }));
+    // Nothing changes before Appliquer.
+    expect(screen.queryByRole('button', { name: /^Issue #150 / })).toBeNull();
+    await user.click(within(sheet).getByRole('button', { name: 'Appliquer' }));
+    const card = screen.getByRole('button', { name: /^Issue #150 / });
+    expect(card).toHaveTextContent('Ne bloque aucun epic');
+    expect(screen.getByRole('region', { name: LANES[0] })).toHaveTextContent('toutes les issues');
+  });
+
+  it('Annuler leaves the board as it was', async () => {
+    stubFetch();
+    const { user, sidebar } = await renderApp();
+    await user.click(within(sidebar).getByRole('button', { name: `Modifier ${LANES[1]}` }));
+    const sheet = screen.getByRole('dialog', { name: 'Configurer les couloirs' });
+    await user.click(within(sheet).getByRole('button', { name: `Supprimer ${LANES[1]}` }));
+    await user.click(within(sheet).getByRole('button', { name: 'Annuler' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByRole('region', { name: LANES[1] })).toBeInTheDocument();
+    expect(localStorage.getItem('gleipnir.lanes')).toBeNull();
+  });
+
+  it('shows an empty state when no lane is active, which opens the lane settings', async () => {
     stubFetch();
     const { user, sidebar } = await renderApp();
     for (const name of LANES) await user.click(within(sidebar).getByRole('checkbox', { name }));
     expect(screen.getByText('Aucun couloir affiché')).toBeInTheDocument();
-    await waitFor(() => expect(window.location.search).toBe('?groups='));
-    await user.click(screen.getByRole('button', { name: 'Afficher les couloirs par défaut' }));
-    for (const name of LANES) expect(within(sidebar).getByRole('checkbox', { name })).toBeChecked();
-    await waitFor(() => expect(window.location.search).toBe(''));
+    expect(stored('gleipnir.lanes').map((l: { active: boolean }) => l.active)).toEqual([false, false, false, false]);
+    await user.click(screen.getByRole('button', { name: 'Configurer les couloirs' }));
+    expect(screen.getByRole('dialog', { name: 'Configurer les couloirs' })).toBeInTheDocument();
   });
 
-  it('moves the window with the arrows and the presets, and writes it in the URL', async () => {
+  it('moves the window with the arrows and the presets, and remembers it', async () => {
     stubFetch();
     const { user } = await renderApp();
     await user.click(screen.getByRole('button', { name: 'Itération suivante' }));
@@ -183,7 +222,9 @@ describe('App', () => {
     expect(windowButton()).toHaveAccessibleName('Fenêtre : It. 12 – It. 21');
     expect(screen.getByRole('button', { name: 'Itération suivante' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Itération précédente' })).toBeDisabled();
-    await waitFor(() => expect(window.location.search).toBe('?from=500&to=509'));
+    // Remembered in the browser by iteration ids, never in the URL.
+    expect(stored('gleipnir.window')).toEqual({ from: 'gid://gitlab/Iteration/500', to: 'gid://gitlab/Iteration/509' });
+    expect(window.location.search).toBe('');
 
     await user.click(windowButton());
     expect(screen.getByRole('menuitemradio', { name: 'Toutes' })).toHaveAttribute('aria-checked', 'true');
@@ -230,43 +271,95 @@ describe('App', () => {
     expect(screen.getByRole('searchbox', { name: 'Rechercher un epic ou une issue' })).toHaveFocus();
   });
 
-  it('opens the view a URL asks for, and keeps it in the URL', async () => {
+  it('reads the remembered lanes and window back, falling back on anything invalid', async () => {
     stubFetch();
-    const query = 'groups=41,44&fold=41&from=503&to=505&links=blocks&critical=1&q=SSO&item=1012';
-    window.history.replaceState(null, '', `/?${query}`);
-    const { sidebar } = await renderApp();
-    expect(within(sidebar).getByRole('checkbox', { name: LANES[3] })).toBeChecked();
-    expect(within(sidebar).getByRole('checkbox', { name: LANES[0] })).toBeChecked();
-    expect(within(sidebar).getByRole('checkbox', { name: LANES[1] })).not.toBeChecked();
-    expect(within(sidebar).getByRole('checkbox', { name: LANES[2] })).not.toBeChecked();
-    expect(within(sidebar).getByRole('switch', { name: /Chemin critique/ })).toBeChecked();
-    expect(within(sidebar).getByRole('checkbox', { name: /Lié à/ })).not.toBeChecked();
-    expect(windowButton()).toHaveAccessibleName('Fenêtre : It. 15 – It. 17');
-    expect(screen.getByRole('searchbox', { name: 'Rechercher un epic ou une issue' })).toHaveValue('SSO');
-    expect(within(inspector()!).getByRole('heading', { name: 'Authentification SSO' })).toBeInTheDocument();
-    await waitFor(() => expect(window.location.search).toBe(`?${query}`));
-  });
-
-  it('leaves the URL alone while the board fails to load', async () => {
-    stubFetch(() => new Response('Bad Gateway', { status: 502 }));
-    window.history.replaceState(null, '', '/?groups=&q=x');
-    render(<App />);
-    await screen.findByRole('alert');
-    expect(window.location.search).toBe('?groups=&q=x');
-  });
-
-  it('copies a link of the view that names its iterations', async () => {
-    stubFetch();
-    const writeText = vi.fn(async (_text: string) => {});
-    const { user, sidebar } = await renderApp();
-    // user-event installs its own clipboard: replace it after setup.
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
-    await user.click(within(sidebar).getByRole('checkbox', { name: LANES[1] }));
-    const button = screen.getByRole('button', { name: 'Copier le lien' });
-    await user.click(button);
-    expect(writeText).toHaveBeenCalledWith(
-      `${window.location.origin}/?groups=41,43,44&from=502&to=506`,
+    const data = mockupBoard();
+    const atlas = data.groups[0].id;
+    localStorage.setItem(
+      'gleipnir.lanes',
+      JSON.stringify([{ id: 'all', name: 'Tout', color: 'pink', groups: [atlas], includeSubgroups: true, showEpics: true, issueMode: 'all', labels: [], labelMode: 'any', active: true }]),
     );
-    expect(button).toHaveAttribute('title', 'Lien copié');
+    localStorage.setItem('gleipnir.window', JSON.stringify({ from: 'gid://gitlab/Iteration/503', to: 'gid://gitlab/Iteration/505' }));
+    const user = userEvent.setup();
+    render(<App />);
+    const sidebar = await screen.findByRole('complementary', { name: 'Filtres' });
+    expect(await within(sidebar).findByRole('checkbox', { name: 'Tout' })).toBeChecked();
+    expect(windowButton()).toHaveAccessibleName('Fenêtre : It. 15 – It. 17');
+    // &30 is in the root group: covered, so &15 has nothing "hors couloirs".
+    expect(within(screen.getByRole('button', { name: /^Epic &15 / })).queryByText(/hors couloirs/)).toBeNull();
+    await user.click(within(sidebar).getByRole('checkbox', { name: 'Tout' }));
+    expect(screen.getByText('Aucun couloir affiché')).toBeInTheDocument();
+
+    // Garbage: the defaults.
+    cleanup();
+    localStorage.setItem('gleipnir.lanes', '{not json');
+    localStorage.setItem('gleipnir.window', JSON.stringify({ from: 'gid://gitlab/Iteration/1', to: 'x' }));
+    await renderApp();
+    expect(windowButton()).toHaveAccessibleName('Fenêtre : It. 14 – It. 18');
+  });
+
+  it('keeps no lane when the user removed them all', async () => {
+    stubFetch();
+    localStorage.setItem('gleipnir.lanes', '[]');
+    render(<App />);
+    expect(await screen.findByText('Aucun couloir affiché')).toBeInTheDocument();
+    expect(screen.getByText('Aucun couloir.')).toBeInTheDocument();
+  });
+
+  it('forgets the link types, options and collapsed lanes with the session (spec §7)', async () => {
+    stubFetch();
+    const { user, sidebar } = await renderApp();
+    await user.click(within(sidebar).getByRole('checkbox', { name: /Lié à/ }));
+    await user.click(screen.getByRole('button', { name: `Replier le couloir ${LANES[0]}` }));
+    expect(within(sidebar).getByRole('checkbox', { name: /Lié à/ })).not.toBeChecked();
+    cleanup();
+    const again = await renderApp();
+    expect(within(again.sidebar).getByRole('checkbox', { name: /Lié à/ })).toBeChecked();
+    expect(screen.getByRole('button', { name: `Replier le couloir ${LANES[0]}` })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('inspector: a dependency in no lane is listed but not clickable', async () => {
+    stubFetch();
+    const { user } = await renderApp();
+    await user.click(screen.getByRole('button', { name: /^Epic &15 / }));
+    const related = within(inspector()!).getByRole('group', { name: 'Lié à' });
+    expect(within(related).getByText('Hors couloirs · Atlas')).toBeInTheDocument();
+    expect(within(related).queryByRole('button', { name: /&30/ })).toBeNull();
+  });
+
+  it('opens a collapsed lane to reveal an item picked in the inspector', async () => {
+    stubFetch();
+    const { user } = await renderApp();
+    await user.click(screen.getAllByRole('button', { name: /^Epic &18 / })[0]);
+    await user.click(screen.getByRole('button', { name: `Replier le couloir ${LANES[1]}` }));
+    expect(screen.queryByRole('button', { name: /^Epic &21 / })).toBeNull();
+    await user.click(within(within(inspector()!).getByRole('group', { name: 'Bloque' })).getByRole('button', { name: /&21/ }));
+    expect(screen.getByRole('button', { name: `Replier le couloir ${LANES[1]}` })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: /^Epic &21 / })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('says when the search finds nothing, and clears it', async () => {
+    stubFetch();
+    const { user } = await renderApp();
+    await user.type(screen.getByRole('searchbox', { name: 'Rechercher un epic ou une issue' }), 'zzz introuvable');
+    expect(await screen.findByText('Aucun résultat')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Effacer la recherche' }));
+    expect(screen.getByRole('searchbox', { name: 'Rechercher un epic ou une issue' })).toHaveValue('');
+  });
+
+  it('says when the window holds nothing, and shows every iteration', async () => {
+    stubFetch();
+    const atlas = mockupBoard().groups.find((g) => g.path.endsWith('/data'))!.id;
+    // Data: &21 (It. 17 → 19) and &23 (It. 20 → 21), #131 (It. 14), #130 (It. 18): nothing in It. 12 – 13.
+    localStorage.setItem(
+      'gleipnir.lanes',
+      JSON.stringify([{ id: 'd', name: 'Data', color: 'blue', groups: [atlas], includeSubgroups: true, showEpics: true, issueMode: 'blocking', labels: [], labelMode: 'any', active: true }]),
+    );
+    localStorage.setItem('gleipnir.window', JSON.stringify({ from: 'gid://gitlab/Iteration/500', to: 'gid://gitlab/Iteration/501' }));
+    const user = userEvent.setup();
+    render(<App />);
+    expect(await screen.findByText('Rien dans cette fenêtre')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Afficher toutes les itérations' }));
+    expect(windowButton()).toHaveAccessibleName('Fenêtre : It. 12 – It. 21');
   });
 });

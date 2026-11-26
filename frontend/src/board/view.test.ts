@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { BoardData } from '../api/types';
 import { generateBoard, G, idOf, mockupBoard } from './fixtures';
-import { defaultChecked, lanesOf } from './lanes';
-import { DEFAULT_OPTIONS, type BoardView, type DisplayOptions, type ViewInput } from './types';
+import { defaultLanes } from './lanes';
+import { DEFAULT_OPTIONS, type BoardView, type DisplayOptions, type Lane, type ViewInput } from './types';
 import { COMPACT_LAYOUT, computeBoardView, connectedIds, curve, isCompactView, LAYOUT, layoutFor } from './view';
 
 function view(patch: Partial<Omit<ViewInput, 'options'>> & { options?: Partial<DisplayOptions> } = {}): BoardView {
@@ -18,11 +18,25 @@ function view(patch: Partial<Omit<ViewInput, 'options'>> & { options?: Partial<D
   });
 }
 
-/** The lanes of the default checked groups. */
-const defaultLanes = (data: BoardData) => lanesOf(data, new Set(defaultChecked(data)));
-/** The lanes of these groups. */
-const lanesFor = (data: BoardData, ...paths: string[]) => lanesOf(data, new Set(paths));
-const laneId = (path: string) => path;
+const gid = (data: BoardData, path: string) => data.groups.find((g) => g.path === path)!.id;
+/** A lane on these groups (with their subgroups unless told otherwise), id = its first path. */
+const lane = (data: BoardData, paths: string[], patch: Partial<Lane> = {}): Lane => ({
+  id: paths[0],
+  name: paths[0],
+  color: 'blue',
+  groups: paths.map((p) => gid(data, p)),
+  includeSubgroups: true,
+  showEpics: true,
+  issueMode: 'blocking',
+  labels: [],
+  labelMode: 'any',
+  active: true,
+  ...patch,
+});
+/** One lane per group, with its subgroups. */
+const lanesFor = (data: BoardData, ...paths: string[]) => paths.map((p) => lane(data, [p]));
+/** The id of the default lane of a direct subgroup. */
+const laneId = (path: string) => `group:${mockupBoard().groups.find((g) => g.path === path)!.id}`;
 const placed = (v: BoardView, ref: string, lane?: string) =>
   v.items.find((p) => p.itemId === idOf(ref) && (!lane || p.laneId === lane));
 const placedRefs = (v: BoardView) => new Set(v.items.map((p) => p.itemId));
@@ -31,9 +45,9 @@ function withUnplanned(): BoardData {
   const data = mockupBoard();
   data.epics.push({
     ...data.epics.find((e) => e.id === idOf('&18'))!,
-    id: idOf('&30'),
-    iid: '30',
-    ref: '&30',
+    id: idOf('&31'),
+    iid: '31',
+    ref: '&31',
     title: 'Recherche plein texte',
     start: null,
     end: null,
@@ -43,15 +57,15 @@ function withUnplanned(): BoardData {
   });
   data.issues.push({
     ...data.issues.find((i) => i.id === idOf('#110'))!,
-    id: idOf('#150'),
-    iid: '150',
-    ref: '#150',
+    id: idOf('#160'),
+    iid: '160',
+    ref: '#160',
     title: 'Index de recherche',
     iteration: null,
     unplanned: true,
-    blocksEpics: [idOf('&30')],
+    blocksEpics: [idOf('&31')],
   });
-  data.links.push({ source: idOf('#150'), target: idOf('&30'), type: 'blocks', conflict: false });
+  data.links.push({ source: idOf('#160'), target: idOf('&31'), type: 'blocks', conflict: false });
   return data;
 }
 
@@ -133,15 +147,15 @@ describe('unplanned column', () => {
     const last = v.columns[v.columns.length - 1];
     expect(last).toMatchObject({ key: 'unplanned', iteration: null, index: null, x: 220 + 5 * 212, width: 212 });
     expect(v.width).toBe(220 + 6 * 212);
-    const epic = placed(v, '&30')!;
-    const issue = placed(v, '#150')!;
+    const epic = placed(v, '&31')!;
+    const issue = placed(v, '#160')!;
     expect(epic.unplanned && issue.unplanned).toBe(true);
     expect(epic.rect.x).toBe(last.x + LAYOUT.inset);
     expect(epic.rect.h).toBe(LAYOUT.barHeight);
     expect(issue.rect.y).toBeGreaterThanOrEqual(epic.rect.y + epic.rect.h);
     expect(issue.rect.h).toBe(LAYOUT.cardHeight);
     // drawn inside the unplanned column, linked
-    expect(v.links.some((l) => l.source === idOf('#150') && l.target === idOf('&30'))).toBe(true);
+    expect(v.links.some((l) => l.source === idOf('#160') && l.target === idOf('&31'))).toBe(true);
     const api = v.lanes.find((l) => l.lane.id === laneId(G.api))!;
     expect(api.counts).toEqual({ epics: 3, issues: 3, outside: 2 });
   });
@@ -153,13 +167,13 @@ describe('unplanned column', () => {
     expect(v.columns.every((c) => c.width === w)).toBe(true);
     expect(v.columns[5].x).toBe(220 + 5 * w);
     expect(v.width).toBe(1900);
-    expect(placed(v, '&30')!.rect.w).toBe(w - 2 * LAYOUT.inset);
+    expect(placed(v, '&31')!.rect.w).toBe(w - 2 * LAYOUT.inset);
   });
 
   it('can be hidden', () => {
     const v = view({ data: withUnplanned(), options: { showUnplanned: false } });
     expect(v.columns.some((c) => c.key === 'unplanned')).toBe(false);
-    expect(placed(v, '&30')).toBeUndefined();
+    expect(placed(v, '&31')).toBeUndefined();
     const api = v.lanes.find((l) => l.lane.id === laneId(G.api))!;
     expect(api.counts).toEqual({ epics: 2, issues: 2, outside: 2 });
   });
@@ -188,17 +202,17 @@ describe('lanes and items', () => {
     expect(e19.rect.y).toBe(e18.rect.y); // 2..3 and 4..6 share a row
     // A lane with every epic: no two bars may overlap.
     const data = mockupBoard();
-    const w = view({ data, lanes: lanesFor(data, data.rootGroup.path), window: { from: 0, to: 9 }, options: { showIssues: false } });
+    const w = view({ data, lanes: [lane(data, [data.rootGroup.path], { issueMode: 'none' })], window: { from: 0, to: 9 } });
     const bars = w.items.filter((p) => p.kind === 'epic');
-    expect(bars).toHaveLength(10);
+    expect(bars).toHaveLength(11);
     for (const a of bars)
       for (const b of bars) {
         if (a === b) continue;
         const overlap = a.rect.x < b.rect.x + b.rect.w && b.rect.x < a.rect.x + a.rect.w && a.rect.y === b.rect.y;
         expect(overlap).toBe(false);
       }
-    // at most 5 epics run at once (index 7: &13, &21, &17, &16, &22)
-    expect(new Set(bars.map((b) => b.rect.y)).size).toBe(5);
+    // at most 6 epics run at once (index 7: &13, &21, &17, &16, &22, &30)
+    expect(new Set(bars.map((b) => b.rect.y)).size).toBe(6);
   });
 
   it('clips epics to the window and flags the cut sides', () => {
@@ -246,37 +260,73 @@ describe('lanes and items', () => {
     expect(v.lanes).toHaveLength(3);
     expect(v.stats.lanes).toBe(3);
     expect(v.lanes[0].lane.id).toBe(G.partenaires);
+    expect(v.lanes[0].counts).toEqual({ epics: 0, issues: 0, outside: 1 });
     expect(v.lanes[0].empty).toBe(true);
     expect(v.lanes[0].height).toBe(LAYOUT.laneMinHeight);
     expect(v.lanes[1].empty).toBe(false);
   });
 
-  it('puts each item in the lane of its closest checked group, and nowhere without one', () => {
+  it('takes the items of the lane groups, with their subgroups when asked (spec §5.3)', () => {
     const data = mockupBoard();
-    const whole = { window: { from: 0, to: 9 } };
-    // Partenaires unchecked: &22 shows in its parent's lane.
-    expect(placed(view({ data, ...whole }), '&22')!.laneId).toBe(G.api);
-    // Checked: in its own lane, and no longer in API.
-    const split = view({ data, ...whole, lanes: lanesFor(data, G.api, G.partenaires) });
-    expect(split.items.filter((p) => p.itemId === idOf('&22')).map((p) => p.laneId)).toEqual([G.partenaires]);
-    expect(split.items.some((p) => p.laneId === G.api && p.itemId === idOf('&18'))).toBe(true);
-    // The root holds what no checked subgroup takes; an unchecked branch shows nothing.
-    const root = view({ data, ...whole, lanes: lanesFor(data, data.rootGroup.path, G.api) });
-    expect(placed(root, '&21')!.laneId).toBe(data.rootGroup.path);
-    expect(placed(root, '&18')!.laneId).toBe(G.api);
-    expect(placed(view({ data, ...whole, lanes: lanesFor(data, G.xp) }), '&18')).toBeUndefined();
+    const whole = { data, window: { from: 0, to: 9 } };
+    // Partenaires sits under API: in it with the subgroups, not without.
+    expect(placed(view({ ...whole, lanes: [lane(data, [G.api])] }), '&22')).toBeDefined();
+    const strict = view({ ...whole, lanes: [lane(data, [G.api], { includeSubgroups: false })] });
+    expect(placed(strict, '&22')).toBeUndefined();
+    expect(placed(strict, '&18')).toBeDefined();
+    // The root without subgroups only holds its own items: &30.
+    expect(placedRefs(view({ ...whole, lanes: [lane(data, [data.rootGroup.path], { includeSubgroups: false })] }))).toEqual(
+      new Set([idOf('&30')]),
+    );
+    // Several groups in one lane; an unknown group matches nothing.
+    const two = view({ ...whole, lanes: [lane(data, [G.xp, G.identite])] });
+    expect(placed(two, '&15') && placed(two, '&12')).toBeTruthy();
+    expect(view({ ...whole, lanes: [{ ...lane(data, [G.xp]), groups: ['gid://gitlab/Group/999'] }] }).items).toEqual([]);
   });
 
-  it('filters the item types and labels on the whole board', () => {
+  it('shows an item in every active lane it matches, and skips inactive lanes', () => {
+    const data = mockupBoard();
+    const lanes = [lane(data, [G.api]), lane(data, [G.partenaires]), lane(data, [G.xp], { active: false })];
+    const v = view({ data, lanes, window: { from: 0, to: 9 } });
+    expect(v.lanes.map((b) => b.lane.id)).toEqual([G.api, G.partenaires]);
+    expect(v.items.filter((p) => p.itemId === idOf('&22')).map((p) => p.laneId)).toEqual([G.api, G.partenaires]);
+    expect(placed(v, '&15')).toBeUndefined();
+    // Counted once.
+    expect(v.stats).toMatchObject({ lanes: 2, epics: 3 });
+  });
+
+  it('applies each lane its types and labels', () => {
+    const data = mockupBoard();
     const kinds = (v: BoardView) => new Set(v.items.map((p) => p.kind));
-    expect(kinds(view({ options: { showEpics: false } }))).toEqual(new Set(['issue']));
-    expect(kinds(view({ options: { showIssues: false } }))).toEqual(new Set(['epic']));
-    expect(view({ options: { showEpics: false, showIssues: false } }).items).toEqual([]);
+    const all = (patch: Partial<Lane>) => [lane(data, [data.rootGroup.path], patch)];
+    expect(kinds(view({ data, lanes: all({ showEpics: false }) }))).toEqual(new Set(['issue']));
+    expect(kinds(view({ data, lanes: all({ issueMode: 'none' }) }))).toEqual(new Set(['epic']));
+    expect(view({ data, lanes: all({ showEpics: false, issueMode: 'none' }) }).items).toEqual([]);
     // "bug" or "UX", then both.
-    const any = placedRefs(view({ options: { labels: ['bug', 'UX'] } }));
-    expect(any).toEqual(new Set(['#104', '#113', '&15'].map(idOf)));
-    const all = placedRefs(view({ options: { labels: ['bug', 'priorité::haute'], labelMode: 'all' } }));
-    expect(all).toEqual(new Set(['#104', '#113'].map(idOf)));
+    expect(placedRefs(view({ data, lanes: all({ labels: ['bug', 'UX'] }) }))).toEqual(new Set(['#104', '#113', '&15'].map(idOf)));
+    expect(placedRefs(view({ data, lanes: all({ labels: ['bug', 'priorité::haute'], labelMode: 'all' }) }))).toEqual(
+      new Set(['#104', '#113'].map(idOf)),
+    );
+    // Lanes differ: epics in one, issues in the other.
+    const split = view({ data, lanes: [lane(data, [G.api], { issueMode: 'none' }), lane(data, [G.data], { showEpics: false })] });
+    expect(new Set(split.items.filter((p) => p.laneId === G.api).map((p) => p.kind))).toEqual(new Set(['epic']));
+    expect(new Set(split.items.filter((p) => p.laneId === G.data).map((p) => p.kind))).toEqual(new Set(['issue']));
+  });
+
+  it('shows the issues of the lane mode: every one, the blocking ones or none (spec §5.1)', () => {
+    const data = mockupBoard();
+    const at = (issueMode: Lane['issueMode']) =>
+      view({ data, lanes: [lane(data, [G.api], { issueMode }), lane(data, [G.data], { issueMode })], window: { from: 0, to: 9 } });
+    const issues = (v: BoardView) => new Set(v.items.filter((p) => p.kind === 'issue').map((p) => p.itemId));
+    expect(issues(at('blocking'))).toEqual(new Set(['#140', '#107', '#110', '#131', '#130'].map(idOf)));
+    const every = at('all');
+    expect(issues(every)).toEqual(new Set(['#140', '#107', '#110', '#150', '#151', '#131', '#130', '#152'].map(idOf)));
+    // #152 has no iteration: unplanned, like a blocking one.
+    expect(placed(every, '#152')!.unplanned).toBe(true);
+    expect(every.columns.some((c) => c.key === 'unplanned')).toBe(true);
+    // A link between two issues that block no epic is drawn.
+    expect(every.links.some((l) => l.source === idOf('#150') && l.target === idOf('#151'))).toBe(true);
+    expect(issues(at('none'))).toEqual(new Set());
   });
 
   it('searches refs and titles, case-insensitive, and keeps the dependency chain of the matches', () => {
@@ -355,12 +405,63 @@ describe('links', () => {
     expect(new Set(placed(v, '&18')!.offWindow)).toEqual(new Set([idOf('&22'), idOf('#140')]));
     expect(placed(v, '&21')!.offWindow).toEqual([idOf('&23')]);
     expect(placed(v, '#110')!.offWindow).toEqual([]);
-    // the other end must be on the board: no epic shown, no pill toward &23
-    const w = view({ options: { showEpics: false } });
+    // the other end must match a lane: no epic shown, no "›" pill toward &23, which is then
+    // outside every lane
+    const data = mockupBoard();
+    const w = view({ data, lanes: defaultLanes(data).map((l) => ({ ...l, showEpics: false })) });
     expect(placed(w, '#130')!.offWindow).toEqual([]);
+    expect(placed(w, '#130')!.offLanes).toEqual([idOf('&23')]);
+    // any active lane counts, not only the item's own
+    const split = view({ data, lanes: [lane(data, [G.api]), lane(data, [G.data])] });
+    expect(placed(split, '&21')!.offWindow).toEqual([idOf('&23')]);
     // disabled link types don't count
     const off = view({ options: { linkTypes: { blocks: false, relates: true, parent: false } } });
     expect(placed(off, '&18')!.offWindow).toEqual([]);
+  });
+
+  it('flags dependencies outside every active lane (spec §4.5)', () => {
+    const data = mockupBoard();
+    // &30 is in the root group, in no default lane: &15 relates to it.
+    expect(placed(view({ data }), '&15')!.offLanes).toEqual([idOf('&30')]);
+    expect(placed(view({ data }), '&15')!.offWindow).toEqual([]);
+    // Only the link types shown count.
+    expect(placed(view({ data, options: { linkTypes: { blocks: true, relates: false, parent: false } } }), '&15')!.offLanes).toEqual([]);
+    // A lane taking the root brings it in: drawn, no longer flagged.
+    const root = view({ data, lanes: [...defaultLanes(data), lane(data, [data.rootGroup.path], { includeSubgroups: false })] });
+    expect(placed(root, '&15')!.offLanes).toEqual([]);
+    expect(root.links.some((l) => l.source === idOf('&30') && l.target === idOf('&15'))).toBe(true);
+    // An inactive lane doesn't count.
+    const inactive = view({ data, lanes: [...defaultLanes(data), lane(data, [data.rootGroup.path], { active: false })] });
+    expect(placed(inactive, '&15')!.offLanes).toEqual([idOf('&30')]);
+    // Membership ignores the window, the search and the closed filter: those never make an item
+    // "hors couloirs".
+    expect(placed(view({ data, query: '&18' }), '&18')!.offLanes).toEqual([]);
+    data.issues.find((i) => i.ref === '#114')!.state = 'closed';
+    expect(placed(view({ data, options: { hideClosed: true } }), '&18')!.offLanes).toEqual([]);
+    // An issue that a lane's rule excludes, matching no other lane, is outside every lane: #107
+    // (API) blocks &15 (Expérience); API set to « Aucune issue ».
+    const xp = lane(data, [G.xp]);
+    const noIssues = view({ data, lanes: [lane(data, [G.api], { issueMode: 'none' }), xp] });
+    expect(new Set(placed(noIssues, '&15')!.offLanes)).toEqual(new Set([idOf('#107'), idOf('&30')]));
+    // In « Toutes », #150 → #151 is drawn: neither block an epic, both are in the lane.
+    const all = view({ data, lanes: [lane(data, [G.api], { issueMode: 'all' })], window: { from: 0, to: 9 } });
+    expect(placed(all, '#150')!.offLanes).toEqual([]);
+    // Labels too: #110 blocks &21, in the Data group that no lane takes.
+    const labelled = view({ data, lanes: [lane(data, [G.api], { showEpics: false, labels: ['API'] }), xp] });
+    expect(placed(labelled, '#110')!.offLanes).toEqual([idOf('&21')]);
+    // Parent links never count: an epic would be flagged for every issue its lanes hide.
+    const parents = view({ data, options: { linkTypes: { blocks: false, relates: false, parent: true } } });
+    expect(parents.items.every((p) => p.offLanes.length === 0)).toBe(true);
+  });
+
+  it('joins the occurrence in the same lane first, else the first one', () => {
+    const data = mockupBoard();
+    // &22 shows in API and in Partenaires; &18 (API) blocks it, &16 (Identité) relates to it.
+    const lanes = [lane(data, [G.api]), lane(data, [G.partenaires]), lane(data, [G.identite])];
+    const v = view({ data, lanes, window: { from: 4, to: 9 } });
+    const ends = (l: BoardView['links'][number]) => [l.sourceKey.split('|')[0], l.targetKey.split('|')[0]];
+    expect(v.links.filter((l) => l.source === idOf('&18') && l.target === idOf('&22')).map(ends)).toEqual([[G.api, G.api]]);
+    expect(v.links.filter((l) => l.type === 'relates' && l.target === idOf('&22')).map(ends)).toEqual([[G.identite, G.api]]);
   });
 
   it('computes unique stats', () => {
@@ -423,7 +524,7 @@ describe('performance', () => {
     expect(elapsed).toBeLessThan(300);
     // and with a query, a few overlapping lanes and the selection helper
     const t1 = performance.now();
-    const v2 = computeBoardView({ ...input, lanes: lanesFor(data, data.rootGroup.path, ...defaultChecked(data).slice(0, 3)), query: 'e' });
+    const v2 = computeBoardView({ ...input, lanes: [lane(data, [data.rootGroup.path]), ...lanes.slice(0, 3)], query: 'e' });
     connectedIds(v2, data.epics[0].id);
     expect(performance.now() - t1).toBeLessThan(300);
     console.info(`computeBoardView: ${elapsed.toFixed(1)} ms for ${v.items.length} items and ${v.links.length} links`);

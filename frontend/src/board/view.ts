@@ -4,8 +4,8 @@
 // well under the 300 ms budget (spec §8).
 
 import type { Epic, Issue, LinkType } from '../api/types';
-import { isEpicUnplanned, isIssueUnplanned, matchesLabels } from './items';
-import { laneOf } from './lanes';
+import { isEpicUnplanned, isIssueUnplanned } from './items';
+import { laneMatcher } from './lanes';
 import { searchItems } from './search';
 import type {
   BoardStats,
@@ -101,7 +101,7 @@ interface LaneContent {
   epicsUnplanned: Epic[];
   issuesUnplanned: Issue[];
   outside: number;
-  /** Ids of every item matching the lane (filters, query, hide closed), whatever the window. */
+  /** Ids of every item shown by the lane (filters, query, hide closed), whatever the window. */
   matching: Set<string>;
 }
 
@@ -133,57 +133,53 @@ export function computeBoardView(input: ViewInput, layout: Readonly<BoardLayout>
       e = Math.min(epic.end as number, to);
     } else st = 'out';
     status.set(epic.id, st);
-    if (options.showEpics && inSearch(epic.id) && matchesLabels(epic.labels, options.labels, options.labelMode)) {
-      epics.push({ epic, order, status: st, s, e });
-    }
+    epics.push({ epic, order, status: st, s, e });
   });
-  const issues: Issue[] = [];
   for (const issue of data.issues) {
     const it = issue.iteration;
     const st: Status = isIssueUnplanned(issue) ? 'unplanned' : (it as number) >= from && (it as number) <= to ? 'in' : 'out';
     status.set(issue.id, st);
-    if (
-      options.showIssues &&
-      inSearch(issue.id) &&
-      !(options.hideClosed && issue.state === 'closed') &&
-      matchesLabels(issue.labels, options.labels, options.labelMode)
-    ) {
-      issues.push(issue);
-    }
   }
+  const shownIssue = (issue: Issue) => inSearch(issue.id) && !(options.hideClosed && issue.state === 'closed');
 
-  // Each item goes to one lane: its closest checked group.
-  const checked = new Set(input.lanes.map((lane) => lane.id));
-  const contents: LaneContent[] = input.lanes.map((lane) => {
-    const c: LaneContent = {
-      lane,
-      epicsIn: [],
-      issuesIn: [],
-      epicsUnplanned: [],
-      issuesUnplanned: [],
-      outside: 0,
-      matching: new Set(),
-    };
-    return c;
-  });
-  const byLane = new Map(contents.map((c) => [c.lane.id, c]));
-  for (const entry of epics) {
-    const c = byLane.get(laneOf(entry.epic.groupPath, checked) ?? '');
-    if (!c) continue;
-    c.matching.add(entry.epic.id);
-    if (entry.status === 'in') c.epicsIn.push(entry);
-    else if (entry.status === 'unplanned') c.epicsUnplanned.push(entry.epic);
-    else c.outside++;
-  }
-  for (const issue of issues) {
-    const c = byLane.get(laneOf(issue.groupPath, checked) ?? '');
-    if (!c) continue;
-    c.matching.add(issue.id);
-    const st = status.get(issue.id);
-    if (st === 'in') c.issuesIn.push(issue);
-    else if (st === 'unplanned') c.issuesUnplanned.push(issue);
-    else c.outside++;
-  }
+  // Each active lane takes every item matching its filters (spec §5.1): lanes may overlap.
+  // inLanes ignores the window, the search and the closed filter: an item outside it is "hors
+  // couloirs" (spec §4.5).
+  const inLanes = new Set<string>();
+  const contents: LaneContent[] = input.lanes
+    .filter((lane) => lane.active)
+    .map((lane) => {
+      const c: LaneContent = {
+        lane,
+        epicsIn: [],
+        issuesIn: [],
+        epicsUnplanned: [],
+        issuesUnplanned: [],
+        outside: 0,
+        matching: new Set(),
+      };
+      const matches = laneMatcher(lane, data);
+      for (const entry of epics) {
+        if (!matches(entry.epic, 'epic')) continue;
+        inLanes.add(entry.epic.id);
+        if (!inSearch(entry.epic.id)) continue;
+        c.matching.add(entry.epic.id);
+        if (entry.status === 'in') c.epicsIn.push(entry);
+        else if (entry.status === 'unplanned') c.epicsUnplanned.push(entry.epic);
+        else c.outside++;
+      }
+      for (const issue of data.issues) {
+        if (!matches(issue, 'issue')) continue;
+        inLanes.add(issue.id);
+        if (!shownIssue(issue)) continue;
+        c.matching.add(issue.id);
+        const st = status.get(issue.id);
+        if (st === 'in') c.issuesIn.push(issue);
+        else if (st === 'unplanned') c.issuesUnplanned.push(issue);
+        else c.outside++;
+      }
+      return c;
+    });
 
   const unplannedColumn =
     options.showUnplanned && contents.some((c) => c.epicsUnplanned.length > 0 || c.issuesUnplanned.length > 0);
@@ -221,6 +217,7 @@ export function computeBoardView(input: ViewInput, layout: Readonly<BoardLayout>
       clippedEnd: false,
       unplanned: false,
       offWindow: [],
+      offLanes: [],
       searchContext: !!search && !search.matches.has(id),
       ...extra,
     };
@@ -310,17 +307,22 @@ export function computeBoardView(input: ViewInput, layout: Readonly<BoardLayout>
   }
   const height = y;
 
-  // Links between placed items, and dependencies left outside the window.
-  const matchingByLane = new Map(contents.map((c) => [c.lane.id, c.matching]));
+  // Links between placed items, and dependencies left outside the window or the lanes.
+  const matching = new Set<string>();
+  for (const c of contents) for (const id of c.matching) matching.add(id);
   const offWindow = new Map<string, Set<string>>(); // placed key -> item ids
-  const addOff = (placed: PlacedItem[], other: string) => {
-    if (status.get(other) !== 'out') return;
+  const offLanes = new Map<string, Set<string>>();
+  const addTo = (map: Map<string, Set<string>>, placed: PlacedItem[], other: string) => {
     for (const p of placed) {
-      if (!matchingByLane.get(p.laneId)?.has(other)) continue;
-      let set = offWindow.get(p.key);
-      if (!set) offWindow.set(p.key, (set = new Set()));
+      let set = map.get(p.key);
+      if (!set) map.set(p.key, (set = new Set()));
       set.add(other);
     }
+  };
+  const addOff = (placed: PlacedItem[], other: string, type: LinkType) => {
+    if (status.get(other) === 'out' && matching.has(other)) addTo(offWindow, placed, other);
+    // Hierarchy links don't count: every epic would be flagged for the issues its lanes hide.
+    else if (type !== 'parent' && status.has(other) && !inLanes.has(other)) addTo(offLanes, placed, other);
   };
   const critical = new Set<string>();
   for (let i = 0; i + 1 < data.criticalPath.length; i++) {
@@ -335,8 +337,8 @@ export function computeBoardView(input: ViewInput, layout: Readonly<BoardLayout>
     const a = occurrences.get(link.source);
     const b = occurrences.get(link.target);
     if (!a || !b) {
-      if (a) addOff(a, link.target);
-      if (b) addOff(b, link.source);
+      if (a) addOff(a, link.target, link.type);
+      if (b) addOff(b, link.source, link.type);
       continue;
     }
     const pair = `${link.source}\n${link.target}`;
@@ -365,15 +367,17 @@ export function computeBoardView(input: ViewInput, layout: Readonly<BoardLayout>
     }
   }
   for (const p of items) {
-    const set = offWindow.get(p.key);
-    if (set) p.offWindow = [...set];
+    const off = offWindow.get(p.key);
+    if (off) p.offWindow = [...off];
+    const out = offLanes.get(p.key);
+    if (out) p.offLanes = [...out];
   }
 
   const epicIds = new Set<string>();
   const issueIds = new Set<string>();
   for (const p of items) (p.kind === 'epic' ? epicIds : issueIds).add(p.itemId);
   const stats: BoardStats = {
-    lanes: input.lanes.length,
+    lanes: contents.length,
     epics: epicIds.size,
     issues: issueIds.size,
     blocks: drawn.blocks.size,

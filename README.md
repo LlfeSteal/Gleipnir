@@ -2,7 +2,7 @@
 
 Board des **dépendances** GitLab par **itération**.
 
-Les boards natifs de GitLab ne montrent pas les dépendances entre epics et issues dans le temps. Gleipnir les affiche sur une frise d'itérations, une colonne par itération, avec un couloir par groupe GitLab choisi. Le but est de repérer :
+Les boards natifs de GitLab ne montrent pas les dépendances entre epics et issues dans le temps. Gleipnir les affiche sur une frise d'itérations, une colonne par itération, avec des couloirs que vous définissez par groupes, types et labels. Le but est de repérer :
 
 - les chaînes de blocage ;
 - les risques de retard ;
@@ -18,15 +18,17 @@ Gleipnir ne suit **pas l'avancement** : il n'affiche ni pourcentage, ni poids, n
 **Ce que l'application montre :**
 
 - les epics en barres, de leur itération de début à leur itération de fin ;
-- les issues qui bloquent au moins un epic, en cartes dans la colonne de leur itération ;
+- les issues en cartes, dans la colonne de leur itération : selon le couloir, toutes, seulement celles qui bloquent un epic (par défaut), ou aucune ;
 - les liens « bloque », « lié à » et « epic parent → issue » ;
 - les **conflits de dates** : un élément bloqué qui commence avant la fin de son bloqueur ;
 - le **chemin critique** : la plus longue chaîne de blocages ouverts ;
 - une colonne **Non planifié**, pour ce qui n'a ni dates ni itération.
 
-**Couloirs.** Ce sont les groupes GitLab : la barre latérale montre l'arbre des groupes, et chaque groupe coché est un couloir. Un élément va dans le couloir de son groupe coché le plus proche ; cocher un sous-groupe lui donne son propre couloir. Rien ne s'édite dans Gleipnir : pour un nouveau couloir, créez le groupe dans GitLab puis synchronisez. Les types (epics, issues) et les labels se filtrent sur tout le board.
+**Couloirs.** Chaque couloir est un filtre que vous réglez dans le panneau **Configurer les couloirs** (bouton « Nouveau couloir » ou « Modifier ») : un nom, une couleur de la palette, un ou plusieurs groupes GitLab choisis dans l'arbre des groupes (avec ou sans leurs sous-groupes), les epics affichés ou non, les issues affichées (toutes, uniquement celles qui bloquent un epic, ou aucune) et un filtre de labels (« Au moins un » ou « Tous »). Rien ne change avant « Appliquer ». Les couloirs peuvent se recouper : un élément apparaît alors dans chacun, mais n'est compté qu'une fois. Par défaut, il y a un couloir par sous-groupe direct du groupe racine ; « Rétablir la configuration d'exemple » y revient.
 
-**Partager une vue.** La vue (groupes cochés, fenêtre, filtres, options, recherche, élément sélectionné) est dans l'URL de la page. Le bouton **Copier le lien** de la barre d'outils, ou du panneau Filtres sur téléphone, copie un lien qui l'ouvre telle quelle chez quelqu'un d'autre, sur les mêmes itérations. Rien n'est sauvegardé dans le navigateur, hors l'apparence et le panneau replié : chaque onglet garde sa propre vue, un rechargement aussi.
+**Dépendances cachées.** Quand un élément affiché dépend d'un élément hors de la fenêtre, il porte une pastille « › N hors fenêtre ». Quand l'autre élément ne correspond à aucun couloir actif, la pastille en pointillés « N hors couloirs » le signale ; le panneau de détail le liste avec la mention « Hors couloirs · <groupe> ».
+
+**Préférences.** Les couloirs, la fenêtre d'itérations, le panneau latéral et l'apparence sont mémorisés dans le navigateur. Les types de lien, les options d'affichage, la recherche et la sélection ne durent que le temps de la session. Il n'y a pas de lien de partage de vue.
 
 L'application est en **lecture seule** : elle ne modifie jamais GitLab.
 
@@ -208,7 +210,7 @@ gitlab-mock/             faux GitLab de la démo et des tests e2e (module Go sé
 frontend/                application React + Vite + TypeScript
   src/api/               client HTTP et types de l'API
   src/board/             logique pure du board (couloirs, fenêtre, mise en page, liens), testée
-  src/components/        interface : barre d'outils, panneau latéral (arbre des groupes, filtres), board, inspecteur
+  src/components/        interface : barre d'outils, panneau latéral (couloirs, filtres), réglages des couloirs, board, inspecteur
   src/strings/           tous les textes de l'interface, en français
   src/styles/            theme.css (jetons), board.css, app.css
   e2e/                   tests Playwright

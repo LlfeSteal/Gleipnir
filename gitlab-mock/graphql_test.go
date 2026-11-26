@@ -271,7 +271,7 @@ func TestWorkItemsBySubtree(t *testing.T) {
 		path          string
 		epics, issues int
 	}{
-		"root":     {"plateforme/atlas", 12, 19},
+		"root":     {"plateforme/atlas", 13, 19},
 		"subgroup": {"plateforme/atlas/api", 3, 5},
 		"data":     {"plateforme/atlas/data", 2, 4},
 	}

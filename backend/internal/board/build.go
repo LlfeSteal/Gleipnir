@@ -33,7 +33,8 @@ func Build(raw *Raw, now time.Time) *Board {
 	items, kinds := dedupItems(raw.Items)
 	blocks, relates := normalizeLinks(items, kinds)
 
-	// Spec §5.1: an issue is shown iff it blocks at least one epic.
+	// Spec §5.1: the epics each issue blocks. Every issue is sent; the lane's issue mode
+	// decides on the frontend whether one that blocks no epic is shown (ADR-35).
 	blocksEpics := map[string][]string{}
 	for _, p := range blocks {
 		if kinds[p.a] == KindIssue && kinds[p.b] == KindEpic {
@@ -41,8 +42,8 @@ func Build(raw *Raw, now time.Time) *Board {
 		}
 	}
 
-	// Iteration span of each epic's child issues, shown or not: ignored issues still date
-	// their parent epic (spec §5.2).
+	// Iteration span of each epic's child issues, all of them, blocking an epic or not
+	// (spec §5.2).
 	children := map[string]span{}
 	for _, it := range items {
 		if it.Kind != KindIssue || kinds[it.ParentID] != KindEpic {
@@ -55,7 +56,6 @@ func Build(raw *Raw, now time.Time) *Board {
 
 	epics := []Epic{}
 	issues := []Issue{}
-	ignored := 0
 	for _, it := range items {
 		switch it.Kind {
 		case KindEpic:
@@ -79,10 +79,9 @@ func Build(raw *Raw, now time.Time) *Board {
 			}
 			epics = append(epics, e)
 		case KindIssue:
-			targets, shown := blocksEpics[it.ID]
-			if !shown {
-				ignored++
-				continue
+			targets := blocksEpics[it.ID]
+			if targets == nil {
+				targets = []string{}
 			}
 			sort.Strings(targets)
 			is := Issue{
@@ -115,24 +114,14 @@ func Build(raw *Raw, now time.Time) *Board {
 	sortEpics(epics)
 	sortIssues(issues)
 
-	// Links only join shown items: epics, and issues that block an epic.
-	visible := make(map[string]bool, len(epics)+len(issues))
-	for _, e := range epics {
-		visible[e.ID] = true
-	}
-	for _, is := range issues {
-		visible[is.ID] = true
-	}
+	// Every item of the data set is sent, so every normalized link is kept: both ends are
+	// known items (normalizeLinks drops the others).
 	links := []Link{}
 	for _, p := range blocks {
-		if visible[p.a] && visible[p.b] {
-			links = append(links, Link{Source: p.a, Target: p.b, Type: LinkBlocks})
-		}
+		links = append(links, Link{Source: p.a, Target: p.b, Type: LinkBlocks})
 	}
 	for _, p := range relates {
-		if visible[p.a] && visible[p.b] {
-			links = append(links, Link{Source: p.a, Target: p.b, Type: LinkRelates})
-		}
+		links = append(links, Link{Source: p.a, Target: p.b, Type: LinkRelates})
 	}
 	for _, is := range issues {
 		if is.ParentEpic != "" {
@@ -145,19 +134,18 @@ func Build(raw *Raw, now time.Time) *Board {
 	markConflicts(links, info)
 
 	return &Board{
-		SyncedAt:      now,
-		GitLabURL:     raw.GitLabURL,
-		RootGroup:     raw.RootGroup,
-		Cadence:       raw.Cadence,
-		Iterations:    its,
-		Current:       current,
-		Groups:        buildGroups(raw.RootGroup, raw.Groups),
-		Labels:        buildLabels(items, visible),
-		Epics:         epics,
-		Issues:        issues,
-		Links:         links,
-		CriticalPath:  criticalPath(links, info),
-		IgnoredIssues: ignored,
+		SyncedAt:     now,
+		GitLabURL:    raw.GitLabURL,
+		RootGroup:    raw.RootGroup,
+		Cadence:      raw.Cadence,
+		Iterations:   its,
+		Current:      current,
+		Groups:       buildGroups(raw.RootGroup, raw.Groups),
+		Labels:       buildLabels(items),
+		Epics:        epics,
+		Issues:       issues,
+		Links:        links,
+		CriticalPath: criticalPath(links, info),
 	}
 }
 
@@ -224,15 +212,12 @@ func buildGroups(root Group, descendants []Group) []Group {
 	return append([]Group{root}, rest...)
 }
 
-// buildLabels collects the labels of the shown items, deduped by title (the first color met
-// in input order wins) and sorted by title, ignoring case.
-func buildLabels(items []*RawItem, visible map[string]bool) []Label {
+// buildLabels collects the labels of every item, deduped by title (the first color met in
+// input order wins) and sorted by title, ignoring case.
+func buildLabels(items []*RawItem) []Label {
 	seen := map[string]bool{}
 	labels := []Label{}
 	for _, it := range items {
-		if !visible[it.ID] {
-			continue
-		}
 		for _, l := range it.Labels {
 			if seen[l.Title] {
 				continue

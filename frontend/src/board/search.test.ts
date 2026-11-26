@@ -38,8 +38,8 @@ describe('searchItems', () => {
   });
 
   it('follows "relates" both ways, and only the link types shown', () => {
-    // #107 blocks &15 (related to &17) and is related to #110, which blocks &21 → &23.
-    expect(search('#107')!.chain).toEqual(ids('&15', '&17', '#110', '&21', '&23'));
+    // #107 blocks &15 (related to &17 and to &30) and is related to #110, which blocks &21 → &23.
+    expect(search('#107')!.chain).toEqual(ids('&15', '&17', '&30', '#110', '&21', '&23'));
     expect(search('#107', { blocks: true, relates: false, parent: false })!.chain).toEqual(ids('&15'));
     expect(search('#107', { blocks: false, relates: false, parent: false })!.chain).toEqual(new Set());
   });
@@ -69,5 +69,13 @@ describe('searchItems', () => {
     expect(r.chain.has(idOf('&12'))).toBe(true);
     expect(r.chain.has(idOf('&13'))).toBe(true);
     expect(r.chain.has(idOf('#131'))).toBe(false);
+  });
+
+  it('walks the issues that block no epic too (they are sent, spec §5.1)', () => {
+    // #150 blocks #151; neither blocks an epic.
+    const r = search('Exemples de requêtes')!;
+    expect(r.matches).toEqual(ids('#151'));
+    expect(r.chain).toEqual(ids('#150'));
+    expect(search('Documentation de l’API')!.chain).toEqual(ids('#151'));
   });
 });

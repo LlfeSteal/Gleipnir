@@ -121,13 +121,17 @@ func TestBuildDuplicateItemsAcrossPages(t *testing.T) {
 	dup := is
 	dup.Title = "second copy"
 	other := issueItem(2, "it1")
-	other.BlockedBy = []string{eid(1)} // epic E1 blocks I2: not a reason to show I2
+	other.BlockedBy = []string{eid(1)} // epic E1 blocks I2: I2 blocks no epic
 	b := buildTest(epicItem(1, "2026-01-20", "2026-02-10"), is, dup, epicItem(1, "", ""), other)
-	if len(b.Epics) != 1 || len(b.Issues) != 1 || b.Issues[0].Title != "" || b.IgnoredIssues != 1 {
-		t.Fatalf("epics %d, issues %+v, ignored %d", len(b.Epics), b.Issues, b.IgnoredIssues)
+	if len(b.Epics) != 1 || len(b.Issues) != 2 || b.Issues[0].Title != "" {
+		t.Fatalf("epics %d, issues %+v", len(b.Epics), b.Issues)
 	}
-	if len(b.Links) != 1 || b.Links[0] != (Link{Source: iid(1), Target: eid(1), Type: LinkBlocks}) {
-		t.Errorf("links = %+v", b.Links)
+	want := []Link{
+		{Source: eid(1), Target: iid(2), Type: LinkBlocks, Conflict: true}, // E1 ends after I2's iteration
+		{Source: iid(1), Target: eid(1), Type: LinkBlocks},
+	}
+	if !reflect.DeepEqual(b.Links, want) {
+		t.Errorf("links = %+v, want %+v", b.Links, want)
 	}
 }
 
@@ -187,7 +191,7 @@ func TestBuildEpicPlacement(t *testing.T) {
 	otherCadence.ParentID = eid(3)
 	b := buildTest(
 		epicItem(1, "2026-01-07", "2026-02-10"),
-		epicItem(2, "", ""), // children are ignored issues: they still date it
+		epicItem(2, "", ""), // children block no epic: they still date it
 		epicItem(3, "", ""), // its only child is in another cadence
 		epicItem(4, "2026-01-07T00:00:00Z", "bad"),
 		childA, childB, otherCadence,
@@ -211,8 +215,8 @@ func TestBuildEpicPlacement(t *testing.T) {
 	if e := byID[eid(4)]; e.StartDate != "2026-01-07" || e.DueDate != "" {
 		t.Errorf("epic 4 dates = %q, %q", e.StartDate, e.DueDate)
 	}
-	if b.IgnoredIssues != 3 || len(b.Issues) != 0 {
-		t.Errorf("ignored = %d, issues = %d", b.IgnoredIssues, len(b.Issues))
+	if len(b.Issues) != 3 {
+		t.Errorf("issues = %d, want 3: every issue is sent", len(b.Issues))
 	}
 }
 
@@ -273,43 +277,71 @@ func TestBuildItemFields(t *testing.T) {
 	}
 }
 
-func TestShownIssues(t *testing.T) {
+// Spec §5.1, ADR-35: every issue is sent; blocksEpics says which epics it blocks, empty
+// when none (the lane's issue mode then decides on the frontend).
+func TestIssuesBlocksEpics(t *testing.T) {
 	viaBlocks := issueItem(1, "it0")
 	viaBlocks.Blocks = []string{eid(2), eid(1), eid(1)}
 	viaEpicSide := issueItem(2, "") // listed only in the epic's BlockedBy, no iteration
 	blockedByEpic := issueItem(3, "it0")
-	blockedByEpic.BlockedBy = []string{eid(1)} // an epic blocks it: not shown
+	blockedByEpic.BlockedBy = []string{eid(1)} // an epic blocks it: it blocks none
 	blocksIssue := issueItem(4, "it0")
-	blocksIssue.Blocks = []string{iid(1)} // blocks a shown issue only: not shown
+	blocksIssue.Blocks = []string{iid(1)} // blocks an issue only
 	unknown := issueItem(5, "it0")
 	unknown.Blocks = []string{"gid://gitlab/WorkItem/elsewhere"}
 	otherCadence := issueItem(6, "gid://gitlab/Iteration/other")
 	otherCadence.Blocks = []string{eid(1)}
-	otherCadence.ParentID = iid(1) // parent that is not an epic
+	otherCadence.ParentID = iid(1)  // parent that is not an epic
+	noIteration := issueItem(7, "") // blocks nothing, no iteration
 	e1 := epicItem(1, "", "")
 	e1.BlockedBy = []string{iid(2)}
 
-	b := buildTest(e1, epicItem(2, "", ""), viaBlocks, viaEpicSide, blockedByEpic, blocksIssue, unknown, otherCadence)
+	b := buildTest(e1, epicItem(2, "", ""), viaBlocks, viaEpicSide, blockedByEpic, blocksIssue, unknown, otherCadence, noIteration)
 	byID := map[string]Issue{}
 	for _, is := range b.Issues {
 		byID[is.ID] = is
 	}
-	if len(b.Issues) != 3 || b.IgnoredIssues != 3 {
-		t.Fatalf("shown = %d, ignored = %d", len(b.Issues), b.IgnoredIssues)
+	if len(b.Issues) != 7 {
+		t.Fatalf("issues = %d, want 7", len(b.Issues))
 	}
-	if got := byID[iid(1)].BlocksEpics; !reflect.DeepEqual(got, []string{eid(1), eid(2)}) {
-		t.Errorf("blocksEpics = %v", got)
+	tests := []struct {
+		id          string
+		blocksEpics []string
+		unplanned   bool
+	}{
+		{iid(1), []string{eid(1), eid(2)}, false},
+		{iid(2), []string{eid(1)}, true},
+		{iid(3), []string{}, false},
+		{iid(4), []string{}, false},
+		{iid(5), []string{}, false},
+		{iid(6), []string{eid(1)}, true},
+		{iid(7), []string{}, true}, // §9.2: an issue without iteration is unplanned, blocking or not
 	}
-	if is := byID[iid(2)]; !is.Unplanned || is.Iteration != nil || !reflect.DeepEqual(is.BlocksEpics, []string{eid(1)}) {
-		t.Errorf("issue 2 = %+v", is)
-	}
-	if is := byID[iid(6)]; !is.Unplanned || is.ParentEpic != "" {
-		t.Errorf("issue 6 = %+v", is)
-	}
-	for _, l := range b.Links {
-		if l.Source == iid(3) || l.Target == iid(3) || l.Source == iid(4) {
-			t.Errorf("link to an ignored issue kept: %+v", l)
+	for _, tt := range tests {
+		is := byID[tt.id]
+		if !reflect.DeepEqual(is.BlocksEpics, tt.blocksEpics) || is.Unplanned != tt.unplanned || (is.Iteration == nil) != tt.unplanned {
+			t.Errorf("%s = blocksEpics %v unplanned %v iteration %v; want %v, %v", tt.id, is.BlocksEpics, is.Unplanned, is.Iteration, tt.blocksEpics, tt.unplanned)
 		}
+	}
+	if is := byID[iid(6)]; is.ParentEpic != "" {
+		t.Errorf("issue 6 parent = %q", is.ParentEpic)
+	}
+	// Links to issues that block no epic are kept, issue → issue included.
+	want := []Link{
+		{Source: eid(1), Target: iid(3), Type: LinkBlocks},
+		{Source: iid(1), Target: eid(1), Type: LinkBlocks},
+		{Source: iid(1), Target: eid(2), Type: LinkBlocks},
+		{Source: iid(2), Target: eid(1), Type: LinkBlocks},
+		{Source: iid(4), Target: iid(1), Type: LinkBlocks},
+		{Source: iid(6), Target: eid(1), Type: LinkBlocks},
+	}
+	if !reflect.DeepEqual(b.Links, want) {
+		t.Errorf("links =\n%+v\nwant\n%+v", b.Links, want)
+	}
+	// JSON: an empty blocksEpics is [], never null.
+	out, _ := json.Marshal(byID[iid(3)])
+	if !strings.Contains(string(out), `"blocksEpics":[]`) {
+		t.Errorf("issue JSON = %s", out)
 	}
 }
 
@@ -322,19 +354,25 @@ func TestLinkNormalization(t *testing.T) {
 	e1.Related = []string{eid(3), eid(1)} // same relation, other side; self
 	i1 := issueItem(1, "it0")
 	i1.Blocks = []string{eid(1)}
-	i1.Related = []string{iid(2), iid(9)} // ignored issue, unknown issue
+	i1.Related = []string{iid(2), iid(9)} // issue blocking no epic, unknown issue
 	i1.ParentID = eid(2)
-	i2 := issueItem(2, "it0") // ignored
+	i2 := issueItem(2, "it0") // blocks no epic: its links and parent are kept all the same
 	i2.ParentID = eid(2)
 	i2.Related = []string{eid(1)}
+	i3 := issueItem(3, "it0")
+	i3.BlockedBy = []string{iid(2), iid(2)} // issue → issue between two non-blocking issues, twice
 
-	b := buildTest(e3, e2, e1, i1, i2)
+	b := buildTest(e3, e2, e1, i1, i2, i3)
 	want := []Link{
 		{Source: eid(1), Target: eid(2), Type: LinkBlocks},
 		{Source: eid(2), Target: eid(3), Type: LinkBlocks},
 		{Source: iid(1), Target: eid(1), Type: LinkBlocks},
+		{Source: iid(2), Target: iid(3), Type: LinkBlocks},
 		{Source: eid(1), Target: eid(3), Type: LinkRelates},
+		{Source: eid(1), Target: iid(2), Type: LinkRelates},
+		{Source: iid(1), Target: iid(2), Type: LinkRelates},
 		{Source: eid(2), Target: iid(1), Type: LinkParent},
+		{Source: eid(2), Target: iid(2), Type: LinkParent},
 	}
 	if !reflect.DeepEqual(b.Links, want) {
 		t.Errorf("links =\n%+v\nwant\n%+v", b.Links, want)
@@ -360,13 +398,14 @@ func TestRelatesOrdering(t *testing.T) {
 func TestBuildLabels(t *testing.T) {
 	e := epicItem(1, "", "")
 	e.Labels = []Label{{"backend", "#111111"}, {"API", "#222222"}}
-	shown := issueItem(1, "it0")
-	shown.Blocks = []string{eid(1)}
-	shown.Labels = []Label{{"Bug", "#333333"}, {"backend", "#999999"}}
-	ignored := issueItem(2, "it0")
-	ignored.Labels = []Label{{"ignored-only", "#444444"}}
-	b := buildTest(e, shown, ignored)
-	want := []Label{{"API", "#222222"}, {"backend", "#111111"}, {"Bug", "#333333"}}
+	blocking := issueItem(1, "it0")
+	blocking.Blocks = []string{eid(1)}
+	blocking.Labels = []Label{{"Bug", "#333333"}, {"backend", "#999999"}}
+	nonBlocking := issueItem(2, "it0")
+	nonBlocking.Labels = []Label{{"zz-non-blocking", "#444444"}, {"bug", "#555555"}}
+	b := buildTest(e, blocking, nonBlocking)
+	// Labels of issues blocking no epic count too: a lane in « Toutes » mode shows them.
+	want := []Label{{"API", "#222222"}, {"backend", "#111111"}, {"Bug", "#333333"}, {"bug", "#555555"}, {"zz-non-blocking", "#444444"}}
 	if !reflect.DeepEqual(b.Labels, want) {
 		t.Errorf("labels = %+v, want %+v", b.Labels, want)
 	}

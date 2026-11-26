@@ -5,26 +5,28 @@ import (
 	"sort"
 )
 
-// itemInfo is what the analyses need of a shown item. start and end are iteration indexes:
-// an epic's Start/End, an issue's Iteration for both; -1 when unplanned.
+// itemInfo is what the analyses need of an item. start and end are iteration indexes: an
+// epic's Start/End, an issue's Iteration for both; -1 when unplanned. onPath: the item may
+// be on the critical path, i.e. an epic or an issue that blocks an epic (ADR-35).
 type itemInfo struct {
 	ref        string
 	open       bool
 	planned    bool
+	onPath     bool
 	start, end int
 }
 
 func itemInfos(epics []Epic, issues []Issue) map[string]itemInfo {
 	info := make(map[string]itemInfo, len(epics)+len(issues))
 	for _, e := range epics {
-		in := itemInfo{ref: e.Ref, open: e.State == StateOpen, start: -1, end: -1}
+		in := itemInfo{ref: e.Ref, open: e.State == StateOpen, onPath: true, start: -1, end: -1}
 		if e.Start != nil && e.End != nil {
 			in.planned, in.start, in.end = true, *e.Start, *e.End
 		}
 		info[e.ID] = in
 	}
 	for _, is := range issues {
-		in := itemInfo{ref: is.Ref, open: is.State == StateOpen, start: -1, end: -1}
+		in := itemInfo{ref: is.Ref, open: is.State == StateOpen, onPath: len(is.BlocksEpics) > 0, start: -1, end: -1}
 		if is.Iteration != nil {
 			in.planned, in.start, in.end = true, *is.Iteration, *is.Iteration
 		}
@@ -33,7 +35,7 @@ func itemInfos(epics []Epic, issues []Issue) map[string]itemInfo {
 	return info
 }
 
-// markConflicts flags the blocks links whose open blocker ends strictly after the iteration
+// markConflicts flags the blocks links, issue → issue ones included, whose open blocker ends strictly after the iteration
 // its target starts in. Same iteration is fine (work done early in the sprint); a closed
 // blocker is lifted, hence never a conflict; unplanned ends cannot be compared.
 func markConflicts(links []Link, info map[string]itemInfo) {
@@ -47,8 +49,10 @@ func markConflicts(links []Link, info map[string]itemInfo) {
 	}
 }
 
-// criticalPath returns the longest chain (in items) of blocks links between open items, from
-// the first blocker to the last blocked item; empty when there is no such link.
+// criticalPath returns the longest chain (in items) of blocks links between open epics and
+// open issues that block an epic, from the first blocker to the last blocked item; empty
+// when there is no such link. Issues that block no epic stay out of it, so it is the same
+// whichever issue mode the lanes use (ADR-35).
 //
 // Cycles are broken by a DFS in ID order that ignores its back edges (logged once). The DAG
 // left is solved by memoized DP in DFS post-order, which is a reverse topological order:
@@ -62,7 +66,8 @@ func criticalPath(links []Link, info map[string]itemInfo) []string {
 	var nodes []string
 	seen := map[string]bool{}
 	for _, l := range links {
-		if l.Type != LinkBlocks || !info[l.Source].open || !info[l.Target].open {
+		src, dst := info[l.Source], info[l.Target]
+		if l.Type != LinkBlocks || !src.open || !dst.open || !src.onPath || !dst.onPath {
 			continue
 		}
 		succ[l.Source] = append(succ[l.Source], l.Target)

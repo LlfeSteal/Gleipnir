@@ -37,8 +37,15 @@ func TestDemoBuild(t *testing.T) {
 	now := time.Date(2026, 11, 23, 9, 0, 0, 0, time.UTC)
 	b := Build(DemoRaw(now), now)
 
-	if len(b.Epics) != 12 || len(b.Issues) != 10 || b.IgnoredIssues != 9 {
-		t.Fatalf("epics %d, issues %d, ignored %d", len(b.Epics), len(b.Issues), b.IgnoredIssues)
+	// Every issue is sent (ADR-35): 10 block an epic, 9 block none.
+	blocking := 0
+	for _, is := range b.Issues {
+		if len(is.BlocksEpics) > 0 {
+			blocking++
+		}
+	}
+	if len(b.Epics) != 12 || len(b.Issues) != 19 || blocking != 10 {
+		t.Fatalf("epics %d, issues %d, blocking %d", len(b.Epics), len(b.Issues), blocking)
 	}
 	if len(b.Groups) != 5 || b.Groups[0].Path != "plateforme/atlas" || b.Groups[1].Path != "plateforme/atlas/api" {
 		t.Errorf("groups = %+v", b.Groups)
@@ -105,19 +112,18 @@ func TestDemoBuild(t *testing.T) {
 			t.Errorf("%v must be a conflict", k)
 		}
 	}
-	for _, k := range []key{{"&12", "blocks", "&13"}, {"#107", "relates", "#110"}, {"&17", "parent", "#125"}} {
+	// Links of issues that block no epic are kept too: #109 and #103 block none.
+	for _, k := range []key{
+		{"&12", "blocks", "&13"}, {"#107", "relates", "#110"}, {"&17", "parent", "#125"},
+		{"#109", "blocks", "#110"}, {"#103", "relates", "#104"}, {"&12", "parent", "#101"},
+	} {
 		if _, ok := links[k]; !ok {
 			t.Errorf("missing link %v", k)
 		}
 	}
-	for _, k := range []key{{"#109", "blocks", "#110"}, {"#103", "relates", "#104"}} {
-		if _, ok := links[k]; ok {
-			t.Errorf("link to an ignored issue kept: %v", k)
-		}
-	}
-	// 8 epic → epic (mockup) + 10 issue → epic (mockup and #132).
-	if n := countType(b.Links, LinkBlocks); n != 18 {
-		t.Errorf("blocks links = %d, want 18", n)
+	// 8 epic → epic (mockup) + 10 issue → epic (mockup and #132) + 1 issue → issue.
+	if n := countType(b.Links, LinkBlocks); n != 19 {
+		t.Errorf("blocks links = %d, want 19", n)
 	}
 
 	var path []string

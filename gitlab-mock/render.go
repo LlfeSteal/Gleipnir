@@ -255,7 +255,7 @@ func newDataset(now time.Time, lay layout) *dataset {
 	}
 
 	for _, e := range ds.Epics {
-		group := rootPath + "/" + e.Group
+		group := demo.Under(rootPath, e.Group)
 		number := iid(e.Key, group)
 		n := workItemNode{
 			ID: gid(e.Key), IID: number, Title: e.Title, State: "OPEN",

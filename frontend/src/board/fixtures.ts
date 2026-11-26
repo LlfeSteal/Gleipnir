@@ -71,9 +71,11 @@ const EPICS: E[] = [
   [22, G.partenaires, 'Portail développeur', 7, 9, ['API', 'UX']],
   [21, G.data, 'Pipeline analytique', 5, 7, ['data', 'backend']],
   [23, G.data, 'Modèles prédictifs', 8, 9, ['data']],
+  /** In the root group: no default lane covers it, so &15 has a dependency "hors couloirs". */
+  [30, ROOT, 'Feuille de route 2027', 4, 9, []],
 ];
 
-type I = [iid: number, group: string, title: string, it: number, epic: number, labels: string[], state: 'open' | 'closed', who: string];
+type I = [iid: number, group: string, title: string, it: number | null, epic: number, labels: string[], state: 'open' | 'closed', who: string];
 const ISSUES: I[] = [
   [104, G.identite, 'Corriger la déconnexion intempestive', 3, 12, ['bug', 'priorité::haute', 'backend'], 'open', 'TR'],
   [114, G.identite, 'Audit de sécurité du SSO', 4, 12, ['sécurité'], 'open', 'TR'],
@@ -84,6 +86,10 @@ const ISSUES: I[] = [
   [125, G.xp, 'Quota de stockage local', 6, 17, ['mobile', 'backend'], 'open', 'CD'],
   [131, G.data, 'Montée de version Kafka', 2, 21, ['data', 'backend'], 'closed', 'JP'],
   [130, G.data, "Schéma d'événements v2", 6, 21, ['data'], 'open', 'JP'],
+  // Issues that block no epic: shown only by a lane set to « Toutes » (spec §5.1).
+  [150, G.api, 'Documentation de l’API publique', 4, 18, ['API'], 'open', 'SN'],
+  [151, G.api, 'Exemples de requêtes', 5, 18, ['API'], 'open', 'SN'],
+  [152, G.data, 'Nettoyer les anciens tableaux', null, 21, ['data'], 'open', 'JP'],
 ];
 
 const LINKS: [string, LinkType, string][] = [
@@ -107,6 +113,8 @@ const LINKS: [string, LinkType, string][] = [
   ['#131', 'blocks', '&21'],
   ['#130', 'blocks', '&23'],
   ['#107', 'relates', '#110'],
+  ['#150', 'blocks', '#151'],
+  ['&30', 'relates', '&15'],
 ];
 
 function iterations(): Iteration[] {
@@ -120,9 +128,11 @@ function iterations(): Iteration[] {
   }));
 }
 
-/** The mockup's board: 10 iterations (It. 12 → It. 21, It. 15 current), 4 groups, 10 epics,
- * 9 blocking issues, blocks / relates / parent links with conflicts computed by the backend rule
- * (open blocker ending after its target starts). A fresh object on each call. */
+/** The mockup's board: 10 iterations (It. 12 → It. 21, It. 15 current), 4 groups and a nested
+ * one, 10 epics plus &30 in the root group (in no default lane), 9 blocking issues and 3 that
+ * block no epic (#150 blocks #151; #152 unplanned), blocks / relates / parent links with
+ * conflicts computed by the backend rule (open blocker ending after its target starts). A fresh
+ * object on each call. */
 export function mockupBoard(): BoardData {
   const its = iterations();
   const epics: Epic[] = EPICS.map(([iid, groupPath, title, start, end, labels]) => ({
@@ -155,14 +165,14 @@ export function mockupBoard(): BoardData {
     parentEpic: epicId(epic),
     assignee: { name: PEOPLE[who][0], username: PEOPLE[who][1] },
     blocksEpics: blocked(`#${iid}`),
-    unplanned: false,
+    unplanned: iteration === null,
     webUrl: `${GITLAB}/${groupPath}/app/-/issues/${iid}`,
   }));
   const span = (id: string) => {
     const e = epics.find((x) => x.id === id);
     if (e) return { start: e.start as number, end: e.end as number, open: e.state === 'open' };
     const i = issues.find((x) => x.id === id)!;
-    return { start: i.iteration as number, end: i.iteration as number, open: i.state === 'open' };
+    return { start: i.iteration ?? -1, end: i.iteration ?? -1, open: i.state === 'open' };
   };
   const links: Link[] = LINKS.map(([a, type, b]) => {
     const source = idOf(a);
@@ -192,7 +202,6 @@ export function mockupBoard(): BoardData {
     issues,
     links,
     criticalPath: ['&12', '&18', '&21', '&23'].map(idOf),
-    ignoredIssues: 7,
   };
 }
 
@@ -275,6 +284,5 @@ export function generateBoard(opts: { epics: number; issues: number; links: numb
     issues,
     links,
     criticalPath: [],
-    ignoredIssues: 0,
   };
 }

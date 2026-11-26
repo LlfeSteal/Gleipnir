@@ -72,7 +72,7 @@ func expectDataset(t *testing.T, f *fakeGitLab, day time.Time, assigned bool) {
 	}
 	for _, e := range ds.Epics {
 		got := byTitle[e.Title]
-		if got == nil || got.typ != "Epic" || got.ns != rootPath+"/"+e.Group || got.start != e.StartDate || got.due != e.DueDate || len(got.labels) != len(e.Labels) {
+		if got == nil || got.typ != "Epic" || got.ns != dataset.Under(rootPath, e.Group) || got.start != e.StartDate || got.due != e.DueDate || len(got.labels) != len(e.Labels) {
 			t.Errorf("epic %s: %+v", e.Key, got)
 		}
 	}
