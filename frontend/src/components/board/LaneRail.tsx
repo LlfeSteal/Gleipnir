@@ -1,4 +1,4 @@
-import { memo, type CSSProperties } from 'react';
+import { memo } from 'react';
 import type { BoardData } from '../../api/types';
 import { labelColors } from '../../board/items';
 import { laneGroupNames } from '../../board/lanes';
@@ -6,6 +6,7 @@ import type { BoardView, LaneBlock } from '../../board/types';
 import { BOARD } from '../../strings/board';
 import { ChevronRightIcon, PencilIcon } from '../ui/Icons';
 import { ItemGlyph } from './ItemGlyph';
+import { LaneLabels } from './LaneLabels';
 
 interface LaneActions {
   onToggleLane(laneId: string): void;
@@ -76,17 +77,7 @@ function LaneHeader({ block, top, data, onToggleLane, onEditLane }: { block: Lan
             {lane.includeSubgroups && names.length > 0 && <span className="lane-subgroups"> {BOARD.subgroups}</span>}
           </div>
           <div className="lane-meta lane-issue-mode">{BOARD.issueModes[lane.issueMode]}</div>
-          {lane.labels.length > 0 && (
-            <div className="lane-meta lane-labels">
-              {lane.labels.map((title) => (
-                <span key={title} className="lane-label" style={{ '--label-color': colors.get(title) } as CSSProperties}>
-                  <span className="label-dot" />
-                  {title}
-                </span>
-              ))}
-              <span className="lane-label-mode">· {lane.labelMode === 'all' ? BOARD.labelModeAll : BOARD.labelModeAny}</span>
-            </div>
-          )}
+          {lane.labels.length > 0 && <LaneLabels labels={lane.labels} mode={lane.labelMode} colors={colors} />}
         </>
       )}
       <div className="lane-counts">

@@ -265,6 +265,37 @@ test('a lane\'s labels filter its epics and issues: "priorité::haute", then wit
   await expect(boardItems(page)).toHaveCount(2);
 });
 
+test('many labels: the header shows two, then « et 3 autres… », whose card lists them all (spec §4.1)', async ({ page }) => {
+  const picked = ['priorité::haute', 'sécurité', 'frontend', 'backend', 'mobile'];
+  const sheet = await editLane(page, 'API et intégrations');
+  const labels = sheet.getByRole('listbox', { name: 'Labels', exact: true });
+  for (const title of picked) await labels.getByRole('option', { name: title, exact: true }).click();
+  await applyLaneSettings(sheet);
+
+  const header = page.getByRole('region', { name: 'API et intégrations' });
+  const more = header.getByRole('button', { name: 'et 3 autres…' });
+  await expect(more).toBeVisible();
+  await expect(header).toContainText('· au moins un');
+  // The label line stays inside the rail: no overlap, no clipped chip.
+  const line = header.locator('.lane-labels');
+  expect(await line.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+
+  await more.hover();
+  const card = page.getByRole('tooltip');
+  await expect(card).toBeVisible();
+  await expect(card).toContainText('Labels du couloir');
+  for (const title of picked) await expect(card.getByRole('listitem').filter({ hasText: title })).toHaveCount(1);
+  await expect(card).toContainText('Au moins un de ces labels');
+  await page.keyboard.press('Escape');
+  await expect(card).toBeHidden();
+
+  // The keyboard reaches it too.
+  await more.focus();
+  await expect(card).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(card).toBeHidden();
+});
+
 test('« Epics » off hides a lane\'s epics, its issues stay', async ({ page }) => {
   const sheet = await editLane(page, 'API et intégrations');
   await sheet.getByRole('switch', { name: 'Epics' }).click();

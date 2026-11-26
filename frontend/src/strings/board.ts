@@ -14,6 +14,11 @@ export const BOARD = {
   allLabels: 'tous les labels',
   labelModeAny: 'au moins un',
   labelModeAll: 'tous',
+  /** A lane header's extra labels (§4.1), and the card that lists them all on hover. */
+  moreLaneLabels: (n: number) => (n > 1 ? `et ${n} autres…` : `et ${n} autre…`),
+  laneLabelsTitle: 'Labels du couloir',
+  labelModeAnyLong: 'Au moins un de ces labels',
+  labelModeAllLong: 'Tous ces labels',
   /** Lane summary, label part: "au moins un de : bug, UX" / "tous : bug, UX". */
   labelsAny: (labels: readonly string[]) => `au moins un de : ${labels.join(', ')}`,
   labelsAll: (labels: readonly string[]) => `tous : ${labels.join(', ')}`,
