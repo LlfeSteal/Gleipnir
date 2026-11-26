@@ -16,10 +16,15 @@ export interface Group {
 }
 
 export interface Cadence {
+  /** Global ID, "gid://gitlab/Iterations::Cadence/3". */
   id: string;
   title: string;
+  /** Its iterations are columns of this board (the cadences asked for, or the default, ADR-38). */
+  active: boolean;
 }
 
+/** A column: one iteration, or several of different active cadences with the same dates
+ * (ADR-38). id, title and webUrl are the first one's. */
 export interface Iteration {
   id: string;
   title: string; // never empty
@@ -27,6 +32,9 @@ export interface Iteration {
   dueDate: string; // YYYY-MM-DD, inclusive
   webUrl: string;
   current: boolean;
+  /** The GitLab iterations of the column, the first one first. */
+  iterationIds: string[];
+  cadenceIds: string[];
 }
 
 export interface Label {
@@ -67,7 +75,8 @@ export interface Issue {
   title: string;
   labels: string[];
   state: ItemState;
-  /** Iteration index; null when the issue has no iteration of the cadence (unplanned). */
+  /** Column index; null when the issue has no iteration, or one outside the columns
+   * (unplanned, ADR-38). */
   iteration: number | null;
   parentEpic: string; // epic id, "" when none
   assignee: Person | null;
@@ -91,8 +100,8 @@ export interface BoardData {
   syncedAt: string; // RFC 3339
   gitlabUrl: string;
   rootGroup: Group;
-  cadence: Cadence;
-  iterations: Iteration[]; // sorted by start date
+  cadences: Cadence[]; // every cadence, sorted by title; the active ones give the columns
+  iterations: Iteration[]; // the columns, sorted by start date
   current: number; // index of the current iteration, -1 when none
   groups: Group[]; // root group first, then descendants sorted by path
   labels: Label[];

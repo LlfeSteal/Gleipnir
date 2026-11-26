@@ -59,6 +59,7 @@ type fCadence struct {
 	id        int
 	title     string
 	automatic bool
+	group     string // full path; "" matches any group (a cadence a test sets up)
 }
 
 type fIteration struct {
@@ -315,13 +316,14 @@ func (f *fakeGitLab) graphql(w http.ResponseWriter, body map[string]any) {
 	case "SeedCadences":
 		var nodes []any
 		for _, c := range f.cadences {
-			if strings.Contains(c.title, str(vars, "title")) {
+			// includeAncestorGroups: false: the group's own cadences only.
+			if strings.Contains(c.title, str(vars, "title")) && (c.group == "" || c.group == str(vars, "fullPath")) {
 				nodes = append(nodes, map[string]any{"id": gid("Iterations::Cadence", c.id), "title": c.title, "automatic": c.automatic})
 			}
 		}
 		reply(map[string]any{"group": map[string]any{"iterationCadences": map[string]any{"nodes": nodes}}})
 	case "SeedCadenceCreate":
-		c := &fCadence{id: f.id(), title: str(in, "title"), automatic: in["automatic"] == true}
+		c := &fCadence{id: f.id(), title: str(in, "title"), automatic: in["automatic"] == true, group: str(in, "groupPath")}
 		f.cadences = append(f.cadences, c)
 		if c.automatic && f.autoIterations {
 			start := mustDate(str(in, "startDate"))

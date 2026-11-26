@@ -64,6 +64,38 @@ describe('useBoard', () => {
     expect(result.current.data).not.toBeNull();
   });
 
+  it('asks for the active cadences, and loads again when they change (ADR-38)', async () => {
+    const fetchMock = vi.fn(async () => ok());
+    vi.stubGlobal('fetch', fetchMock);
+    const c1 = 'gid://gitlab/Iterations::Cadence/1';
+    const c2 = 'gid://gitlab/Iterations::Cadence/2';
+    const param = (...ids: string[]) => `cadences=${ids.map(encodeURIComponent).join(',')}`;
+    const { result, rerender } = renderHook(({ cadences }) => useBoard(cadences), {
+      initialProps: { cadences: [c1] as string[] | null },
+    });
+    await waitFor(() => expect(result.current.data).not.toBeNull());
+    expect(fetchMock).toHaveBeenLastCalledWith(`/api/board?${param(c1)}`, expect.anything());
+
+    // The same cadences in a new array: no new request.
+    rerender({ cadences: [c1] });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    rerender({ cadences: [c1, c2] });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenLastCalledWith(`/api/board?${param(c1, c2)}`, expect.anything());
+    // The data stays shown meanwhile.
+    expect(result.current.data).not.toBeNull();
+    await waitFor(() => expect(result.current.refreshing).toBe(false));
+
+    // Synchroniser keeps them.
+    await act(() => result.current.reload(['plateforme/atlas/api']));
+    expect(fetchMock).toHaveBeenLastCalledWith(`/api/board?refresh=1&groups=plateforme/atlas/api&${param(c1, c2)}`, expect.anything());
+
+    // Back to the backend's default.
+    rerender({ cadences: null });
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/board', expect.anything());
+  });
+
   it('aborts the request on unmount', async () => {
     let signal: AbortSignal | undefined;
     vi.stubGlobal(

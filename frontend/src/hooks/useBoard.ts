@@ -22,16 +22,23 @@ export interface BoardState {
 
 type Mode = 'user' | 'silent';
 
-/** The board, loaded on mount, then silently every 5 minutes and when the window gets the
+/** The board with the active cadences (null: the backend's default, ADR-38), loaded on mount
+ * and again when they change, then silently every 5 minutes and when the window gets the
  * focus back after 5 minutes. One request at a time: a newer one aborts the older. A failed
  * reload keeps the last data (the error is shown above it). */
-export function useBoard(): BoardState {
+export function useBoard(cadences: readonly string[] | null = null): BoardState {
   const [data, setData] = useState<BoardData | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const [fetchedAt, setFetchedAt] = useState<string | null>(null);
   const [pending, setPending] = useState<Mode | null>('user');
   const current = useRef<AbortController | null>(null);
   const loadedAt = useRef(0);
+  // Every load, silent or not, asks for the cadences of the latest render.
+  const cadencesRef = useRef(cadences);
+  useEffect(() => {
+    cadencesRef.current = cadences;
+  });
+  const cadencesKey = cadences ? cadences.join(',') : '';
 
   const load = useCallback(async (refresh: readonly string[] | null, mode: Mode) => {
     current.current?.abort();
@@ -41,7 +48,7 @@ export function useBoard(): BoardState {
     // A retry asked by the user shows its progress instead of the old error.
     if (mode === 'user') setError(null);
     try {
-      const result = await fetchBoard(refresh, controller.signal);
+      const result = await fetchBoard(refresh, cadencesRef.current, controller.signal);
       if (controller.signal.aborted) return;
       loadedAt.current = Date.now();
       setData(result.data);
@@ -60,8 +67,12 @@ export function useBoard(): BoardState {
 
   const reload = useCallback((refresh: readonly string[] | null) => load(refresh, 'user'), [load]);
 
+  // On mount, and with other cadences: the data stays shown meanwhile.
   useEffect(() => {
     void load(null, 'user');
+  }, [load, cadencesKey]);
+
+  useEffect(() => {
     const refreshSilently = () => {
       if (!current.current) void load(null, 'silent');
     };

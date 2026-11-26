@@ -195,7 +195,7 @@ func TestMergeScopeThenBuild(t *testing.T) {
 	epicBlocked := epic
 	epicBlocked.BlockedBy = []string{iid(1)}
 
-	prev := &Raw{RootGroup: Group{Path: "root"}, Iterations: testIterations(), Items: []RawItem{epicBlocked, issue}}
+	prev := &Raw{RootGroup: Group{Path: "root"}, Cadences: testCadences, Iterations: testIterations(), Items: []RawItem{epicBlocked, issue}}
 	if b := Build(prev, testNow); len(b.Issues) != 1 || len(b.Issues[0].BlocksEpics) != 1 || len(b.Links) != 1 {
 		t.Fatalf("before: issues = %+v, links = %+v", b.Issues, b.Links)
 	}

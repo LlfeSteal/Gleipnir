@@ -56,8 +56,12 @@ func expectDataset(t *testing.T, f *fakeGitLab, day time.Time, assigned bool) {
 	if g := f.group(rootPath + "/api"); g == nil || g.name != "API et intégrations" {
 		t.Fatalf("group api: %+v", g)
 	}
-	if len(f.cadences) != 1 || len(f.iterations) != len(ds.Iterations) {
-		t.Fatalf("%d cadences, %d iterations", len(f.cadences), len(f.iterations))
+	// The root group's cadence, and the team's in its subgroup (ADR-38).
+	team := ds.TeamIterations()
+	if len(f.cadences) != 2 || len(f.iterations) != len(ds.Iterations)+len(team) ||
+		f.cadences[0].group != rootPath || f.cadences[0].title != ds.Cadence ||
+		f.cadences[1].group != rootPath+"/"+ds.Team.Group || f.cadences[1].title != ds.Team.Title {
+		t.Fatalf("%d cadences (%+v), %d iterations", len(f.cadences), f.cadences, len(f.iterations))
 	}
 	iterByID := map[string]*fIteration{}
 	for _, it := range f.iterations {
@@ -83,7 +87,11 @@ func expectDataset(t *testing.T, f *fakeGitLab, day time.Time, assigned bool) {
 			continue
 		}
 		if is.Iteration >= 0 {
-			if it := iterByID[got.iter]; it == nil || it.title != ds.Iterations[is.Iteration].Title || it.start != ds.Iterations[is.Iteration].StartDate {
+			want, cadence := ds.Iterations[is.Iteration], f.cadences[0].id
+			if is.Team {
+				want, cadence = team[is.Iteration-ds.Team.First], f.cadences[1].id
+			}
+			if it := iterByID[got.iter]; it == nil || it.title != want.Title || it.start != want.StartDate || it.cadence != cadence {
 				t.Errorf("issue %s: iteration %+v", is.Key, it)
 			}
 		} else if got.iter != "" {
@@ -214,10 +222,11 @@ func TestAutomaticCadence(t *testing.T) {
 	f := newFake(t, true)
 	f.autoIterations = true
 	out := mustSeed(t, f, t0, "-apply", "-cadence=auto")
-	if !strings.Contains(out, "create automatic cadence") || len(f.iterations) != 10 || f.iterations[0].title != "" {
+	if !strings.Contains(out, "create automatic cadence") || len(f.iterations) != 16 || f.iterations[0].title != "" {
 		t.Fatalf("iterations %d:\n%s", len(f.iterations), out)
 	}
-	// Consecutive iterations: the epics are dated from GitLab's, not the dataset's.
+	// Consecutive iterations: the epics are dated from GitLab's, not the dataset's. The root
+	// cadence's come first.
 	for _, it := range f.items {
 		if it.title == "Modèles prédictifs" && it.due != f.iterations[9].due {
 			t.Fatalf("epic dated %s, want the last iteration's %s", it.due, f.iterations[9].due)
@@ -247,7 +256,7 @@ func TestExistingCadenceKindWins(t *testing.T) {
 	f := newFake(t, true)
 	f.cadences = []*fCadence{{id: 7, title: "Sprints produit", automatic: true}}
 	out := mustSeed(t, f, t0, "-apply")
-	if !strings.Contains(out, "exists with automatic=true: kept as is") || len(f.cadences) != 1 {
+	if !strings.Contains(out, "exists with automatic=true: kept as is") || len(f.cadences) != 2 {
 		t.Fatalf("output:\n%s", out)
 	}
 }

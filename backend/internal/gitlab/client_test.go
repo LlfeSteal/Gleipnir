@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"regexp"
 	"strings"
 	"sync"
@@ -40,7 +41,6 @@ func newFake(t *testing.T, handlers map[string]func(gqlRequest) (int, string)) (
 	srv := httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(srv.Close)
 	c := New(srv.URL+"/", "tok", "root", "")
-	c.now = func() time.Time { return time.Date(2026, 11, 23, 10, 0, 0, 0, time.UTC) }
 	return f, c
 }
 
@@ -105,11 +105,16 @@ func healthy() map[string]func(gqlRequest) (int, string) {
 		"Cadences": ok(group(`"iterationCadences":{` + lastPage + `,"nodes":[` +
 			`{"id":"gid://gitlab/Iterations::Cadence/1","title":"Old","active":false},` +
 			`{"id":"gid://gitlab/Iterations::Cadence/2","title":"Sprints ","active":true}]}`)),
-		"CurrentIterations": ok(group(`"iterations":{` + lastPage + `,"nodes":[` +
-			`{"id":"gid://gitlab/Iteration/20","iterationCadence":{"id":"gid://gitlab/Iterations::Cadence/2"}}]}`)),
+		// Every cadence's iterations (ADR-38): one of a subgroup's cadence, which only its
+		// iterations show, and one without a cadence, dropped.
 		"Iterations": ok(group(`"iterations":{` + lastPage + `,"nodes":[` +
+			`{"id":"gid://gitlab/Iteration/10","title":"Old 1","sequence":1,"startDate":"2025-01-06","dueDate":"2025-01-19",` +
+			`"webUrl":"https://gl/it/10","iterationCadence":{"id":"gid://gitlab/Iterations::Cadence/1","title":"Old"}},` +
 			`{"id":"gid://gitlab/Iteration/20","title":null,"sequence":7,"startDate":"2026-11-16","dueDate":"2026-11-29T00:00:00Z",` +
-			`"webUrl":"https://gl/it/20","iterationCadence":{"id":"gid://gitlab/Iterations::Cadence/2","title":"Sprints "}}]}`)),
+			`"webUrl":"https://gl/it/20","iterationCadence":{"id":"gid://gitlab/Iterations::Cadence/2","title":"Sprints "}},` +
+			`{"id":"gid://gitlab/Iteration/30","sequence":1,"startDate":"2026-11-16","dueDate":"2026-11-29",` +
+			`"iterationCadence":{"id":"gid://gitlab/Iterations::Cadence/9","title":"Team ","active":true}},` +
+			`{"id":"gid://gitlab/Iteration/40","sequence":1,"startDate":"2026-11-16","dueDate":"2026-11-29","iterationCadence":null}]}`)),
 		"WorkItems": ok(group(`"workItems":{` + lastPage + `,"nodes":[` +
 			`{"id":"gid://gitlab/WorkItem/1","iid":"18","title":"Epic","state":"OPEN","webUrl":"u1",` +
 			`"namespace":{"id":"gid://gitlab/Group/9","fullPath":"root/a"},"workItemType":{"name":"Epic"},"widgets":[]}]}`)),
@@ -131,14 +136,21 @@ func TestFetchHappyPath(t *testing.T) {
 	if len(raw.Groups) != 1 || raw.Groups[0] != (board.Group{ID: "gid://gitlab/Group/9", Path: "root/a", Name: "A"}) {
 		t.Errorf("Groups = %+v", raw.Groups)
 	}
-	if raw.Cadence.ID != "gid://gitlab/Iterations::Cadence/2" || raw.Cadence.Title != "Sprints" {
-		t.Errorf("Cadence = %+v", raw.Cadence)
+	wantCadences := []board.RawCadence{
+		{ID: "gid://gitlab/Iterations::Cadence/1", Title: "Old"},
+		{ID: "gid://gitlab/Iterations::Cadence/2", Title: "Sprints", Active: true},
+		{ID: "gid://gitlab/Iterations::Cadence/9", Title: "Team", Active: true},
 	}
-	if len(raw.Iterations) != 1 {
+	if !reflect.DeepEqual(raw.Cadences, wantCadences) || raw.ConfiguredCadence != "" {
+		t.Errorf("Cadences = %+v, configured %q", raw.Cadences, raw.ConfiguredCadence)
+	}
+	if len(raw.Iterations) != 3 || raw.Iterations[2].CadenceID != "gid://gitlab/Iterations::Cadence/9" || raw.Iterations[0].ID != "gid://gitlab/Iteration/10" ||
+		raw.Iterations[0].CadenceID != "gid://gitlab/Iterations::Cadence/1" || raw.Iterations[0].Title != "Old 1" {
 		t.Fatalf("Iterations = %+v", raw.Iterations)
 	}
-	it := raw.Iterations[0]
-	if it.Title != "" || it.Sequence != 7 || it.StartDate != "2026-11-16" || it.DueDate != "2026-11-29" || it.WebURL != "https://gl/it/20" {
+	it := raw.Iterations[1]
+	if it.Title != "" || it.CadenceID != "gid://gitlab/Iterations::Cadence/2" || it.Sequence != 7 ||
+		it.StartDate != "2026-11-16" || it.DueDate != "2026-11-29" || it.WebURL != "https://gl/it/20" {
 		t.Errorf("Iteration = %+v", it)
 	}
 	if len(raw.Items) != 1 || raw.Items[0].Kind != "epic" {
@@ -153,11 +165,10 @@ func TestFetchHappyPath(t *testing.T) {
 			t.Errorf("%s: fullPath = %v", r.Op, r.Variables["fullPath"])
 		}
 	}
-	if got := f.requestsFor("CurrentIterations")[0].Variables["today"]; got != "2026-11-23" {
-		t.Errorf("today = %v", got)
-	}
-	if got := f.requestsFor("Iterations")[0].Variables["cadenceId"]; got != "gid://gitlab/Iterations::Cadence/2" {
-		t.Errorf("cadenceId = %v", got)
+	// No cadence filter, and the descendants' cadences too (ADR-38).
+	if r := f.requestsFor("Iterations")[0]; r.Variables["cadenceId"] != nil || strings.Contains(r.Query, "iterationCadenceIds") ||
+		!strings.Contains(r.Query, "includeDescendants: true") {
+		t.Errorf("Iterations query: %s %v", r.Query, r.Variables)
 	}
 }
 
@@ -282,18 +293,38 @@ func TestIsPremiumError(t *testing.T) {
 func TestCadenceErrorsThroughFetch(t *testing.T) {
 	h := healthy()
 	h["Cadences"] = ok(group(`"iterationCadences":{` + lastPage + `,"nodes":[]}`))
+	h["Iterations"] = ok(group(`"iterations":{` + lastPage + `,"nodes":[]}`))
 	_, c := newFake(t, h)
 	if _, err := c.Fetch(context.Background()); !errors.Is(err, ErrNoCadence) {
 		t.Errorf("no cadence: err = %v", err)
 	}
 
-	f, c := newFake(t, healthy())
+	_, c = newFake(t, healthy())
 	c.cadence = "nope"
 	if _, err := c.Fetch(context.Background()); !errors.Is(err, ErrCadenceNotFound) || !strings.Contains(err.Error(), `"nope"`) {
 		t.Errorf("unknown cadence: err = %v", err)
 	}
-	if n := len(f.requestsFor("CurrentIterations")); n != 0 {
-		t.Errorf("configured cadence: %d CurrentIterations requests, want 0", n)
+
+	// A subgroup's cadence, only known through its iterations, can be the configured one.
+	_, c = newFake(t, healthy())
+	c.cadence = "team"
+	if raw, err := c.Fetch(context.Background()); err != nil || raw.ConfiguredCadence != "gid://gitlab/Iterations::Cadence/9" {
+		t.Errorf("configured subgroup cadence: %v, %v", raw, err)
+	}
+
+	// Without a cadence in the group but one in a subgroup: no ErrNoCadence.
+	h = healthy()
+	h["Cadences"] = ok(group(`"iterationCadences":{` + lastPage + `,"nodes":[]}`))
+	_, c = newFake(t, h)
+	if raw, err := c.Fetch(context.Background()); err != nil || len(raw.Cadences) != 3 {
+		t.Errorf("cadences from the iterations only: %v, %v", raw, err)
+	}
+
+	_, c = newFake(t, healthy())
+	c.cadence = "old"
+	raw, err := c.Fetch(context.Background())
+	if err != nil || raw.ConfiguredCadence != "gid://gitlab/Iterations::Cadence/1" {
+		t.Errorf("configured cadence: %v, %v", raw, err)
 	}
 }
 

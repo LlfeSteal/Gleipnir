@@ -14,17 +14,24 @@ import (
 const webBase = "https://gitlab.example.com"
 
 const (
-	cadenceID  = "gid://gitlab/Iterations::Cadence/1"
-	dateLayout = demo.DateLayout
+	cadenceID     = "gid://gitlab/Iterations::Cadence/1" // the root group's
+	teamCadenceID = "gid://gitlab/Iterations::Cadence/2" // the team's subgroup's (ADR-38)
+	dateLayout    = demo.DateLayout
 )
 
 // dataset is the demo data as GitLab's GraphQL API returns it, for the queries Gleipnir sends.
 type dataset struct {
 	root       groupNode
 	groups     []groupNode // descendants of root, in any order
-	cadence    string      // title of the one cadence
+	cadences   []ownedCadence
 	iterations []iterationNode
 	items      []workItemNode
+}
+
+// ownedCadence is a cadence and the path of the group that holds it.
+type ownedCadence struct {
+	cadenceNode
+	group string
 }
 
 type groupNode struct {
@@ -39,19 +46,14 @@ type cadenceNode struct {
 	Active bool   `json:"active"`
 }
 
-type idTitle struct {
-	ID    string `json:"id"`
-	Title string `json:"title"`
-}
-
 type iterationNode struct {
-	ID               string  `json:"id"`
-	Title            *string `json:"title"`
-	Sequence         int     `json:"sequence"`
-	StartDate        string  `json:"startDate"`
-	DueDate          string  `json:"dueDate"`
-	WebURL           string  `json:"webUrl"`
-	IterationCadence idTitle `json:"iterationCadence"`
+	ID               string      `json:"id"`
+	Title            *string     `json:"title"`
+	Sequence         int         `json:"sequence"`
+	StartDate        string      `json:"startDate"`
+	DueDate          string      `json:"dueDate"`
+	WebURL           string      `json:"webUrl"`
+	IterationCadence cadenceNode `json:"iterationCadence"`
 }
 
 type idRef struct {
@@ -125,6 +127,35 @@ func (d *dataset) itemsUnder(path string) []workItemNode {
 	return out
 }
 
+// cadencesOf lists the cadences of the group at path and of its ancestors, as
+// iterationCadences(includeAncestorGroups: true) does: never a descendant's.
+func (d *dataset) cadencesOf(path string) []cadenceNode {
+	out := []cadenceNode{}
+	for _, c := range d.cadences {
+		if c.group == path || under(path, c.group) {
+			out = append(out, c.cadenceNode)
+		}
+	}
+	return out
+}
+
+// iterationsAround lists the iterations of the cadences of the group at path, its ancestors
+// and its descendants, as iterations(includeAncestors: true, includeDescendants: true) does.
+func (d *dataset) iterationsAround(path string) []iterationNode {
+	owner := map[string]string{}
+	for _, c := range d.cadences {
+		owner[c.ID] = c.group
+	}
+	out := []iterationNode{}
+	for _, it := range d.iterations {
+		g := owner[it.IterationCadence.ID]
+		if g == path || under(path, g) || under(g, path) {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
 // under tells whether path is strictly below parent.
 func under(path, parent string) bool {
 	return strings.HasPrefix(path, parent+"/")
@@ -163,7 +194,12 @@ func newDataset(now time.Time, lay layout) *dataset {
 		counters[namespace]++
 		return strconv.Itoa(counters[namespace])
 	}
-	d := &dataset{root: groupNode{ID: "gid://gitlab/Group/40", FullPath: rootPath, Name: rootName}, cadence: ds.Cadence}
+	d := &dataset{root: groupNode{ID: "gid://gitlab/Group/40", FullPath: rootPath, Name: rootName}}
+	teamGroup := rootPath + "/" + ds.Team.Group
+	d.cadences = []ownedCadence{
+		{cadenceNode{ID: cadenceID, Title: ds.Cadence, Active: true}, rootPath},
+		{cadenceNode{ID: teamCadenceID, Title: ds.Team.Title, Active: true}, teamGroup},
+	}
 	groupIDs := map[string]int{rootPath: 40}
 	for i, g := range ds.Groups {
 		path := rootPath + "/" + g.Slug
@@ -186,7 +222,22 @@ func newDataset(now time.Time, lay layout) *dataset {
 			StartDate:        it.StartDate,
 			DueDate:          it.DueDate,
 			WebURL:           fmt.Sprintf("%s/groups/%s/-/cadences/1/iterations/%d", webBase, rootPath, 300+it.Sequence),
-			IterationCadence: idTitle{ID: cadenceID, Title: ds.Cadence},
+			IterationCadence: d.cadences[0].cadenceNode,
+		})
+	}
+	// The team's iterations, by the index of the root iteration with the same dates.
+	teamIDs := map[int]string{}
+	for i, it := range ds.TeamIterations() {
+		title, n := it.Title, 400+it.Sequence
+		teamIDs[ds.Team.First+i] = fmt.Sprintf("gid://gitlab/Iteration/%d", n)
+		d.iterations = append(d.iterations, iterationNode{
+			ID:               teamIDs[ds.Team.First+i],
+			Title:            &title,
+			Sequence:         it.Sequence,
+			StartDate:        it.StartDate,
+			DueDate:          it.DueDate,
+			WebURL:           fmt.Sprintf("%s/groups/%s/-/cadences/2/iterations/%d", webBase, teamGroup, n),
+			IterationCadence: d.cadences[1].cadenceNode,
 		})
 	}
 
@@ -282,7 +333,10 @@ func newDataset(now time.Time, lay layout) *dataset {
 		}
 		n.WorkItemType.Name = "Issue"
 		iteration := ""
-		if is.Iteration >= 0 {
+		switch {
+		case is.Team:
+			iteration = teamIDs[is.Iteration]
+		case is.Iteration >= 0:
 			iteration = iterationIDs[is.Iteration]
 		}
 		parent := ""

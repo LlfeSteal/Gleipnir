@@ -56,6 +56,38 @@ describe('App', () => {
     expect(within(screen.getByRole('button', { name: /^Epic &15 / })).getByText('1 hors couloirs')).toBeInTheDocument();
   });
 
+  it('picks the active cadences in the window pop-up, and remembers them (ADR-38)', async () => {
+    const PRODUIT = 'gid://gitlab/Iterations::Cadence/1';
+    const DATA = 'gid://gitlab/Iterations::Cadence/2';
+    // The backend answers with the cadences asked for, both by default.
+    const fetchMock = vi.fn(async (url: string) => {
+      const asked = new URL(url, 'http://x').searchParams.get('cadences')?.split(',') ?? [PRODUIT, DATA];
+      const data = mockupBoard();
+      data.cadences = [
+        { id: PRODUIT, title: 'Sprints produit', active: asked.includes(PRODUIT) },
+        { id: DATA, title: 'Squad data', active: asked.includes(DATA) },
+      ];
+      return new Response(JSON.stringify(data), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { user } = await renderApp();
+    expect(screen.getByText('Atlas · Sprints produit, Squad data')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/board', expect.anything());
+
+    await user.click(windowButton());
+    await user.click(screen.getByRole('menuitemcheckbox', { name: 'Sprints produit' }));
+    expect(stored('gleipnir.cadences')).toEqual([DATA]);
+    expect(fetchMock).toHaveBeenLastCalledWith(`/api/board?cadences=${encodeURIComponent(DATA)}`, expect.anything());
+    expect(await screen.findByText('Atlas · Squad data')).toBeInTheDocument();
+    expect(screen.getByRole('menuitemcheckbox', { name: 'Sprints produit' })).toHaveAttribute('aria-checked', 'false');
+
+    // A new visit asks for the remembered cadences at once.
+    cleanup();
+    fetchMock.mockClear();
+    await renderApp();
+    expect(fetchMock.mock.calls[0][0]).toBe(`/api/board?cadences=${encodeURIComponent(DATA)}`);
+  });
+
   it('shows a French error banner on 401, and retries', async () => {
     const fetchMock = stubFetch(
       () =>

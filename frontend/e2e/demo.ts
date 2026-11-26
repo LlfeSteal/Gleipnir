@@ -123,9 +123,17 @@ export function groupOf(slug: string): { id: string; path: string; name: string 
   return found;
 }
 
-/** The name of the iteration cadence. */
+/** The names of the active cadences, joined as the toolbar shows them (ADR-38). */
 export function cadence(): string {
-  return board().cadence.title;
+  return board()
+    .cadences.filter((c) => c.active)
+    .map((c) => c.title)
+    .join(', ');
+}
+
+/** The names of every cadence, in the board's order (by title). */
+export function cadenceTitles(): string[] {
+  return board().cadences.map((c) => c.title);
 }
 
 /** The assignee's name of an issue, null when it has none (a seeder without admin rights). */

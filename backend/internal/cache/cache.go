@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"runtime/debug"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -36,9 +37,12 @@ type Source interface {
 	FetchItems(ctx context.Context, groups []string) ([]board.RawItem, error)
 }
 
-// EncodeFunc builds and encodes the board of raw. synced gives when each group's items were
-// read; it must not be kept.
-type EncodeFunc func(raw *board.Raw, synced map[string]time.Time) ([]byte, error)
+// EncodeFunc builds and encodes the board of raw with the active cadences (nil: the default,
+// ADR-38). synced gives when each group's items were read; it must not be kept.
+type EncodeFunc func(raw *board.Raw, synced map[string]time.Time, cadences []string) ([]byte, error)
+
+// maxViews caps the boards encoded for a choice of cadences, kept until the next commit.
+const maxViews = 16
 
 // Snapshot is the encoded board, and the oldest read time of its groups.
 type Snapshot struct {
@@ -71,9 +75,11 @@ type Store struct {
 	raw    *board.Raw           // nil until the first full sync succeeds
 	synced map[string]time.Time // group path → start of the read its items come from
 	doneAt map[string]time.Time // group path → end of that read (MinRefresh counts from it)
-	snap   Snapshot
-	full   *call            // running full sync
-	scoped map[string]*call // running scoped refreshes, by normalized scope
+	snap   Snapshot             // the board with the default cadences
+	views  map[string][]byte    // the board for other choices of cadences, by viewKey
+	gen    int                  // bumped on each commit: a view encoded from older data is not kept
+	full   *call                // running full sync
+	scoped map[string]*call     // running scoped refreshes, by normalized scope
 }
 
 type call struct {
@@ -94,6 +100,7 @@ func New(source Source, encode EncodeFunc, opts Options) *Store {
 		synced:       map[string]time.Time{},
 		doneAt:       map[string]time.Time{},
 		scoped:       map[string]*call{},
+		views:        map[string][]byte{},
 	}
 	if s.interval <= 0 {
 		s.interval = 5 * time.Minute
@@ -135,29 +142,29 @@ func (s *Store) Run(ctx context.Context) {
 	}
 }
 
-// Get serves the cached board (HIT). Before the first successful sync, it waits for the
-// running full sync, or starts one (MISS). The sync goes on when ctx is done.
-func (s *Store) Get(ctx context.Context) (Snapshot, State, error) {
+// Get serves the cached board (HIT) with the active cadences (nil: the default, ADR-38).
+// Before the first successful sync, it waits for the running full sync, or starts one
+// (MISS). The sync goes on when ctx is done.
+func (s *Store) Get(ctx context.Context, cadences []string) (Snapshot, State, error) {
 	s.mu.Lock()
 	if s.raw != nil {
-		snap := s.snap
-		s.mu.Unlock()
-		return snap, Hit, nil
+		return s.view(cadences, Hit) // unlocks
 	}
 	c := s.startFull()
 	s.mu.Unlock()
-	return wait(ctx, c)
+	return s.waitView(ctx, c, cadences)
 }
 
 // Refresh reads the subtrees of groups again, merges them into the board and serves it
 // (MISS). Unknown groups are ignored, and none left is ErrInvalidScope. Groups all read less
 // than MinRefresh ago are served from the cache (HIT). Concurrent refreshes of the same scope
 // share one read, which goes on when ctx is done. Without data yet, it waits for the full sync.
-func (s *Store) Refresh(ctx context.Context, groups []string) (Snapshot, State, error) {
+// The board has the active cadences (nil: the default, ADR-38).
+func (s *Store) Refresh(ctx context.Context, groups, cadences []string) (Snapshot, State, error) {
 	s.mu.Lock()
 	if s.raw == nil {
 		s.mu.Unlock()
-		return s.Get(ctx)
+		return s.Get(ctx, cadences)
 	}
 	scope := board.NormalizeScope(groups, s.raw.RootGroup, s.raw.Groups)
 	if len(scope) == 0 {
@@ -165,9 +172,7 @@ func (s *Store) Refresh(ctx context.Context, groups []string) (Snapshot, State, 
 		return Snapshot{}, Miss, ErrInvalidScope
 	}
 	if s.readSince(scope, s.now().Add(-s.minRefresh)) { // ADR-20
-		snap := s.snap
-		s.mu.Unlock()
-		return snap, Hit, nil
+		return s.view(cadences, Hit) // unlocks
 	}
 	key := strings.Join(scope, ",")
 	c := s.scoped[key]
@@ -175,16 +180,72 @@ func (s *Store) Refresh(ctx context.Context, groups []string) (Snapshot, State, 
 		c = s.startScoped(key, scope)
 	}
 	s.mu.Unlock()
-	return wait(ctx, c)
+	return s.waitView(ctx, c, cadences)
 }
 
-func wait(ctx context.Context, c *call) (Snapshot, State, error) {
+// waitView waits for c, then serves the board with the cadences (MISS): the data in place,
+// at least as new as c's.
+func (s *Store) waitView(ctx context.Context, c *call, cadences []string) (Snapshot, State, error) {
 	select {
 	case <-c.done:
-		return c.snap, Miss, c.err
+		if c.err != nil {
+			return Snapshot{}, Miss, c.err
+		}
+		s.mu.Lock()
+		return s.view(cadences, Miss) // unlocks
 	case <-ctx.Done():
 		return Snapshot{}, Miss, ctx.Err()
 	}
+}
+
+// view serves the board with the cadences: the default one when none of them is known,
+// else a board encoded once per choice until the next commit. Called with s.mu held, which
+// it releases: the encoding runs unlocked, on data a commit replaces but never modifies.
+func (s *Store) view(cadences []string, state State) (Snapshot, State, error) {
+	key, known := viewKey(s.raw, cadences)
+	snap := s.snap
+	if key == "" {
+		s.mu.Unlock()
+		return snap, state, nil
+	}
+	if body, ok := s.views[key]; ok {
+		s.mu.Unlock()
+		return Snapshot{Body: body, FetchedAt: snap.FetchedAt}, state, nil
+	}
+	raw, synced, gen := s.raw, s.synced, s.gen
+	s.mu.Unlock()
+
+	body, err := s.safeEncode(raw, synced, known)
+	if err != nil {
+		return Snapshot{}, state, err
+	}
+	s.mu.Lock()
+	if s.gen == gen {
+		if len(s.views) >= maxViews {
+			clear(s.views)
+		}
+		s.views[key] = body
+	}
+	s.mu.Unlock()
+	return Snapshot{Body: body, FetchedAt: snap.FetchedAt}, state, nil
+}
+
+// viewKey keeps the cadences raw knows, deduplicated and sorted; key is "" when none is left.
+func viewKey(raw *board.Raw, cadences []string) (key string, known []string) {
+	exists := make(map[string]bool, len(raw.Cadences))
+	for _, c := range raw.Cadences {
+		exists[c.ID] = true
+	}
+	seen := map[string]bool{}
+	for _, id := range cadences {
+		id = strings.TrimSpace(id)
+		if exists[id] && !seen[id] {
+			seen[id] = true
+			known = append(known, id)
+		}
+	}
+	sort.Strings(known)
+	return strings.Join(known, ","), known
 }
 
 // startFull returns the running full sync, or starts one. Called with s.mu held.
@@ -281,16 +342,21 @@ func (s *Store) applyScope(scope []string, items []board.RawItem, started time.T
 	return s.commit(next, synced)
 }
 
-// commit encodes raw and makes it the served board; on error, the board in place stays.
-// Called with s.mu held: bodies are stored in the order the data was merged.
-func (s *Store) commit(raw *board.Raw, synced map[string]time.Time) (err error) {
+// safeEncode runs encode and turns a panic into an error.
+func (s *Store) safeEncode(raw *board.Raw, synced map[string]time.Time, cadences []string) (body []byte, err error) {
 	defer func() {
 		if p := recover(); p != nil {
 			s.log.Error("cache: encoding panicked", "panic", p, "stack", string(debug.Stack()))
-			err = fmt.Errorf("encoding the board panicked: %v", p)
+			body, err = nil, fmt.Errorf("encoding the board panicked: %v", p)
 		}
 	}()
-	body, err := s.encode(raw, synced)
+	return s.encode(raw, synced, cadences)
+}
+
+// commit encodes raw and makes it the served board; on error, the board in place stays.
+// Called with s.mu held: bodies are stored in the order the data was merged.
+func (s *Store) commit(raw *board.Raw, synced map[string]time.Time) error {
+	body, err := s.safeEncode(raw, synced, nil)
 	if err != nil {
 		return err
 	}
@@ -311,6 +377,8 @@ func (s *Store) commit(raw *board.Raw, synced map[string]time.Time) (err error) 
 	}
 	s.raw, s.synced, s.doneAt = raw, synced, doneAt
 	s.snap = Snapshot{Body: body, FetchedAt: oldest}
+	s.gen++
+	clear(s.views)
 	return nil
 }
 

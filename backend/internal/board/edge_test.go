@@ -60,14 +60,10 @@ func TestBuildIterationsSameStartDate(t *testing.T) {
 		{ID: "b", Sequence: 1, StartDate: "2026-01-05", DueDate: "2026-01-18"},
 		{ID: "a", Sequence: 1, StartDate: "2026-01-05", DueDate: "2026-01-18"},
 	}
-	its, cur := buildIterations(raw, testNow)
-	var ids []string
-	for _, it := range its {
-		ids = append(ids, it.ID)
-	}
-	// Same start: by sequence, then by ID.
-	if want := []string{"a", "b", "z"}; !reflect.DeepEqual(ids, want) {
-		t.Fatalf("iterations = %v, want %v", ids, want)
+	its, cur := columns(raw, testNow)
+	// Same dates: one column (ADR-38), its iterations by sequence, then by ID.
+	if len(its) != 1 || its[0].ID != "a" || !reflect.DeepEqual(its[0].IterationIDs, []string{"a", "b", "z"}) {
+		t.Fatalf("iterations = %+v, want one column of a, b, z", its)
 	}
 	if cur != -1 {
 		t.Fatalf("current = %d, want -1 (now is after them all)", cur)
@@ -76,10 +72,10 @@ func TestBuildIterationsSameStartDate(t *testing.T) {
 
 func TestBuildIterationsCurrentBounds(t *testing.T) {
 	its := []RawIteration{{ID: "it", StartDate: "2026-01-20", DueDate: "2026-01-20"}}
-	if _, cur := buildIterations(its, testNow); cur != 0 {
+	if _, cur := columns(its, testNow); cur != 0 {
 		t.Fatalf("a one-day iteration on today: current = %d, want 0", cur)
 	}
-	if _, cur := buildIterations(nil, testNow); cur != -1 {
+	if _, cur := columns(nil, testNow); cur != -1 {
 		t.Fatalf("no iteration: current = %d, want -1", cur)
 	}
 }

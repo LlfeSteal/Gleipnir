@@ -22,8 +22,8 @@ type Source = cache.Source
 // Options configures a Server. Only Source is required.
 type Options struct {
 	Source Source
-	Build  func(*board.Raw, time.Time) *board.Board // default board.Build
-	Now    func() time.Time                         // default time.Now
+	Build  func(*board.Raw, time.Time, ...string) *board.Board // default board.Build
+	Now    func() time.Time                                    // default time.Now
 	// Cache: Interval is CACHE_TTL; Now and Logger default to the server's.
 	Cache     cache.Options
 	GitLabURL string
@@ -36,7 +36,7 @@ type Options struct {
 // Server answers the API requests. Every visitor sees the same board, read with the one
 // server-wide token.
 type Server struct {
-	build func(*board.Raw, time.Time) *board.Board
+	build func(*board.Raw, time.Time, ...string) *board.Board
 	now   func() time.Time
 	cache *cache.Store
 	log   *slog.Logger
@@ -98,9 +98,11 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleBoard serves the cached board. ?refresh=1&groups=a,b first reads the subtrees of
-// those groups again (Synchroniser): never the whole group, which only the periodic sync
-// reads. X-Cache says how it was served, X-Fetched-At when its oldest group was read.
+// handleBoard serves the cached board. ?cadences=a,b picks the active cadences (ADR-38):
+// unknown ones are ignored, and with none known, the default ones apply. ?refresh=1&groups=a,b
+// first reads the subtrees of those groups again (Synchroniser): never the whole group, which
+// only the periodic sync reads. X-Cache says how it was served, X-Fetched-At when its oldest
+// group was read.
 func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	var (
@@ -108,11 +110,15 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 		state cache.State
 		err   error
 	)
+	// GitLab paths and GIDs can't hold a comma.
+	var cadences []string
+	if v := q.Get("cadences"); v != "" {
+		cadences = strings.Split(v, ",")
+	}
 	if refresh := q.Get("refresh"); refresh == "1" || refresh == "true" {
-		// GitLab paths can't hold a comma.
-		snap, state, err = s.cache.Refresh(r.Context(), strings.Split(q.Get("groups"), ","))
+		snap, state, err = s.cache.Refresh(r.Context(), strings.Split(q.Get("groups"), ","), cadences)
 	} else {
-		snap, state, err = s.cache.Get(r.Context())
+		snap, state, err = s.cache.Get(r.Context(), cadences)
 	}
 	if err != nil {
 		if r.Context().Err() != nil {
@@ -144,10 +150,10 @@ func (s *Server) handleNotFound(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusNotFound, errorBody{Error: "no route for " + r.URL.Path, Code: "not_found"})
 }
 
-// encodeBoard builds the board and encodes it once for every request served from the
-// cache. Each group carries the time its items were read.
-func (s *Server) encodeBoard(raw *board.Raw, synced map[string]time.Time) ([]byte, error) {
-	b, err := s.safeBuild(raw)
+// encodeBoard builds the board with the active cadences and encodes it once for every
+// request served from the cache. Each group carries the time its items were read.
+func (s *Server) encodeBoard(raw *board.Raw, synced map[string]time.Time, cadences []string) ([]byte, error) {
+	b, err := s.safeBuild(raw, cadences)
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +168,7 @@ func (s *Server) encodeBoard(raw *board.Raw, synced map[string]time.Time) ([]byt
 		return nil, fmt.Errorf("encoding the board: %w", err)
 	}
 	s.log.Info("board built",
-		"iterations", len(b.Iterations), "epics", len(b.Epics), "issues", len(b.Issues),
+		"cadences", len(cadences), "iterations", len(b.Iterations), "epics", len(b.Epics), "issues", len(b.Issues),
 		"links", len(b.Links), "kb", len(body)/1024)
 	return body, nil
 }
@@ -189,14 +195,14 @@ func (s sourceErrors) FetchItems(ctx context.Context, groups []string) ([]board.
 
 // safeBuild runs Build and turns a panic into an error: a bug in the business rules must
 // give a 500, not kill the server.
-func (s *Server) safeBuild(raw *board.Raw) (b *board.Board, err error) {
+func (s *Server) safeBuild(raw *board.Raw, cadences []string) (b *board.Board, err error) {
 	defer func() {
 		if p := recover(); p != nil {
 			s.log.Error("building the board panicked", "panic", p, "stack", string(debug.Stack()))
 			b, err = nil, fmt.Errorf("building the board failed: %v", p)
 		}
 	}()
-	b = s.build(raw, s.now())
+	b = s.build(raw, s.now(), cadences...)
 	if b == nil {
 		return nil, errors.New("building the board returned nothing")
 	}

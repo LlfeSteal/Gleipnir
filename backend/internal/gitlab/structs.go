@@ -64,10 +64,10 @@ type iterationNode struct {
 	// Sequence: the iteration's number in its cadence.
 	Sequence int `json:"sequence"`
 	// StartDate and DueDate are typed Time in the schema but come back as "YYYY-MM-DD".
-	StartDate        string   `json:"startDate"`
-	DueDate          string   `json:"dueDate"`
-	WebURL           string   `json:"webUrl"`
-	IterationCadence *idTitle `json:"iterationCadence"`
+	StartDate        string       `json:"startDate"`
+	DueDate          string       `json:"dueDate"`
+	WebURL           string       `json:"webUrl"`
+	IterationCadence *cadenceNode `json:"iterationCadence"`
 }
 
 type idTitle struct {

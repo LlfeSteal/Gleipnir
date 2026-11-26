@@ -1,5 +1,5 @@
 // Package board turns the raw GitLab data into the normalized board served to the frontend:
-// iterations of one cadence, epics placed on them, the issues, and the links between them
+// the iterations of the active cadences as columns, epics placed on them, the issues, and the links between them
 // (spec §5). It holds the business rules; the frontend only lays it out.
 package board
 
@@ -9,14 +9,17 @@ import "time"
 // use the work item global ID (gid://gitlab/WorkItem/…): refs ("&18", "#110") are for display
 // only, since issue IIDs repeat from one project to the next.
 type Board struct {
-	SyncedAt   time.Time   `json:"syncedAt"`
-	GitLabURL  string      `json:"gitlabUrl"`
-	RootGroup  Group       `json:"rootGroup"`
-	Cadence    Cadence     `json:"cadence"`
-	Iterations []Iteration `json:"iterations"` // sorted by start date
-	Current    int         `json:"current"`    // index of the current iteration, -1 when none
-	Groups     []Group     `json:"groups"`     // the root group, then its descendants, sorted by path
-	Labels     []Label     `json:"labels"`     // every label used by an epic or an issue, sorted by title
+	SyncedAt  time.Time `json:"syncedAt"`
+	GitLabURL string    `json:"gitlabUrl"`
+	RootGroup Group     `json:"rootGroup"`
+	// Cadences lists every cadence, sorted by title then ID; Active ones give the columns.
+	Cadences []Cadence `json:"cadences"`
+	// Iterations are the columns: the iterations of the active cadences, those with the same
+	// dates merged into one (ADR-38), sorted by start date.
+	Iterations []Iteration `json:"iterations"`
+	Current    int         `json:"current"` // index of the current iteration, -1 when none
+	Groups     []Group     `json:"groups"`  // the root group, then its descendants, sorted by path
+	Labels     []Label     `json:"labels"`  // every label used by an epic or an issue, sorted by title
 	Epics      []Epic      `json:"epics"`
 	// Issues holds every synced issue, blocking an epic or not: each lane's issue mode picks
 	// the ones it shows (ADR-35).
@@ -43,8 +46,12 @@ type Group struct {
 type Cadence struct {
 	ID    string `json:"id"`
 	Title string `json:"title"`
+	// Active: its iterations are columns of this board (the request's choice, or the default).
+	Active bool `json:"active"`
 }
 
+// Iteration is a column: one iteration, or several of different cadences with the same dates.
+// ID, Title and WebURL are the first one's.
 type Iteration struct {
 	ID        string `json:"id"`
 	Title     string `json:"title"`     // never empty: "Itération <sequence>" when GitLab has none
@@ -52,6 +59,9 @@ type Iteration struct {
 	DueDate   string `json:"dueDate"`   // YYYY-MM-DD, inclusive
 	WebURL    string `json:"webUrl"`
 	Current   bool   `json:"current"`
+	// IterationIDs are the GitLab iterations of the column, the first one first.
+	IterationIDs []string `json:"iterationIds"`
+	CadenceIDs   []string `json:"cadenceIds"` // their cadences, without duplicates
 }
 
 type Label struct {
@@ -99,7 +109,8 @@ type Issue struct {
 	Title       string   `json:"title"`
 	Labels      []string `json:"labels"`
 	State       string   `json:"state"`
-	// Iteration is an iteration index; nil when the issue has no iteration of the cadence.
+	// Iteration is a column index; nil when the issue has no iteration, or one past the last
+	// column (ADR-38).
 	Iteration  *int    `json:"iteration"`
 	ParentEpic string  `json:"parentEpic"` // epic ID, "" when none
 	Assignee   *Person `json:"assignee"`

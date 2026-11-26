@@ -5,7 +5,9 @@ const plural = (n: number, one: string, many: string) => (n > 1 ? many : one);
 
 export const APP = {
   title: 'Dépendances',
-  subtitle: (group: string, cadence: string) => (cadence ? `${group} · ${cadence}` : group),
+  /** The root group and the active cadences (ADR-38). */
+  subtitle: (group: string, cadences: readonly string[]) =>
+    cadences.length > 0 ? `${group} · ${cadences.join(', ')}` : group,
 
   toolbar: {
     showSidebar: 'Afficher la barre latérale',
@@ -32,6 +34,9 @@ export const APP = {
     start: 'Début',
     end: 'Fin',
     current: 'en cours',
+    /** ADR-38: the active cadences give the columns. */
+    cadences: 'Cadences',
+    noIteration: 'Aucune itération',
     presetsHeader: 'Réglages rapides',
     presets: { around: 'En cours ± 2', next: '6 prochaines', all: 'Toutes' },
   },
@@ -163,7 +168,10 @@ export const APP = {
 
   states: {
     noIterationTitle: 'Aucune itération',
-    noIterationMessage: (cadence: string) => `La cadence « ${cadence} » n’a aucune itération à afficher.`,
+    noIterationMessage: (cadences: readonly string[]) =>
+      cadences.length === 1
+        ? `La cadence « ${cadences[0]} » n’a aucune itération à afficher.`
+        : `Les cadences ${cadences.map((c) => `« ${c} »`).join(', ')} n’ont aucune itération à afficher.`,
     noLaneTitle: 'Aucun couloir affiché',
     noLaneMessage: 'Activez un couloir dans la barre latérale, ou créez-en un.',
     configure: 'Configurer les couloirs',

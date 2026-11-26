@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -68,6 +69,7 @@ func (f *fakeSource) Fetch(ctx context.Context) (*board.Raw, error) {
 		GitLabURL: "https://gitlab.test",
 		RootGroup: board.Group{Path: "org", Name: v},
 		Groups:    []board.Group{{Path: "org/a", Name: "A"}},
+		Cadences:  []board.RawCadence{{ID: "gid://gitlab/Iterations::Cadence/1"}, {ID: "gid://gitlab/Iterations::Cadence/2"}},
 		Items:     []board.RawItem{testEpic("org", v), testEpic("org/a", v)},
 	}, nil
 }
@@ -99,9 +101,12 @@ func (f *fakeSource) setErr(err error) {
 }
 
 // fakeBuild turns the raw data into a minimal board, keeping the root group name as a version.
-func fakeBuild(raw *board.Raw, now time.Time) *board.Board {
+func fakeBuild(raw *board.Raw, now time.Time, cadences ...string) *board.Board {
 	b := &board.Board{SyncedAt: now, GitLabURL: raw.GitLabURL, RootGroup: raw.RootGroup, Current: -1,
 		Groups: append([]board.Group{raw.RootGroup}, raw.Groups...)}
+	for _, id := range cadences {
+		b.Cadences = append(b.Cadences, board.Cadence{ID: id, Active: true})
+	}
 	for _, it := range raw.Items {
 		b.Epics = append(b.Epics, board.Epic{ID: it.ID})
 	}
@@ -110,7 +115,7 @@ func fakeBuild(raw *board.Raw, now time.Time) *board.Board {
 
 var t0 = time.Date(2026, 11, 23, 9, 30, 0, 0, time.FixedZone("CET", 3600))
 
-func newTestServer(t *testing.T, src Source, build func(*board.Raw, time.Time) *board.Board) (*Server, http.Handler, *fakeClock) {
+func newTestServer(t *testing.T, src Source, build func(*board.Raw, time.Time, ...string) *board.Board) (*Server, http.Handler, *fakeClock) {
 	t.Helper()
 	clock := &fakeClock{now: t0}
 	s := NewServer(Options{
@@ -441,7 +446,7 @@ func TestTokenIsScrubbedFromErrors(t *testing.T) {
 }
 
 func TestBuildPanicIs500(t *testing.T) {
-	panicky := func(*board.Raw, time.Time) *board.Board { panic("index out of range") }
+	panicky := func(*board.Raw, time.Time, ...string) *board.Board { panic("index out of range") }
 	_, h, _ := newTestServer(t, &fakeSource{}, panicky)
 	rec := get(h, "/api/board")
 	if rec.Code != http.StatusInternalServerError {
@@ -457,7 +462,7 @@ func TestBuildPanicIs500(t *testing.T) {
 }
 
 func TestNilBoardIs500(t *testing.T) {
-	_, h, _ := newTestServer(t, &fakeSource{}, func(*board.Raw, time.Time) *board.Board { return nil })
+	_, h, _ := newTestServer(t, &fakeSource{}, func(*board.Raw, time.Time, ...string) *board.Board { return nil })
 	if rec := get(h, "/api/board"); rec.Code != http.StatusInternalServerError || decodeError(t, rec)["code"] != "internal" {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body)
 	}
@@ -494,7 +499,7 @@ func TestBoardBodyIsTheBuiltBoard(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"syncedAt", "gitlabUrl", "rootGroup", "cadence", "iterations", "current", "epics", "issues", "links", "criticalPath"} {
+	for _, key := range []string{"syncedAt", "gitlabUrl", "rootGroup", "cadences", "iterations", "current", "epics", "issues", "links", "criticalPath"} {
 		if _, ok := body[key]; !ok {
 			t.Fatalf("missing %q in %s", key, rec.Body)
 		}
@@ -567,5 +572,48 @@ func TestRateLimitIsGitLabUnreachable(t *testing.T) {
 	body := decodeError(t, rec)
 	if rec.Code != http.StatusBadGateway || body["code"] != CodeGitLabUnreachable || !strings.Contains(body["error"].(string), "rate limited") {
 		t.Errorf("got %d %v", rec.Code, body)
+	}
+}
+
+// boardCadences decodes a board response and returns its active cadences.
+func boardCadences(t *testing.T, rec *httptest.ResponseRecorder) []string {
+	t.Helper()
+	var b board.Board
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body)
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &b); err != nil {
+		t.Fatal(err)
+	}
+	ids := []string{}
+	for _, c := range b.Cadences {
+		ids = append(ids, c.ID)
+	}
+	return ids
+}
+
+// ADR-38: ?cadences= picks the active cadences, sorted and deduplicated; unknown ones are
+// ignored, and none known gives the default board. It works with ?refresh=1 too.
+func TestBoardCadencesParameter(t *testing.T) {
+	const c1, c2 = "gid://gitlab/Iterations::Cadence/1", "gid://gitlab/Iterations::Cadence/2"
+	_, h, clock := newTestServer(t, &fakeSource{}, fakeBuild)
+	tests := []struct {
+		target string
+		want   []string
+	}{
+		{"/api/board", []string{}},
+		{"/api/board?cadences=", []string{}},
+		{"/api/board?cadences=" + c2 + "," + c1 + "," + c2, []string{c1, c2}},
+		{"/api/board?cadences=" + c2 + ",gid://gitlab/Iterations::Cadence/9", []string{c2}},
+		{"/api/board?cadences=nope", []string{}},
+	}
+	for _, tt := range tests {
+		if got := boardCadences(t, get(h, tt.target)); !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("%s: cadences = %v, want %v", tt.target, got, tt.want)
+		}
+	}
+	clock.Add(time.Minute)
+	if got := boardCadences(t, get(h, "/api/board?refresh=1&groups=org/a&cadences="+c1)); !reflect.DeepEqual(got, []string{c1}) {
+		t.Errorf("refresh: cadences = %v", got)
 	}
 }

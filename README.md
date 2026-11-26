@@ -26,9 +26,11 @@ Gleipnir ne suit **pas l'avancement** : il n'affiche ni pourcentage, ni poids, n
 
 **Couloirs.** Chaque couloir est un filtre que vous réglez dans le panneau **Configurer les couloirs** (bouton « Nouveau couloir » ou « Modifier ») : un nom, une couleur de la palette, un ou plusieurs groupes GitLab choisis dans l'arbre des groupes (avec ou sans leurs sous-groupes), les epics affichés ou non, les issues affichées (toutes, uniquement celles qui bloquent un epic, ou aucune) et un filtre de labels (« Au moins un » ou « Tous »). Rien ne change avant « Appliquer ». Les couloirs peuvent se recouper : un élément apparaît alors dans chacun, mais n'est compté qu'une fois. Par défaut, il y a un couloir par sous-groupe direct du groupe racine ; « Rétablir la configuration d'exemple » y revient.
 
+**Cadences.** Gleipnir lit toutes les cadences d'itérations du groupe : celles du groupe racine, de ses ancêtres et de ses sous-groupes. En tête du sélecteur d'itérations, cochez les **cadences actives** : leurs itérations font les colonnes, et des itérations aux mêmes dates (des équipes au même rythme) partagent une colonne. Une issue planifiée dans une cadence décochée va dans la colonne qui contient le début de son itération : elle ne passe pas en « Non planifié ». Par défaut, les cadences actives sont celle de `GITLAB_CADENCE`, sinon toutes celles qui ont une itération en cours.
+
 **Dépendances cachées.** Quand un élément affiché dépend d'un élément hors de la fenêtre, il porte une pastille « › N hors fenêtre ». Quand l'autre élément ne correspond à aucun couloir actif, la pastille en pointillés « N hors couloirs » le signale ; le panneau de détail le liste avec la mention « Hors couloirs · <groupe> ».
 
-**Préférences.** Les couloirs, la fenêtre d'itérations, le panneau latéral et l'apparence sont mémorisés dans le navigateur. Les types de lien, les options d'affichage, la recherche et la sélection ne durent que le temps de la session. Il n'y a pas de lien de partage de vue.
+**Préférences.** Les couloirs, les cadences actives, la fenêtre d'itérations, le panneau latéral et l'apparence sont mémorisés dans le navigateur. Les types de lien, les options d'affichage, la recherche et la sélection ne durent que le temps de la session. Il n'y a pas de lien de partage de vue.
 
 L'application est en **lecture seule** : elle ne modifie jamais GitLab.
 
@@ -92,7 +94,8 @@ go run ./cmd/seed -apply     # écrit
 ```
 
 - **Idempotent** : relancé, il ne crée que ce qui manque, et recale les itérations et les dates d'epic autour d'aujourd'hui. Il ne supprime jamais rien.
-- `-cadence=auto` crée une cadence automatique, si l'instance refuse les cadences manuelles.
+- Il crée deux cadences : « Sprints produit » dans le groupe racine, et « Squad data » dans le sous-groupe `data`, aux mêmes dates que l'Itération 13 à 18.
+- `-cadence=auto` crée des cadences automatiques, si l'instance refuse les cadences manuelles.
 - Il refuse `http://` hors `localhost`, sauf avec `-insecure-http`.
 
 Pointez ensuite Gleipnir sur ce groupe : `GITLAB_URL` et `GITLAB_GROUP=demo/gleipnir` dans `.env`, avec un jeton `read_api`.
@@ -135,7 +138,7 @@ Toutes les variables sont lues par le backend. Avec Docker, elles viennent de `.
 | `GITLAB_URL` | `https://gitlab.com` | Instance GitLab. |
 | `GITLAB_TOKEN` | — | Jeton `read_api`. Il reste côté serveur et n'est jamais journalisé. |
 | `GITLAB_GROUP` | — | Chemin complet du groupe racine. **Obligatoire.** |
-| `GITLAB_CADENCE` | la cadence de l'itération en cours | Cadence d'itérations affichée, par titre ou par id. |
+| `GITLAB_CADENCE` | les cadences de l'itération en cours | Cadence active par défaut, par titre ou par id. Chacun en coche d'autres dans le sélecteur d'itérations. |
 | `CACHE_TTL` | `5m` | Durée Go entre la fin d'une synchro complète et le début de la suivante. Le board en cache reste servi pendant la synchro. |
 | `TZ` | `Europe/Paris` (compose) | Fuseau horaire. Il décide de l'itération en cours. |
 | `PORT` | `8080` | Port du backend. Ne pas le changer avec Docker : nginx proxifie vers `backend:8080`. |

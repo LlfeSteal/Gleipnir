@@ -15,39 +15,55 @@ describe('fetchBoard', () => {
     const fetchMock = vi.fn(async () => json(data, 200, { 'X-Fetched-At': '2026-11-23T10:00:00Z' }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const result = await fetchBoard(null);
+    const result = await fetchBoard(null, null);
     expect(result.data.epics).toHaveLength(data.epics.length);
     expect(result.fetchedAt).toBe('2026-11-23T10:00:00Z');
     expect(fetchMock.mock.calls[0][0]).toBe('/api/board');
 
-    await fetchBoard(['plateforme/atlas/api', 'plateforme/atlas/data']);
+    await fetchBoard(['plateforme/atlas/api', 'plateforme/atlas/data'], null);
     expect(fetchMock.mock.calls[1][0]).toBe('/api/board?refresh=1&groups=plateforme/atlas/api,plateforme/atlas/data');
     // Anything but the slashes is encoded: a comma would split a path.
-    await fetchBoard(['a b/c,d']);
+    await fetchBoard(['a b/c,d'], null);
     expect(fetchMock.mock.calls[2][0]).toBe('/api/board?refresh=1&groups=a%20b/c%2Cd');
+  });
+
+  it('asks for the active cadences, with or without a refresh (ADR-38)', async () => {
+    const fetchMock = vi.fn(async () => json(mockupBoard()));
+    vi.stubGlobal('fetch', fetchMock);
+    const c1 = 'gid://gitlab/Iterations::Cadence/1';
+    const c2 = 'gid://gitlab/Iterations::Cadence/2';
+    const encoded = (id: string) => encodeURIComponent(id);
+
+    await fetchBoard(null, [c1, c2]);
+    expect(fetchMock.mock.calls[0][0]).toBe(`/api/board?cadences=${encoded(c1)},${encoded(c2)}`);
+    await fetchBoard(['plateforme/atlas/api'], [c2]);
+    expect(fetchMock.mock.calls[1][0]).toBe(`/api/board?refresh=1&groups=plateforme/atlas/api&cadences=${encoded(c2)}`);
+    // No cadence asked for: the backend's default.
+    await fetchBoard(null, []);
+    expect(fetchMock.mock.calls[2][0]).toBe('/api/board');
   });
 
   it('maps the backend error codes', async () => {
     vi.stubGlobal('fetch', async () => json({ error: 'token rejected', code: 'unauthorized' }, 401));
-    const err = await fetchBoard(null).catch((e: unknown) => e);
+    const err = await fetchBoard(null, null).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect(err).toMatchObject({ code: 'unauthorized', status: 401, message: 'token rejected' });
 
     vi.stubGlobal('fetch', async () => json({ error: 'GitLab down', code: 'gitlab_unreachable' }, 502));
-    await expect(fetchBoard(null)).rejects.toMatchObject({ code: 'gitlab_unreachable', status: 502 });
+    await expect(fetchBoard(null, null)).rejects.toMatchObject({ code: 'gitlab_unreachable', status: 502 });
   });
 
   it('treats a proxy answer or no answer as the server being unreachable', async () => {
     vi.stubGlobal('fetch', async () => new Response('<html>Bad Gateway</html>', { status: 502 }));
-    await expect(fetchBoard(null)).rejects.toMatchObject({ code: 'network', status: 502 });
+    await expect(fetchBoard(null, null)).rejects.toMatchObject({ code: 'network', status: 502 });
 
     vi.stubGlobal('fetch', async () => {
       throw new TypeError('Failed to fetch');
     });
-    await expect(fetchBoard(null)).rejects.toMatchObject({ code: 'network' });
+    await expect(fetchBoard(null, null)).rejects.toMatchObject({ code: 'network' });
 
     vi.stubGlobal('fetch', async () => new Response('oops', { status: 500 }));
-    await expect(fetchBoard(null)).rejects.toMatchObject({ code: 'internal', status: 500 });
+    await expect(fetchBoard(null, null)).rejects.toMatchObject({ code: 'internal', status: 500 });
   });
 
   it('lets an abort through untouched', async () => {
@@ -56,7 +72,7 @@ describe('fetchBoard', () => {
       controller.abort();
       throw new DOMException('aborted', 'AbortError');
     });
-    const err = await fetchBoard(null, controller.signal).catch((e: unknown) => e);
+    const err = await fetchBoard(null, null, controller.signal).catch((e: unknown) => e);
     expect(err).not.toBeInstanceOf(ApiError);
   });
 });

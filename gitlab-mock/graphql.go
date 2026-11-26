@@ -111,7 +111,7 @@ func (s *server) authorized(r *http.Request) bool {
 func (s *server) resolve(op, fullPath string, vars map[string]any) (map[string]any, error) {
 	d := newDataset(s.now(), s.layout)
 	g, ok := d.group(fullPath)
-	known := map[string]bool{"Groups": true, "Cadences": true, "CurrentIterations": true, "Iterations": true, "WorkItems": true}
+	known := map[string]bool{"Groups": true, "Cadences": true, "Iterations": true, "WorkItems": true}
 	if !known[op] {
 		return nil, gqlError{Message: fmt.Sprintf("unsupported query %q: the fake GitLab only answers Gleipnir's queries", op)}
 	}
@@ -129,32 +129,14 @@ func (s *server) resolve(op, fullPath string, vars map[string]any) (map[string]a
 		return map[string]any{"id": g.ID, "fullPath": g.FullPath, "name": g.Name, "descendantGroups": conn}, nil
 
 	case "Cadences":
-		conn, err := page([]cadenceNode{{ID: cadenceID, Title: d.cadence, Active: true}}, after, s.pageSize)
+		conn, err := page(d.cadencesOf(fullPath), after, s.pageSize)
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{"iterationCadences": conn}, nil
 
-	case "CurrentIterations":
-		today, _ := vars["today"].(string)
-		if _, err := time.Parse(dateLayout, today); err != nil {
-			return nil, gqlError{Message: fmt.Sprintf("Variable $today of type Date! was provided invalid value %q", today)}
-		}
-		var current []iterationNode
-		for _, it := range d.iterations {
-			// Both bounds of timeframe are inclusive; the dates compare as strings.
-			if it.StartDate <= today && today <= it.DueDate {
-				current = append(current, it)
-			}
-		}
-		return iterations(current, after, s.pageSize)
-
 	case "Iterations":
-		var matching []iterationNode
-		if id, _ := vars["cadenceId"].(string); id == cadenceID {
-			matching = d.iterations
-		}
-		return iterations(matching, after, s.pageSize)
+		return iterations(d.iterationsAround(fullPath), after, s.pageSize)
 	}
 
 	// WorkItems

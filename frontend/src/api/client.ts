@@ -32,22 +32,30 @@ function isApiCode(value: unknown): value is ApiErrorCode {
 }
 
 /** The board URL: the cached board, or, with refresh, after the backend has read the subtrees
- * of those groups again from GitLab. Paths keep their slashes; a comma separates them. */
-export function boardUrl(refresh: readonly string[] | null): string {
-  if (!refresh) return '/api/board';
-  const groups = refresh.map((path) => encodeURIComponent(path).replace(/%2F/gi, '/')).join(',');
-  return `/api/board?refresh=1&groups=${groups}`;
+ * of those groups again from GitLab. Paths keep their slashes; a comma separates them. With
+ * cadences, those are the active ones (ADR-38); without, the backend's default. */
+export function boardUrl(refresh: readonly string[] | null, cadences: readonly string[] | null = null): string {
+  const params: string[] = [];
+  if (refresh) {
+    params.push('refresh=1', `groups=${refresh.map((path) => encodeURIComponent(path).replace(/%2F/gi, '/')).join(',')}`);
+  }
+  if (cadences && cadences.length > 0) {
+    params.push(`cadences=${cadences.map((id) => encodeURIComponent(id)).join(',')}`);
+  }
+  return params.length > 0 ? `/api/board?${params.join('&')}` : '/api/board';
 }
 
 /** The board, and when the backend fetched it from GitLab (X-Fetched-At: it may answer from
- * its cache). With refresh, the backend first reads those groups again from GitLab. */
+ * its cache). With refresh, the backend first reads those groups again from GitLab. cadences
+ * are the active cadences, null for the backend's default (ADR-38). */
 export async function fetchBoard(
   refresh: readonly string[] | null,
+  cadences: readonly string[] | null,
   signal?: AbortSignal,
 ): Promise<{ data: BoardData; fetchedAt: string | null }> {
   let response: Response;
   try {
-    response = await fetch(boardUrl(refresh), {
+    response = await fetch(boardUrl(refresh, cadences), {
       signal,
       headers: { Accept: 'application/json' },
     });

@@ -4,6 +4,7 @@ import type { BoardData } from '../api/types';
 import type { BoardWindow } from '../board/types';
 import type { Appearance } from '../hooks/useAppearance';
 import { formatRelativeTime } from '../board/format';
+import { activeCadenceTitles } from '../board/cadences';
 import { AppGlyph, RefreshIcon, SearchIcon, SidebarIcon } from './ui/Icons';
 import { SearchField } from './ui/SearchField';
 import { AppearanceMenu } from './ui/AppearanceMenu';
@@ -14,6 +15,8 @@ interface Props {
   data: BoardData | null;
   window: BoardWindow | null;
   onWindowChange: (next: BoardWindow) => void;
+  /** The new active cadences (ADR-38). */
+  onCadencesChange: (ids: string[]) => void;
   query: string;
   onQueryChange: (query: string) => void;
   searchRef: Ref<HTMLInputElement>;
@@ -50,6 +53,7 @@ export function Toolbar({
   data,
   window: win,
   onWindowChange,
+  onCadencesChange,
   query,
   onQueryChange,
   searchRef,
@@ -122,10 +126,11 @@ export function Toolbar({
     />
   );
 
-  // Empty before the board loads: then the compact bar keeps a single row.
-  const center = data && win && (
+  // Empty before the board loads: then the compact bar keeps a single row. Without a column,
+  // it still offers the other cadences.
+  const center = data && (win || data.cadences.length > 1) && (
     <div className="toolbar-center">
-      <WindowControl data={data} window={win} onChange={onWindowChange} />
+      <WindowControl data={data} window={win} onChange={onWindowChange} onCadencesChange={onCadencesChange} />
     </div>
   );
 
@@ -160,7 +165,7 @@ export function Toolbar({
             </div>
             <div className="toolbar-title">
               <h1>{APP.title}</h1>
-              {data && <div className="toolbar-subtitle">{APP.subtitle(data.rootGroup.name, data.cadence.title)}</div>}
+              {data && <div className="toolbar-subtitle">{APP.subtitle(data.rootGroup.name, activeCadenceTitles(data))}</div>}
             </div>
           </div>
           {center}

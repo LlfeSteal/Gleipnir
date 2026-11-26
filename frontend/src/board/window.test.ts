@@ -126,7 +126,17 @@ describe('storeWindow / restoreWindow (spec §4.3: the window is remembered)', (
     expect(restoreWindow({ from: it500(6), to: it500(2) }, data)).toEqual({ from: 2, to: 6 });
   });
 
-  it('stores nothing outside the cadence', () => {
+  it('finds a stored iteration merged into a column of other cadences (ADR-38)', () => {
+    const merged = mockupBoard();
+    merged.iterations[2] = { ...merged.iterations[2], id: 'gid://gitlab/Iteration/900', iterationIds: ['gid://gitlab/Iteration/900', it500(2)] };
+    expect(restoreWindow({ from: it500(2), to: it500(6) }, merged)).toEqual({ from: 2, to: 6 });
+    // Stored again, it names the column's first iteration.
+    expect(storeWindow({ from: 2, to: 6 }, merged)).toEqual({ from: 'gid://gitlab/Iteration/900', to: it500(6) });
+    // An iteration of a cadence no longer active: the default window.
+    expect(restoreWindow({ from: 'gid://gitlab/Iteration/901', to: it500(6) }, merged)).toBeNull();
+  });
+
+  it('stores nothing outside the columns', () => {
     expect(storeWindow({ from: 2, to: 40 }, data)).toBeNull();
   });
 

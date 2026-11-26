@@ -7,38 +7,24 @@ import (
 	"gleipnir/internal/board"
 )
 
-// chooseCadence picks the board's cadence. configured (a title, case-insensitive, or an ID:
-// the full GID or its number) must exist. Otherwise: the first cadence with an iteration
-// running today (current lists their IDs), else the first active one, else the first.
-func chooseCadence(cadences []cadenceNode, configured string, current []string) (cadenceNode, error) {
+// configuredCadence returns the ID of the cadence configured names (a title,
+// case-insensitive, or an ID: the full GID or its number), "" when configured is empty. The
+// group must have a cadence, and configured must exist.
+func configuredCadence(cadences []cadenceNode, configured string) (string, error) {
 	if len(cadences) == 0 {
-		return cadenceNode{}, ErrNoCadence
+		return "", ErrNoCadence
 	}
-	if configured != "" {
-		for _, c := range cadences {
-			// Titles may carry stray spaces in GitLab ("AI Engineering ").
-			if strings.EqualFold(strings.TrimSpace(c.Title), configured) ||
-				c.ID == configured || lastSegment(c.ID) == configured {
-				return c, nil
-			}
-		}
-		return cadenceNode{}, fmt.Errorf("%w: %q", ErrCadenceNotFound, configured)
-	}
-	running := make(map[string]bool, len(current))
-	for _, id := range current {
-		running[id] = true
+	if configured == "" {
+		return "", nil
 	}
 	for _, c := range cadences {
-		if running[c.ID] {
-			return c, nil
+		// Titles may carry stray spaces in GitLab ("AI Engineering ").
+		if strings.EqualFold(strings.TrimSpace(c.Title), configured) ||
+			c.ID == configured || lastSegment(c.ID) == configured {
+			return c.ID, nil
 		}
 	}
-	for _, c := range cadences {
-		if c.Active {
-			return c, nil
-		}
-	}
-	return cadences[0], nil
+	return "", fmt.Errorf("%w: %q", ErrCadenceNotFound, configured)
 }
 
 // lastSegment returns the number of a GID ("gid://gitlab/Iterations::Cadence/42" → "42").
@@ -56,6 +42,9 @@ func convertIteration(n iterationNode) board.RawIteration {
 	}
 	if n.Title != nil {
 		it.Title = *n.Title
+	}
+	if n.IterationCadence != nil {
+		it.CadenceID = n.IterationCadence.ID
 	}
 	return it
 }

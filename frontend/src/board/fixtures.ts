@@ -117,6 +117,8 @@ const LINKS: [string, LinkType, string][] = [
   ['&30', 'relates', '&15'],
 ];
 
+const CADENCE = 'gid://gitlab/Iterations::Cadence/1';
+
 function iterations(): Iteration[] {
   return ITERATIONS.map(([title, startDate, dueDate], i) => ({
     id: `gid://gitlab/Iteration/${500 + i}`,
@@ -125,6 +127,8 @@ function iterations(): Iteration[] {
     dueDate,
     webUrl: `${GITLAB}/groups/${ROOT}/-/iterations/${500 + i}`,
     current: i === CURRENT,
+    iterationIds: [`gid://gitlab/Iteration/${500 + i}`],
+    cadenceIds: [CADENCE],
   }));
 }
 
@@ -186,7 +190,7 @@ export function mockupBoard(): BoardData {
     syncedAt: '2026-11-23T09:00:00Z',
     gitlabUrl: GITLAB,
     rootGroup: { id: groupId(0), path: ROOT, name: 'Atlas' },
-    cadence: { id: 'gid://gitlab/Iterations::Cadence/1', title: 'Sprints produit' },
+    cadences: [{ id: CADENCE, title: 'Sprints produit', active: true }],
     iterations: its,
     current: CURRENT,
     groups: [
@@ -222,6 +226,8 @@ export function generateBoard(opts: { epics: number; issues: number; links: numb
     dueDate: '2026-01-14',
     webUrl: '',
     current: i === Math.floor(opts.iterations / 2),
+    iterationIds: [`gid://gitlab/Iteration/${i}`],
+    cadenceIds: ['c'],
   }));
   const labels = ['a', 'b', 'c', 'd', 'e'];
   const epics: Epic[] = Array.from({ length: opts.epics }, (_, k) => {
@@ -275,7 +281,7 @@ export function generateBoard(opts: { epics: number; issues: number; links: numb
     syncedAt: '2026-11-23T09:00:00Z',
     gitlabUrl: GITLAB,
     rootGroup: { id: groupId(0), path: ROOT, name: 'Atlas' },
-    cadence: { id: 'c', title: 'Cadence' },
+    cadences: [{ id: 'c', title: 'Cadence', active: true }],
     iterations: its,
     current: Math.floor(opts.iterations / 2),
     groups: [{ id: groupId(0), path: ROOT, name: 'Atlas' }, ...groups],

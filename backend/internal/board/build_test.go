@@ -11,20 +11,37 @@ import (
 
 var testNow = time.Date(2026, 1, 20, 10, 0, 0, 0, time.UTC)
 
-// testIterations: it0 and it1 back to back, a one-week gap (02-02 … 02-08), then it2, it3.
-// Given out of order to check the sort.
+const testCadence = "gid://gitlab/Iterations::Cadence/1"
+
+var testCadences = []RawCadence{{ID: testCadence, Title: "Sprints", Active: true}}
+
+// testIterations: it0 and it1 back to back, a one-week gap (02-02 … 02-08), then it2, it3, all
+// of testCadence. Given out of order to check the sort.
 func testIterations() []RawIteration {
 	return []RawIteration{
-		{ID: "it2", Sequence: 3, StartDate: "2026-02-09", DueDate: "2026-02-22"},
-		{ID: "it0", Title: "Sprint A", Sequence: 1, StartDate: "2026-01-05", DueDate: "2026-01-18"},
-		{ID: "it3", Sequence: 4, StartDate: "2026-02-23", DueDate: "2026-03-08"},
-		{ID: "it1", Sequence: 2, StartDate: "2026-01-19", DueDate: "2026-02-01"},
+		{ID: "it2", CadenceID: testCadence, Sequence: 3, StartDate: "2026-02-09", DueDate: "2026-02-22"},
+		{ID: "it0", CadenceID: testCadence, Title: "Sprint A", Sequence: 1, StartDate: "2026-01-05", DueDate: "2026-01-18"},
+		{ID: "it3", CadenceID: testCadence, Sequence: 4, StartDate: "2026-02-23", DueDate: "2026-03-08"},
+		{ID: "it1", CadenceID: testCadence, Sequence: 2, StartDate: "2026-01-19", DueDate: "2026-02-01"},
 	}
+}
+
+// columns builds the columns of raw with testCadence active; an iteration without a cadence
+// gets testCadence.
+func columns(raw []RawIteration, now time.Time) ([]Iteration, int) {
+	raw = append([]RawIteration(nil), raw...)
+	for i := range raw {
+		if raw[i].CadenceID == "" {
+			raw[i].CadenceID = testCadence
+		}
+	}
+	cads := []Cadence{{ID: testCadence, Title: "Sprints", Active: true}}
+	return buildIterations(validIterations(raw), cads, map[string]bool{testCadence: true}, now)
 }
 
 func sortedTestIterations(t *testing.T) []Iteration {
 	t.Helper()
-	its, _ := buildIterations(testIterations(), testNow)
+	its, _ := columns(testIterations(), testNow)
 	return its
 }
 
@@ -42,13 +59,13 @@ func issueItem(n int, iteration string) RawItem {
 }
 
 func buildTest(items ...RawItem) *Board {
-	return Build(&Raw{RootGroup: Group{Path: "root", Name: "Root"}, Iterations: testIterations(), Items: items}, testNow)
+	return Build(&Raw{RootGroup: Group{Path: "root", Name: "Root"}, Cadences: testCadences, Iterations: testIterations(), Items: items}, testNow)
 }
 
 func ptr(i int) *int { return &i }
 
 func TestBuildIterations(t *testing.T) {
-	its, cur := buildIterations(testIterations(), testNow)
+	its, cur := columns(testIterations(), testNow)
 	var ids, titles []string
 	for _, it := range its {
 		ids = append(ids, it.ID)
@@ -81,7 +98,7 @@ func TestBuildIterations(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, got := buildIterations(testIterations(), tt.now); got != tt.want {
+			if _, got := columns(testIterations(), tt.now); got != tt.want {
 				t.Errorf("current = %d, want %d", got, tt.want)
 			}
 		})
@@ -96,7 +113,7 @@ func TestBuildIterationsDropsDuplicatesAndBadDates(t *testing.T) {
 		RawIteration{ID: "inverted", Sequence: 9, StartDate: "2026-02-06", DueDate: "2026-02-03"},
 		RawIteration{ID: "", Sequence: 9, StartDate: "2026-02-03", DueDate: "2026-02-04"},
 	)
-	its, cur := buildIterations(raw, testNow)
+	its, cur := columns(raw, testNow)
 	var ids []string
 	for _, it := range its {
 		ids = append(ids, it.ID)
@@ -109,7 +126,7 @@ func TestBuildIterationsDropsDuplicatesAndBadDates(t *testing.T) {
 		t.Errorf("placeEpic = %d, %d, %v; want 2, 3, true", s, e, ok)
 	}
 	// Timestamps are cut to their date.
-	its, _ = buildIterations([]RawIteration{{ID: "t", StartDate: "2026-01-05T00:00:00Z", DueDate: "2026-01-18T00:00:00+01:00"}}, testNow)
+	its, _ = columns([]RawIteration{{ID: "t", StartDate: "2026-01-05T00:00:00Z", DueDate: "2026-01-18T00:00:00+01:00"}}, testNow)
 	if len(its) != 1 || its[0].StartDate != "2026-01-05" || its[0].DueDate != "2026-01-18" {
 		t.Errorf("timestamps: %+v", its)
 	}

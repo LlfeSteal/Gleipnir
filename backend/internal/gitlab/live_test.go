@@ -49,10 +49,10 @@ func TestLiveFetch(t *testing.T) {
 			assigned++
 		}
 	}
-	t.Logf("%s in %s: root %+v, %d groups, cadence %+v, %d iterations, items %v, %d links, %d in an iteration, %d with a parent, %d labelled, %d assigned",
-		group, time.Since(start).Round(time.Millisecond), raw.RootGroup, len(raw.Groups), raw.Cadence,
+	t.Logf("%s in %s: root %+v, %d groups, %d cadences, %d iterations, items %v, %d links, %d in an iteration, %d with a parent, %d labelled, %d assigned",
+		group, time.Since(start).Round(time.Millisecond), raw.RootGroup, len(raw.Groups), len(raw.Cadences),
 		len(raw.Iterations), kinds, links, iterated, parented, labelled, assigned)
-	if raw.RootGroup.Path == "" || raw.Cadence.ID == "" || len(raw.Iterations) == 0 {
+	if raw.RootGroup.Path == "" || len(raw.Cadences) == 0 || len(raw.Iterations) == 0 {
 		t.Errorf("incomplete data: %+v", raw.RootGroup)
 	}
 	// The frontend names groups by their id in the URL of a view (ADR-31).

@@ -75,18 +75,24 @@ func testRaw(suffix string) *board.Raw {
 	return &board.Raw{
 		RootGroup: board.Group{Path: "r"},
 		Groups:    []board.Group{{Path: "r/a"}, {Path: "r/a/x"}, {Path: "r/b"}},
+		Cadences:  []board.RawCadence{{ID: "c1"}, {ID: "c2"}},
 		Items:     []board.RawItem{epic("A"+suffix, "r/a"), epic("X"+suffix, "r/a/x"), epic("B"+suffix, "r/b")},
 	}
 }
 
-// encodeIDs encodes the sorted item IDs: enough to tell which read each item comes from.
-func encodeIDs(raw *board.Raw, _ map[string]time.Time) ([]byte, error) {
+// encodeIDs encodes the sorted item IDs: enough to tell which read each item comes from. The
+// active cadences, when given, come first, in brackets.
+func encodeIDs(raw *board.Raw, _ map[string]time.Time, cadences []string) ([]byte, error) {
 	ids := []string{}
 	for _, it := range raw.Items {
 		ids = append(ids, it.ID)
 	}
 	sort.Strings(ids)
-	return []byte(strings.Join(ids, ",")), nil
+	prefix := ""
+	if cadences != nil {
+		prefix = "[" + strings.Join(cadences, ",") + "]"
+	}
+	return []byte(prefix + strings.Join(ids, ",")), nil
 }
 
 func newStore(src *fakeSource) (*Store, *fakeClock) {
@@ -106,7 +112,7 @@ func loaded(t *testing.T) (*Store, *fakeSource, *fakeClock) {
 	t.Helper()
 	src := &fakeSource{full: func(context.Context) (*board.Raw, error) { return testRaw("1"), nil }}
 	s, clock := newStore(src)
-	if _, state, err := s.Get(context.Background()); err != nil || state != Miss {
+	if _, state, err := s.Get(context.Background(), nil); err != nil || state != Miss {
 		t.Fatalf("first Get: %v, %v", state, err)
 	}
 	return s, src, clock
@@ -122,13 +128,13 @@ func body(t *testing.T, snap Snapshot, _ State, err error) string {
 
 func getBody(t *testing.T, s *Store) string {
 	t.Helper()
-	snap, state, err := s.Get(context.Background())
+	snap, state, err := s.Get(context.Background(), nil)
 	return body(t, snap, state, err)
 }
 
 func refreshBody(t *testing.T, s *Store, groups []string) string {
 	t.Helper()
-	snap, state, err := s.Refresh(context.Background(), groups)
+	snap, state, err := s.Refresh(context.Background(), groups, nil)
 	return body(t, snap, state, err)
 }
 
@@ -165,7 +171,7 @@ func TestColdGetsShareOneFullSync(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			snap, state, err := s.Get(context.Background())
+			snap, state, err := s.Get(context.Background(), nil)
 			if err != nil || state != Miss {
 				t.Errorf("Get: %v, %v", state, err)
 			}
@@ -197,7 +203,7 @@ func TestGetServesTheCacheDuringASync(t *testing.T) {
 	c := s.startFull()
 	s.mu.Unlock()
 
-	snap, state, err := s.Get(context.Background())
+	snap, state, err := s.Get(context.Background(), nil)
 	if got := body(t, snap, state, err); got != "A1,B1,X1" || state != Hit {
 		t.Fatalf("during the sync: %q %s, want the cached board (HIT)", got, state)
 	}
@@ -206,7 +212,7 @@ func TestGetServesTheCacheDuringASync(t *testing.T) {
 	}
 	close(release)
 	<-c.done
-	snap, state, err = s.Get(context.Background())
+	snap, state, err = s.Get(context.Background(), nil)
 	if got := body(t, snap, state, err); got != "A2,B2,X2" || state != Hit {
 		t.Errorf("after the sync: %q %s", got, state)
 	}
@@ -224,7 +230,7 @@ func TestFullSyncErrorsAreNotCached(t *testing.T) {
 		return testRaw("1"), nil
 	}}
 	s, _ := newStore(src)
-	if _, _, err := s.Get(context.Background()); err == nil || err.Error() != "gitlab down" {
+	if _, _, err := s.Get(context.Background(), nil); err == nil || err.Error() != "gitlab down" {
 		t.Fatalf("err = %v", err)
 	}
 	fail = false
@@ -256,7 +262,7 @@ func TestGetGivesUpWithTheRequest(t *testing.T) {
 	s, _ := newStore(src)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, _, err := s.Get(ctx); !errors.Is(err, context.Canceled) {
+	if _, _, err := s.Get(ctx, nil); !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v", err)
 	}
 	close(release) // the sync goes on and fills the cache
@@ -314,7 +320,7 @@ func TestRefreshMergesTheScope(t *testing.T) {
 	clock.Add(time.Minute)
 
 	// r/a/x is covered by r/a; unknown groups are dropped.
-	snap, state, err := s.Refresh(context.Background(), []string{"r/a/x", "r/a", "nope"})
+	snap, state, err := s.Refresh(context.Background(), []string{"r/a/x", "r/a", "nope"}, nil)
 	if got := body(t, snap, state, err); got != "A2,B1,X2" || state != Miss {
 		t.Fatalf("Refresh = %q %s", got, state)
 	}
@@ -334,7 +340,7 @@ func TestRefreshMergesTheScope(t *testing.T) {
 func TestRefreshInvalidScope(t *testing.T) {
 	s, src, _ := loaded(t)
 	for _, groups := range [][]string{nil, {}, {"nope", ""}} {
-		if _, _, err := s.Refresh(context.Background(), groups); !errors.Is(err, ErrInvalidScope) {
+		if _, _, err := s.Refresh(context.Background(), groups, nil); !errors.Is(err, ErrInvalidScope) {
 			t.Errorf("Refresh(%v) err = %v, want ErrInvalidScope", groups, err)
 		}
 	}
@@ -346,7 +352,7 @@ func TestRefreshInvalidScope(t *testing.T) {
 func TestRefreshWithoutDataWaitsForTheFullSync(t *testing.T) {
 	src := &fakeSource{full: func(context.Context) (*board.Raw, error) { return testRaw("1"), nil }}
 	s, _ := newStore(src)
-	snap, state, err := s.Refresh(context.Background(), []string{"r/a"})
+	snap, state, err := s.Refresh(context.Background(), []string{"r/a"}, nil)
 	if got := body(t, snap, state, err); got != "A1,B1,X1" || state != Miss {
 		t.Errorf("Refresh = %q %s", got, state)
 	}
@@ -366,19 +372,19 @@ func TestRefreshThrottle(t *testing.T) {
 
 	// Just read by the full sync.
 	clock.Add(5 * time.Second)
-	if _, state, err := s.Refresh(context.Background(), []string{"r/a"}); err != nil || state != Hit {
+	if _, state, err := s.Refresh(context.Background(), []string{"r/a"}, nil); err != nil || state != Hit {
 		t.Fatalf("right after the full sync: %s %v, want HIT", state, err)
 	}
 	clock.Add(5 * time.Second)
-	if _, state, _ := s.Refresh(context.Background(), []string{"r/a"}); state != Miss {
+	if _, state, _ := s.Refresh(context.Background(), []string{"r/a"}, nil); state != Miss {
 		t.Fatalf("10 s after: %s, want MISS", state)
 	}
 	clock.Add(9 * time.Second)
-	if _, state, _ := s.Refresh(context.Background(), []string{"r/a/x"}); state != Hit {
+	if _, state, _ := s.Refresh(context.Background(), []string{"r/a/x"}, nil); state != Hit {
 		t.Errorf("a subgroup read 9 s ago: %s, want HIT", state)
 	}
 	// r/b was read 49 s ago: the whole scope is read again.
-	if _, state, _ := s.Refresh(context.Background(), []string{"r/a", "r/b"}); state != Miss {
+	if _, state, _ := s.Refresh(context.Background(), []string{"r/a", "r/b"}, nil); state != Miss {
 		t.Errorf("partly fresh scope: %s, want MISS", state)
 	}
 	if _, scoped := src.counts(); scoped != 2 {
@@ -421,14 +427,14 @@ func TestRefreshErrorKeepsTheBoard(t *testing.T) {
 	src.items = func(context.Context, []string) ([]board.RawItem, error) { return nil, errors.New("boom") }
 	src.mu.Unlock()
 	clock.Add(time.Minute)
-	if _, _, err := s.Refresh(context.Background(), []string{"r/a"}); err == nil || err.Error() != "boom" {
+	if _, _, err := s.Refresh(context.Background(), []string{"r/a"}, nil); err == nil || err.Error() != "boom" {
 		t.Fatalf("err = %v", err)
 	}
 	if got := getBody(t, s); got != "A1,B1,X1" {
 		t.Errorf("board = %q", got)
 	}
 	// Not throttled: the failed read did not count.
-	if _, state, _ := s.Refresh(context.Background(), []string{"r/a"}); state != Miss {
+	if _, state, _ := s.Refresh(context.Background(), []string{"r/a"}, nil); state != Miss {
 		t.Errorf("retry: %s", state)
 	}
 }
@@ -445,7 +451,7 @@ func TestRefreshGivesUpWithTheRequest(t *testing.T) {
 	clock.Add(time.Minute)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, _, err := s.Refresh(ctx, []string{"r/b"}); !errors.Is(err, context.Canceled) {
+	if _, _, err := s.Refresh(ctx, []string{"r/b"}, nil); !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v", err)
 	}
 	close(release)
@@ -531,15 +537,15 @@ func TestRefreshDoesNotOverwriteANewerSync(t *testing.T) {
 func TestPanicsBecomeErrors(t *testing.T) {
 	src := &fakeSource{full: func(context.Context) (*board.Raw, error) { panic("source bug") }}
 	s, _ := newStore(src)
-	if _, _, err := s.Get(context.Background()); err == nil || !strings.Contains(err.Error(), "source bug") {
+	if _, _, err := s.Get(context.Background(), nil); err == nil || !strings.Contains(err.Error(), "source bug") {
 		t.Fatalf("err = %v", err)
 	}
 
 	src.mu.Lock()
 	src.full = func(context.Context) (*board.Raw, error) { return testRaw("1"), nil }
 	src.mu.Unlock()
-	s.encode = func(*board.Raw, map[string]time.Time) ([]byte, error) { panic("encoder bug") }
-	if _, _, err := s.Get(context.Background()); err == nil || !strings.Contains(err.Error(), "encoder bug") {
+	s.encode = func(*board.Raw, map[string]time.Time, []string) ([]byte, error) { panic("encoder bug") }
+	if _, _, err := s.Get(context.Background(), nil); err == nil || !strings.Contains(err.Error(), "encoder bug") {
 		t.Fatalf("err = %v", err)
 	}
 	// The lock was released: the store still works.
@@ -556,9 +562,11 @@ func TestEncodeErrorKeepsTheBoard(t *testing.T) {
 		return []board.RawItem{epic("B2", "r/b")}, nil
 	}
 	src.mu.Unlock()
-	s.encode = func(*board.Raw, map[string]time.Time) ([]byte, error) { return nil, errors.New("cannot encode") }
+	s.encode = func(*board.Raw, map[string]time.Time, []string) ([]byte, error) {
+		return nil, errors.New("cannot encode")
+	}
 	clock.Add(time.Minute)
-	if _, _, err := s.Refresh(context.Background(), []string{"r/b"}); err == nil || err.Error() != "cannot encode" {
+	if _, _, err := s.Refresh(context.Background(), []string{"r/b"}, nil); err == nil || err.Error() != "cannot encode" {
 		t.Fatalf("err = %v", err)
 	}
 	s.encode = encodeIDs

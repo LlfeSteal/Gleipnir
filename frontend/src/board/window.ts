@@ -31,13 +31,13 @@ export function defaultWindow(data: BoardData): BoardWindow {
   return clampWindow({ from, to: from + DEFAULT_WIDTH - 1 }, count);
 }
 
-/** Moves the window by delta iterations, keeping its width; no-op when it would leave the cadence. */
+/** Moves the window by delta iterations, keeping its width; no-op when it would leave the columns. */
 export function shiftWindow(w: BoardWindow, delta: number, count: number): BoardWindow {
   if (w.from + delta < 0 || w.to + delta > count - 1) return w;
   return { from: w.from + delta, to: w.to + delta };
 }
 
-/** Quick settings: "En cours ± 2", "6 prochaines", "Toutes". Truncated at the cadence's ends,
+/** Quick settings: "En cours ± 2", "6 prochaines", "Toutes". Truncated at the columns' ends,
  * like the mockup; without a current iteration they start from the first one. */
 export function presetWindow(id: PresetId, data: BoardData): BoardWindow {
   const last = Math.max(0, data.iterations.length - 1);
@@ -95,7 +95,8 @@ export function focusWindow(w: BoardWindow, span: { start: number; end: number }
 }
 
 /** The window as stored in the browser (gleipnir.window, spec §4.3): its first and last
- * iterations by global ID, so it keeps pointing at the same iterations when the cadence grows. */
+ * columns by the global ID of their first iteration, so it keeps pointing at the same
+ * iterations when a cadence grows, or when other cadences merge into its columns (ADR-38). */
 export interface StoredWindow {
   from: string;
   to: string;
@@ -107,14 +108,16 @@ export function storeWindow(w: BoardWindow, data: BoardData): StoredWindow | nul
   return from && to ? { from: from.id, to: to.id } : null;
 }
 
-/** The stored window, back as iteration indexes; null when it is missing, malformed or names an
- * iteration the cadence no longer has: the default window then applies. */
+/** The stored window, back as column indexes: the columns holding its iterations. null when it
+ * is missing, malformed or names an iteration no column holds (another cadence, ADR-38): the
+ * default window then applies. */
 export function restoreWindow(value: unknown, data: BoardData): BoardWindow | null {
   if (!value || typeof value !== 'object') return null;
   const { from, to } = value as Record<string, unknown>;
   if (typeof from !== 'string' || typeof to !== 'string') return null;
-  const a = data.iterations.findIndex((it) => it.id === from);
-  const b = data.iterations.findIndex((it) => it.id === to);
+  const holds = (id: string) => (it: BoardData['iterations'][number]) => it.id === id || it.iterationIds.includes(id);
+  const a = data.iterations.findIndex(holds(from));
+  const b = data.iterations.findIndex(holds(to));
   if (a < 0 || b < 0) return null;
   return { from: Math.min(a, b), to: Math.max(a, b) };
 }

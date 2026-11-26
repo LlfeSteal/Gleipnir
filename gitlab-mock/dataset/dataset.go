@@ -18,8 +18,9 @@ type Dataset struct {
 	Groups     []Group
 	Projects   []Project
 	Labels     []Label
-	Cadence    string
-	Iterations []Iteration
+	Cadence    string      // the root group's cadence: epics are dated from its iterations
+	Iterations []Iteration // of Cadence
+	Team       TeamCadence // a second cadence, of a subgroup (ADR-38)
 	People     []Person
 	Epics      []Epic
 	Issues     []Issue
@@ -56,12 +57,37 @@ type Label struct {
 	Color string // "#rrggbb"
 }
 
-// Iteration of the cadence; dates are inclusive.
+// Iteration of a cadence; dates are inclusive.
 type Iteration struct {
 	Title     string
 	Sequence  int
 	StartDate string
 	DueDate   string
+}
+
+// TeamCadence is a cadence of a subgroup whose iterations have the dates of
+// Iterations[First..Last]: the board merges them into the same columns (ADR-38). Only its
+// titles differ.
+type TeamCadence struct {
+	Title       string
+	Group       string // Group.Slug
+	First, Last int    // indexes in Dataset.Iterations
+}
+
+// TeamIterations returns the team cadence's iterations, in date order: the dates of the root
+// cadence's, the team's own titles and sequences.
+func (d *Dataset) TeamIterations() []Iteration {
+	its := make([]Iteration, 0, d.Team.Last-d.Team.First+1)
+	for i := d.Team.First; i <= d.Team.Last; i++ {
+		it := d.Iterations[i]
+		its = append(its, Iteration{
+			Title:     fmt.Sprintf("%s %d", d.Team.Title, it.Sequence),
+			Sequence:  i - d.Team.First + 1,
+			StartDate: it.StartDate,
+			DueDate:   it.DueDate,
+		})
+	}
+	return its
 }
 
 // Person is an assignee. Usernames start with "demo-" so that they never match a real account.
@@ -84,16 +110,19 @@ type Epic struct {
 	Labels      []string
 }
 
-// Issue lives in a project, in an iteration of the cadence or none.
+// Issue lives in a project, in an iteration of the root cadence, of the team cadence, or none.
 type Issue struct {
 	Key       string // "#110"
 	Project   string // Project.Path()
 	Title     string
-	Iteration int    // index in Iterations, -1 for none
-	Parent    string // epic key, "" for none
-	Closed    bool
-	Assignee  string // Person.Key, "" for none
-	Labels    []string
+	Iteration int // index in Iterations, -1 for none
+	// Team: planned in the team cadence's iteration with the dates of Iterations[Iteration],
+	// which lies in Team.First..Last.
+	Team     bool
+	Parent   string // epic key, "" for none
+	Closed   bool
+	Assignee string // Person.Key, "" for none
+	Labels   []string
 }
 
 // Link kinds.
@@ -164,6 +193,8 @@ func New(now time.Time) *Dataset {
 		},
 		Cadence:    "Sprints produit",
 		Iterations: its,
+		// Its title sorts after "Sprints produit": merged columns keep the root's titles.
+		Team: TeamCadence{Title: "Squad data", Group: "data", First: 1, Last: 6},
 		People: []Person{
 			{"AL", "Amélie Laurent", "demo-alaurent"},
 			{"MB", "Malik Benali", "demo-mbenali"},
@@ -190,6 +221,15 @@ func New(now time.Time) *Dataset {
 			Key: key, Project: project, Title: title, Iteration: it, Parent: parent,
 			Closed: closed, Assignee: who, Labels: labels,
 		})
+	}
+	team := func(keys ...string) {
+		for _, key := range keys {
+			for i := range ds.Issues {
+				if ds.Issues[i].Key == key {
+					ds.Issues[i].Team = true
+				}
+			}
+		}
 	}
 
 	epic("&12", "identite", "Authentification SSO", 2, 4, "sécurité", "backend")
@@ -221,6 +261,8 @@ func New(now time.Time) *Dataset {
 	issue("#125", mobile, "Quota de stockage local", 6, "&17", open, "CD", "mobile", "backend")
 	issue("#131", pipeline, "Montée de version Kafka", 2, "&21", closed, "JP", "data", "backend")
 	issue("#130", pipeline, "Schéma d'événements v2", 6, "&21", open, "JP", "data")
+	// The data team plans its issues in its own cadence (ADR-38).
+	team("#131", "#130")
 	issue("#132", pipeline, "Purge des données personnelles", -1, "&23", open, "AL", "data", "sécurité")
 	// Issues that block no epic: shown in a lane set to « Toutes » (ADR-35), and they date
 	// their parent epic.
@@ -231,6 +273,7 @@ func New(now time.Time) *Dataset {
 	issue("#109", export, "Spécification OpenAPI de l'export", 4, "&18", open, "SN", "API")
 	issue("#112", export, "Documentation développeur de l'export", 6, "&18", open, "CD", "API")
 	issue("#120", pipeline, "Ingestion des événements produit", 5, "&21", open, "JP", "data", "backend")
+	team("#120")
 	issue("#126", mobile, "Service d'envoi des notifications", 7, "&24", open, "CD", "mobile", "backend")
 	issue("#127", mobile, "Préférences de notification", 8, "&24", open, "MB", "mobile")
 

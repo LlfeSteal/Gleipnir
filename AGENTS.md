@@ -46,16 +46,18 @@ backend/
   internal/gitlab/structs.go  GraphQL deserialization structs
   internal/board/model.go     JSON model served by GET /api/board (the contract with the frontend)
   internal/board/raw.go       input of board.Build: the data as GitLab gives it
-  internal/board/build.go     raw → Board: groups, iteration placement, links, shown issues, unplanned
+  internal/board/build.go     raw → Board: active cadences, columns, iteration placement, links, unplanned
   internal/board/merge.go     merges a re-read subtree into the data (MergeScope), scope (NormalizeScope)
   internal/board/analysis.go  conflicts and critical path
   internal/board/demo_fixture_test.go  the mockup dataset as a board.Raw: fixture of the Go tests only
-  internal/cache/cache.go     board in memory: periodic full sync (Run), targeted refresh (Refresh)
+  internal/cache/cache.go     board in memory: periodic full sync (Run), targeted refresh (Refresh),
+                              a board per choice of cadences (view)
   internal/api/               handlers GET /api/health and GET /api/board
 gitlab-mock/                  fake GitLab (module gitlab-mock): demo and e2e, never deployed
   main.go                     PORT, PAGE_SIZE (10 by default, to exercise pagination), graceful shutdown
   graphql.go                  POST /api/graphql: dispatch on the operation name, pagination, GET /-/health
-  dataset/dataset.go          THE demo dataset, semantic and storable in a real GitLab (names without "&", demo-* usernames)
+  dataset/dataset.go          THE demo dataset, semantic and storable in a real GitLab (names without "&", demo-* usernames),
+                              with a second cadence in the data subgroup (Team, ADR-38)
   render.go                   renders the dataset as GitLab GraphQL nodes (GIDs, widgets, one-sided links, out-of-group link)
   cmd/seed/                   seeder: writes the same dataset into a REAL Premium/Ultimate GitLab (ADR-27)
   Dockerfile                  demo image (alpine, uid 10001)
@@ -64,8 +66,8 @@ frontend/
   src/main.tsx, App.tsx       entry point, app shell (state, preferences)
   src/api/types.ts            TypeScript mirror of model.go
   src/api/client.ts           fetch + ApiError
-  src/board/                  pure logic: types, lanes (lane filters, ADR-34), window, format, layout,
-                              search, links, stats
+  src/board/                  pure logic: types, lanes (lane filters, ADR-34), cadences (ADR-38), window,
+                              format, layout, search, links, stats
   src/components/ui/          primitives: Icons, Popover / MenuItem, SearchField, Switch,
                               Checkbox, SelectList, SegmentedControl, StateViews, AppearanceMenu, Sheet
   src/components/board/       the canvas: BoardCanvas, ItemGlyph, LinkSwatch…
@@ -135,7 +137,7 @@ Every variable is read by the backend, through `internal/config`.
 | `GITLAB_URL` | GitLab instance. Default: `https://gitlab.com`. |
 | `GITLAB_TOKEN` | `read_api` token. Never logged nor returned by the API. The backend starts without a token (warning), but GitLab answers 401 on a private group. With a token, a `GITLAB_URL` in `http://` outside loopback gives a warning: the token travels in clear. |
 | `GITLAB_GROUP` | Full path of the root group. **Required**: without it, the backend refuses to start. |
-| `GITLAB_CADENCE` | Iteration cadence, by title or by id. Default: the one holding the current iteration. |
+| `GITLAB_CADENCE` | Default active cadence (ADR-38), by title or by id. Unset: every cadence holding the current iteration. Users pick other ones in the window pop-up. |
 | `PORT` | Backend port, 8080 by default. Do not change it under compose: nginx proxies to `backend:8080` and the healthcheck targets 8080. |
 | `CACHE_TTL` | Go duration, `5m` by default: the delay between the end of a full sync and the start of the next. |
 | `GLEIPNIR_DEMO` | **Removed** (ADR-25). If still set: a warning, and without `GITLAB_GROUP`, the startup error points to `docker-compose.demo.yml`. |
@@ -156,10 +158,12 @@ Every variable is read by the backend, through `internal/config`.
 
 - `GET /api/health` → `{"status":"ok","gitlabUrl":"…","group":"…"}`. Never a token. The Docker healthcheck uses it.
 - `GET /api/board` → the `Board` of `internal/board/model.go`, already normalized. The frontend only does the layout.
-  - **Parameters**: `?refresh=1&groups=a/b,a/c` re-reads the work items of these groups' subtrees, merges them into the board, then serves it (ADR-24).
-    - Unknown groups are ignored; without a known group, the answer is 400 `invalid_scope`.
-    - If all these groups were read less than 10 s ago, the cache answers (ADR-20).
-    - No request starts a full sync, except when the backend has no data yet.
+  - **Parameters**:
+    - `?cadences=gid1,gid2` picks the **active cadences**, whose iterations make the columns (ADR-38). Unknown GIDs are ignored, not an error (a stale `localStorage`); with no known one, the default applies (`GITLAB_CADENCE`, else every cadence holding today, else the first one GitLab flags active, else the first). It combines with `refresh=1`. `cadences[]` lists every cadence with `active`: the frontend shows the answer, never its request.
+    - `?refresh=1&groups=a/b,a/c` re-reads the work items of these groups' subtrees, merges them into the board, then serves it (ADR-24).
+      - Unknown groups are ignored; without a known group, the answer is 400 `invalid_scope`.
+      - If all these groups were read less than 10 s ago, the cache answers (ADR-20).
+      - No request starts a full sync, except when the backend has no data yet.
   - **Per-group data**: `groups[].id` is the group's GID (`gid://gitlab/Group/N`): lanes name their groups by it (ADR-34), stable when a group is renamed or moved. `groups[].syncedAt` (RFC 3339) says when the group's items were read. The toolbar's « Mis à jour il y a… » is the oldest of these dates among the groups of the active lanes (`scopeSyncedAt`).
   - **Headers**:
     - `X-Fetched-At` (RFC 3339): the oldest read among the board's groups.
@@ -177,7 +181,8 @@ Every variable is read by the backend, through `internal/config`.
   | `internal` | 500 | Bug |
 
 - **Cache** (`internal/cache`, ADR-24):
-  - it keeps the raw data (`board.Raw`), the **encoded** board and, per group, the start time of the read its items come from;
+  - it keeps the raw data (`board.Raw`), the **encoded** board with the default cadences and, per group, the start time of the read its items come from;
+  - **other cadences** (`view`, ADR-38): a board per choice of cadences (known GIDs, sorted), encoded on demand **outside the lock** from the committed `raw` and `synced` (never modified in place, only replaced), kept until the next commit, 16 choices at most (all dropped past that). A view encoded from data replaced meanwhile is served but not kept;
   - **full sync** (`Run`): at startup, then `CACHE_TTL` after the end of the previous one. The cached board keeps being served meanwhile. On failure, the old board keeps being served;
   - **targeted refresh** (`Refresh`): it re-reads the requested subtrees, up to 4 in parallel (`gitlab.FetchItems`), merges them (`board.MergeScope`), then rebuilds and re-encodes the whole board;
   - a full sync and a refresh may overlap: for each group, the read **started last** wins. Merging and encoding happen under the lock;
@@ -214,13 +219,17 @@ Most come from Nornir, where they were learned the hard way.
   - Tell the two cases apart by the GID, not by the shape of the path.
 - **Subgroups**: `group.descendantGroups` lists them at every level, with pagination. The root group is not among them: add it.
 - **Dates**: many items have no dates (`startDate` / `dueDate` `null`). That is normal, see the invariants. An iteration always has `startDate` and `dueDate`.
-- **Iterations**: `iterationCadences(includeAncestorGroups: true)`, then `iterations(iterationCadenceIds: […], includeAncestors: true, sort: CADENCE_AND_DUE_DATE_ASC)`. An iteration of an automatic cadence may have no title: « Itération {sequence} » is shown instead.
+- **Iterations** (ADR-38): `iterationCadences(includeAncestorGroups: true)` and, in parallel, `iterations(includeAncestors: true, includeDescendants: true, sort: CADENCE_AND_DUE_DATE_ASC)` with `iterationCadence { id title active }`, **without a cadence filter**. An iteration of an automatic cadence may have no title: « Itération {sequence} » is shown instead.
+  - `iterationCadences` has **no `includeDescendants`**: a subgroup's cadence (often a team's) is only known through its iterations. The client adds the cadences the iterations carry to those `iterationCadences` lists.
+  - `ErrNoCadence` means no cadence at all, neither listed nor carried by an iteration.
+  - The walk is bigger than with one cadence: 1,513 iterations of 21 cadences, 16 pages, about 10 s on `gitlab-org/security-products` (2026-11-26).
 - **Groups too large**: gitlab.com answers "Request timed out" on `workItems` for huge groups (`gitlab-org`). Validate on a medium-sized public group.
 - **Validation**: **every query change must be validated on a real GitLab**, with the `@live` test or a `curl` on `https://gitlab.com/api/graphql`. A local mock once accepted a field that did not exist. The fake GitLab (`gitlab-mock/`) does not validate the schema either: it dispatches on the operation name and ignores the field selection. A new query (operation name) must be added to it, otherwise it answers `unsupported query`.
 - **Schema validated** on gitlab.com on 2026-11-23, with anonymous `curl`s and the `live` test, on `gitlab-org/security-products` and `gitlab-org/ruby`:
   - **Enums**: the link filter has type `WorkItemRelatedLinkType` (`RELATED`, `BLOCKED_BY`, `BLOCKS`). `types: [EPIC, ISSUE]` has type `IssueType`.
-  - **Cadence variable**: `$cadenceId` must be typed **`IterationsCadenceID!`**.
-  - **Current iteration**: `iterations(timeframe: {start, end})` includes its bounds. It is used to find the cadence that holds today. `state: current` is not used: a daily job updates it.
+  - **Cadence variable**: `$cadenceId` must be typed **`IterationsCadenceID!`** (the seeder's `SeedIterations` only: Gleipnir no longer filters by cadence).
+  - **Current iteration**: `iterations(timeframe: {start, end})` includes its bounds. Gleipnir no longer uses it (ADR-38): the backend finds the cadences holding today from the iterations, with its clock. `state: current` is not used: a daily job updates it.
+  - **`includeDescendants`** (2026-11-26) exists on `Group.iterations`, not on `Group.iterationCadences` (introspection of gitlab.com).
   - **`widgets(onlyTypes: [...])`** on work items: without that filter, each item brings ~35 widgets.
   - **Complexity**: a page of 100 work items costs about 86, against an anonymous limit of 200; count 3 to 8 s per page.
   - **Group ids** (2026-11-24): `group { id }` and `descendantGroups { nodes { id } }` give `gid://gitlab/Group/N`.
@@ -265,13 +274,13 @@ They live in `internal/board`. All are covered by table-driven tests: a behavior
 3. **Group of an item** (§5.3):
    - epic: the group that holds it;
    - issue: its project's namespace minus the last segment.
-4. **Placing an epic on the iterations** (§5.2). Iterations are sorted by start date; `start` and `end` are inclusive indexes.
-   - **Start**: the iteration that holds the start date. If the date falls between two iterations, the **next** one.
+4. **Placing an epic on the iterations** (§5.2). The iterations are the **columns** of the active cadences (invariant 11), sorted by start date; `start` and `end` are inclusive indexes.
+   - **Start**: the iteration that holds the start date. If the date falls between two iterations, the **next** one. Columns of shifted cadences overlap and their due dates are not sorted: the start is searched linearly, the first column in start order that ends on or after the date.
    - **End**: the iteration that holds the end date. If the date falls between two iterations, the **previous** one.
-   - **No dates**: the min and max of the iterations of its child issues, all issues counted (blocking or not). The epic then carries `datesFromChildren`.
+   - **No dates**: the min and max of the columns of its child issues, all issues counted (blocking or not, of any cadence). The epic then carries `datesFromChildren`.
    - **Otherwise**: `unplanned`, with `start` and `end` set to `null`.
    - Edge cases: see ADR-19 in `docs/decisions.md`.
-5. **Current iteration**: the one holding "today", according to an **injected clock** (`Build(raw, now)`) and `TZ`. `current` is -1 when no iteration holds the date. Iteration dates are inclusive.
+5. **Current iteration**: the first column holding "today", according to an **injected clock** (`Build(raw, now, cadences...)`) and `TZ`. `current` is -1 when no column holds the date. Iteration dates are inclusive.
 6. **Link normalization** (§5.4):
    - `blocks` and `is_blocked_by` give **one** directed link, blocker → blocked, without duplicates;
    - `relates` is stored as a sorted pair (`source < target`), without duplicates;
@@ -287,15 +296,20 @@ They live in `internal/board`. All are covered by table-driven tests: a behavior
    - Cycles are detected, broken and reported in the logs.
    - On equal length, keep the chain that ends last, then the one that starts first, then the smallest list of IDs.
    - `criticalPath` lists the IDs, from the first blocker to the last blocked; it is empty without a "blocks" link.
-9. **Unplanned**: an epic with neither dates nor a planned child, or any issue without an iteration of the cadence (ADR-35). The frontend shows them in the « Non planifié » column, at the end of the board.
+9. **Unplanned**: an epic with neither dates nor a planned child, or any issue without an iteration, or whose iteration lies entirely before or after the columns (ADR-35, ADR-38). The frontend shows them in the « Non planifié » column, at the end of the board.
 10. **Deterministic order**:
-    - iterations by start date;
+    - cadences by title, then ID;
+    - columns by start date, then due date, then cadence title, then sequence, then ID;
     - groups by path, root first;
     - labels by title;
     - epics, issues and links in a stable order.
     
     **Never iterate over a map to produce output**: the same GitLab data must give the same JSON.
-11. **One cadence**: iterations of other cadences are ignored. An issue in another cadence is treated as having no iteration.
+11. **Active cadences and columns** (ADR-38, replaces "one cadence", ADR-6):
+    - every cadence is read; the active ones are the known IDs asked for, deduplicated, else the default (`ConfiguredCadence`, else every cadence with an iteration holding today, else the first one GitLab flags active, else the first by title);
+    - the columns are the iterations of the active cadences; those with the **same start and due dates** make **one** column, with the ID, title and URL of the first one (by cadence title), listing `iterationIds` and `cadenceIds`;
+    - an issue of an **inactive** cadence is placed like an epic with its iteration's dates, then takes the start column: the column holding its iteration's start date, the next one in a gap; unplanned when the iteration ends before the first column or starts after the last one;
+    - a duplicated cadence keeps its first copy, like a label.
 12. **Merging a targeted refresh** (`MergeScope`, ADR-24):
     - items whose group (invariant 3) is in the scope are replaced by the items read again; an item read again also replaces its copy outside the scope (a moved item);
     - the links of items outside the scope that point into the scope are removed: the side read again is authoritative;
@@ -338,7 +352,8 @@ They live in `internal/board`. All are covered by table-driven tests: a behavior
   
   `main.tsx` imports all three. No CSS framework and no external font: the app works offline.
 - **Persistence** (ADR-36, replaces the view in the URL of ADR-31): the app neither reads nor writes the URL, and there is no share link.
-  - `localStorage`, read with validation and try/catch everywhere: `gleipnir.lanes` (ADR-34), `gleipnir.window` (`{from, to}` iteration GIDs; an unknown iteration gives the default window), `gleipnir.sidebar`, `gleipnir.appearance`.
+  - `localStorage`, read with validation and try/catch everywhere: `gleipnir.lanes` (ADR-34), `gleipnir.window` (`{from, to}` iteration GIDs, found in the columns' `iterationIds`; an unknown iteration gives the default window), `gleipnir.cadences` (the active cadences asked for, GIDs, ADR-38; `null` = the backend's default), `gleipnir.sidebar`, `gleipnir.appearance`.
+  - The active cadences go to `useBoard(cadences)`, which loads again when they change, silent reloads and Synchroniser included. What the board shows as active comes from the answer (`cadences[].active`), never from the stored list.
   - Session only (React state): link types, « Masquer les issues fermées », the « Non planifié » column, the critical path, collapsed lanes, search, selection.
   - Two tabs of the same browser share lanes and window: the last write wins.
 - **Theme**:
@@ -377,14 +392,15 @@ They live in `internal/board`. All are covered by table-driven tests: a behavior
     - React reads a `timeStamp` of 0 as missing and replaces it with `Date.now()`: a simulated event starts at 1;
     - jsdom has no `PointerEvent`: a `MouseEvent` with `pointerId` and `pointerType` added stands in for it;
     - `getByTitle` and `getByText` normalize whitespace: for a text that starts or ends with a space, read the attribute directly;
-    - the app saves lanes, window and sidebar in `localStorage`: `setup.ts` clears it after each test. To open the app on given lanes or a window, write `gleipnir.lanes` / `gleipnir.window` before rendering.
+    - the app saves cadences, lanes, window and sidebar in `localStorage`: `setup.ts` clears it after each test. To open the app on given lanes or a window, write `gleipnir.lanes` / `gleipnir.window` before rendering.
 - **Playwright** (`frontend/e2e/`, `playwright.config.ts`):
   - `*.spec.ts` run against the **real backend, wired to the fake GitLab**: `webServer` starts `gitlab-mock` (8082), the backend (8081) and Vite (5174), or the ports given by `E2E_MOCK_PORT` / `E2E_API_PORT` / `E2E_WEB_PORT` (see ADR-22). The GitLab client, pagination and targeted refresh are thus covered end to end.
   - The demo dataset lives in `gitlab-mock/dataset/dataset.go`. The e2e assertions (lanes, « Itération 15 » current, links, counts) depend on it: change them together.
+    - It has two cadences (ADR-38): « Sprints produit » in the root group, and « Squad data » in `data`, with the dates of Itération 13 … 18 and its own titles. Both hold today, so both are active by default and merge into the root's ten columns. #120, #130 and #131 are planned in « Squad data ». Its title sorts after the root's: merged columns keep « Itération N ».
     - It has a nested group, `api/partenaires` (« Partenaires », &22). The default lanes include subgroups, so &22 shows in the « API et intégrations » lane.
   - **Agnostic** (ADR-28): the same suite runs on the fake GitLab and on a real GitLab filled by the seeder.
     - An item is named by its dataset **key** (`'&18'`): `item(page, key)` and `boardItem(page, key)` find it by its **title**, never by its ref (on a real GitLab, `&1` exists in every group).
-    - Any text showing a ref, an iteration, a path, the root or an assignee goes through `e2e/demo.ts`: `ref('&21')`, `title('#101')`, `it(14)` (« It. 14 »), `itTitle(15)`, `group('api')`, `groupKey('api')`, `root()`, `cadence()`, `assignee('#110')`. They read the board that `e2e/global-setup.ts` loads once (variable `E2E_DEMO_BOARD`); test titles keep the keys.
+    - Any text showing a ref, an iteration, a path, the root or an assignee goes through `e2e/demo.ts`: `ref('&21')`, `title('#101')`, `it(14)` (« It. 14 »), `itTitle(15)`, `group('api')`, `groupKey('api')`, `root()`, `cadence()` (the active cadences' titles, joined as in the toolbar), `cadenceTitles()`, `assignee('#110')`. They read the board that `e2e/global-setup.ts` loads once (variable `E2E_DEMO_BOARD`); test titles keep the keys.
     - Stored lanes and windows name groups and iterations by their GID: read them from `board()`, never hard-code them.
     - Every issue is in the board now (ADR-35): `ref()` works for non-blocking issues too.
     - Each test starts with an empty `localStorage` (a fresh browser context): default lanes and window.
@@ -519,7 +535,7 @@ They live in `internal/board`. All are covered by table-driven tests: a behavior
 
 ## Known limits
 
-- **One cadence** per board, chosen by `GITLAB_CADENCE` or the one of the current iteration. Items planned in another cadence show without an iteration.
+- **Shifted cadences** (ADR-38): every cadence is read and the user picks the active ones, but only iterations with the very same dates share a column. Active cadences with other rhythms give overlapping columns, and "strictly later" (conflicts) counts in columns.
 - **One server token**, without OAuth: everyone sees what the token sees. Individual GitLab permissions are not applied.
 - **No incremental sync** (`updatedAfter`): the background sync reads everything again. The Synchroniser button only re-reads the subtrees of the active lanes, but with every lane active, it re-reads almost everything.
 - **Data of different ages**: after a targeted refresh, the other groups keep their data until the next full sync. An item moved out of the re-read subtree disappears until then.

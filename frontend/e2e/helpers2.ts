@@ -140,7 +140,7 @@ export async function setIssueMode(page: Page, lane: string, mode: 'Toutes' | 'B
   await applyLaneSettings(sheet);
 }
 
-/** Shows every iteration of the cadence in the window. */
+/** Shows every column in the window. */
 export async function showAllIterations(page: Page): Promise<void> {
   await page.getByRole('button', { name: /^Fenêtre\s*:/ }).click();
   await page.getByRole('menuitemradio', { name: 'Toutes', exact: true }).click();

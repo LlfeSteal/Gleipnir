@@ -9,7 +9,17 @@ import { mockupBoard } from '../board/fixtures';
 import { WindowControl } from './WindowControl';
 
 // The mockup: It. 12 → It. 21 (indexes 0 → 9), It. 15 (index 3) current.
-function Harness({ data = mockupBoard(), initial, onChange }: { data?: BoardData; initial: BoardWindow; onChange?: (w: BoardWindow) => void }) {
+function Harness({
+  data = mockupBoard(),
+  initial,
+  onChange,
+  onCadencesChange = vi.fn(),
+}: {
+  data?: BoardData;
+  initial: BoardWindow | null;
+  onChange?: (w: BoardWindow) => void;
+  onCadencesChange?: (ids: string[]) => void;
+}) {
   const [win, setWin] = useState(initial);
   return (
     <WindowControl
@@ -19,8 +29,22 @@ function Harness({ data = mockupBoard(), initial, onChange }: { data?: BoardData
         onChange?.(next);
         setWin(next);
       }}
+      onCadencesChange={onCadencesChange}
     />
   );
+}
+
+const PRODUIT = 'gid://gitlab/Iterations::Cadence/1';
+const DATA = 'gid://gitlab/Iterations::Cadence/2';
+/** The mockup with a second cadence, both active unless told otherwise. */
+function twoCadences(active = [PRODUIT, DATA]): BoardData {
+  return {
+    ...mockupBoard(),
+    cadences: [
+      { id: PRODUIT, title: 'Sprints produit', active: active.includes(PRODUIT) },
+      { id: DATA, title: 'Squad data', active: active.includes(DATA) },
+    ],
+  };
 }
 
 const windowButton = () => screen.getByRole('button', { name: /^Fenêtre :/ });
@@ -29,8 +53,63 @@ const next = () => screen.getByRole('button', { name: 'Itération suivante' });
 
 describe('WindowControl', () => {
   it('renders nothing without iterations', () => {
-    const { container } = render(<WindowControl data={{ ...mockupBoard(), iterations: [] }} window={{ from: 0, to: 0 }} onChange={vi.fn()} />);
+    const { container } = render(
+      <WindowControl data={{ ...mockupBoard(), iterations: [] }} window={{ from: 0, to: 0 }} onChange={vi.fn()} onCadencesChange={vi.fn()} />,
+    );
     expect(container).toBeEmptyDOMElement();
+  });
+
+  describe('cadences (ADR-38)', () => {
+    it('offers no cadence choice with a single cadence', async () => {
+      const user = userEvent.setup();
+      render(<Harness initial={{ from: 2, to: 6 }} />);
+      await user.click(windowButton());
+      expect(screen.queryByRole('group', { name: 'Cadences' })).toBeNull();
+      expect(screen.queryByRole('menuitemcheckbox')).toBeNull();
+    });
+
+    it('checks the active cadences and toggles one, the pop-up staying open', async () => {
+      const user = userEvent.setup();
+      const onCadencesChange = vi.fn();
+      render(<Harness data={twoCadences()} initial={{ from: 2, to: 6 }} onCadencesChange={onCadencesChange} />);
+      await user.click(windowButton());
+      const group = screen.getByRole('group', { name: 'Cadences' });
+      const produit = within(group).getByRole('menuitemcheckbox', { name: 'Sprints produit' });
+      const data = within(group).getByRole('menuitemcheckbox', { name: 'Squad data' });
+      expect(produit).toHaveAttribute('aria-checked', 'true');
+      expect(data).toHaveAttribute('aria-checked', 'true');
+      await user.click(produit);
+      expect(onCadencesChange).toHaveBeenLastCalledWith([DATA]);
+      expect(screen.getByRole('group', { name: 'Cadences' })).toBeInTheDocument();
+    });
+
+    it('cannot uncheck the last active cadence', async () => {
+      const user = userEvent.setup();
+      const onCadencesChange = vi.fn();
+      render(<Harness data={twoCadences([DATA])} initial={{ from: 2, to: 6 }} onCadencesChange={onCadencesChange} />);
+      await user.click(windowButton());
+      expect(screen.getByRole('menuitemcheckbox', { name: 'Squad data' })).toBeDisabled();
+      await user.click(screen.getByRole('menuitemcheckbox', { name: 'Sprints produit' }));
+      expect(onCadencesChange).toHaveBeenLastCalledWith([PRODUIT, DATA]);
+    });
+
+    it('without a column, still offers the cadences, and nothing else', async () => {
+      const user = userEvent.setup();
+      const data = { ...twoCadences([DATA]), iterations: [], current: -1 };
+      render(<Harness data={data} initial={null} />);
+      expect(windowButton()).toHaveAccessibleName('Fenêtre : Aucune itération');
+      expect(previous()).toBeDisabled();
+      expect(next()).toBeDisabled();
+      await user.click(windowButton());
+      expect(screen.getAllByRole('menuitemcheckbox')).toHaveLength(2);
+      expect(screen.queryByRole('group', { name: 'Début' })).toBeNull();
+      expect(screen.queryByRole('menuitemradio')).toBeNull();
+    });
+
+    it('renders nothing without a column and a single cadence', () => {
+      const { container } = render(<Harness data={{ ...mockupBoard(), iterations: [] }} initial={null} />);
+      expect(container).toBeEmptyDOMElement();
+    });
   });
 
   it('labels a one-iteration window with that iteration only', () => {

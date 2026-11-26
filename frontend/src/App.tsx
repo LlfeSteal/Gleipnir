@@ -16,6 +16,7 @@ import {
 } from './board/window';
 import { shortIterationLabel } from './board/format';
 import { findItem, isUnplanned } from './board/items';
+import { activeCadenceTitles, isStoredCadences } from './board/cadences';
 import { computeBoardView, layoutFor } from './board/view';
 import { errorMessage } from './api/client';
 import { useBoard } from './hooks/useBoard';
@@ -57,11 +58,13 @@ function ownsEscape(target: EventTarget | null): boolean {
 }
 
 export default function App() {
-  const { data, error, loading, refreshing, fetchedAt, reload } = useBoard();
+  // Remembered in the browser (spec §7, ADR-36, ADR-38): the active cadences, the lanes, the
+  // window and the sidebar. The cadences are asked for: the backend answers which are active.
+  const [storedCadences, setStoredCadences] = useStoredState<string[] | null>('gleipnir.cadences', null, isStoredCadences);
+  const { data, error, loading, refreshing, fetchedAt, reload } = useBoard(storedCadences);
   const { appearance, setAppearance } = useAppearance();
   const compact = useMediaQuery('(max-width: 760px)');
 
-  // Remembered in the browser (spec §7, ADR-36): the lanes, the window and the sidebar.
   const [storedLanes, setStoredLanes] = useStoredState<unknown>('gleipnir.lanes', null, isAnything);
   const [storedWindow, setStoredWindow] = useStoredState<unknown>('gleipnir.window', null, isAnything);
   const [sidebarCollapsed, setSidebarCollapsed] = useStoredState<boolean>('gleipnir.sidebar', false, isBoolean);
@@ -209,7 +212,7 @@ export default function App() {
 
   let board: ReactNode = null;
   if (data && !boardWindow) {
-    board = <EmptyState title={APP.states.noIterationTitle} message={APP.states.noIterationMessage(data.cadence.title)} />;
+    board = <EmptyState title={APP.states.noIterationTitle} message={APP.states.noIterationMessage(activeCadenceTitles(data))} />;
   } else if (data && view && boardWindow) {
     if (activeLanes === 0) {
       board = (
@@ -277,6 +280,7 @@ export default function App() {
         data={data}
         window={boardWindow}
         onWindowChange={setWindow}
+        onCadencesChange={setStoredCadences}
         query={query}
         onQueryChange={setQuery}
         searchRef={searchRef}

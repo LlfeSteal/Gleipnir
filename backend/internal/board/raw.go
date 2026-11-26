@@ -3,16 +3,29 @@ package board
 // Raw is what a source (the GitLab client) hands to Build: the data as GitLab has
 // it, before any business rule. Dates are "YYYY-MM-DD" strings, "" when unset.
 type Raw struct {
-	GitLabURL  string
-	RootGroup  Group
-	Groups     []Group // descendants of the root group (the root itself excluded), any order
-	Cadence    Cadence
-	Iterations []RawIteration // the cadence's iterations, any order
-	Items      []RawItem      // every epic and issue of the root group and its descendants
+	GitLabURL string
+	RootGroup Group
+	Groups    []Group // descendants of the root group (the root itself excluded), any order
+	// Cadences lists every iteration cadence of the root group and its ancestors, any order.
+	Cadences []RawCadence
+	// ConfiguredCadence is the ID of the cadence GITLAB_CADENCE names, "" when unset: the
+	// default active cadence (ADR-38).
+	ConfiguredCadence string
+	Iterations        []RawIteration // the iterations of every cadence, any order
+	Items             []RawItem      // every epic and issue of the root group and its descendants
+}
+
+type RawCadence struct {
+	ID    string
+	Title string
+	// Active is GitLab's flag (an active cadence still plans iterations): it only breaks the
+	// tie of the default active cadences when none holds today (ADR-38).
+	Active bool
 }
 
 type RawIteration struct {
 	ID        string
+	CadenceID string
 	Title     string // may be "" (automatic cadences)
 	Sequence  int
 	StartDate string

@@ -62,16 +62,17 @@ func TestDatasetJSON(t *testing.T) {
 		return ""
 	}
 	cases := map[string]struct{ id, want string }{
-		"epic without dates":   {"gid://gitlab/WorkItem/525", `"dueDate":null,"startDate":null`},
-		"issue without sprint": {"gid://gitlab/WorkItem/1132", `"iteration":null`},
-		"issue in a sprint":    {"gid://gitlab/WorkItem/1104", `"iteration":{"id":"gid://gitlab/Iteration/315"}`},
-		"epic without parent":  {"gid://gitlab/WorkItem/512", `"parent":null`},
-		"issue with parent":    {"gid://gitlab/WorkItem/1104", `"parent":{"id":"gid://gitlab/WorkItem/512"}`},
-		"assignee":             {"gid://gitlab/WorkItem/1104", `"assignees":{"nodes":[{"name":"Thomas Roux","username":"demo-troux"}]}`},
-		"type name":            {"gid://gitlab/WorkItem/525", `"workItemType":{"name":"Epic"}`},
-		"link out of group":    {"gid://gitlab/WorkItem/522", `"gid://gitlab/WorkItem/9999"`},
-		"epic of the root":     {"gid://gitlab/WorkItem/526", `"namespace":{"id":"gid://gitlab/Group/40","fullPath":"plateforme/atlas"}`},
-		"blocked by both":      {"gid://gitlab/WorkItem/513", `"blockedBy":{"nodes":[{"workItem":{"id":"gid://gitlab/WorkItem/512"}}`},
+		"epic without dates":     {"gid://gitlab/WorkItem/525", `"dueDate":null,"startDate":null`},
+		"issue without sprint":   {"gid://gitlab/WorkItem/1132", `"iteration":null`},
+		"issue in a sprint":      {"gid://gitlab/WorkItem/1104", `"iteration":{"id":"gid://gitlab/Iteration/315"}`},
+		"issue in a team sprint": {"gid://gitlab/WorkItem/1120", `"iteration":{"id":"gid://gitlab/Iteration/405"}`},
+		"epic without parent":    {"gid://gitlab/WorkItem/512", `"parent":null`},
+		"issue with parent":      {"gid://gitlab/WorkItem/1104", `"parent":{"id":"gid://gitlab/WorkItem/512"}`},
+		"assignee":               {"gid://gitlab/WorkItem/1104", `"assignees":{"nodes":[{"name":"Thomas Roux","username":"demo-troux"}]}`},
+		"type name":              {"gid://gitlab/WorkItem/525", `"workItemType":{"name":"Epic"}`},
+		"link out of group":      {"gid://gitlab/WorkItem/522", `"gid://gitlab/WorkItem/9999"`},
+		"epic of the root":       {"gid://gitlab/WorkItem/526", `"namespace":{"id":"gid://gitlab/Group/40","fullPath":"plateforme/atlas"}`},
+		"blocked by both":        {"gid://gitlab/WorkItem/513", `"blockedBy":{"nodes":[{"workItem":{"id":"gid://gitlab/WorkItem/512"}}`},
 	}
 	for name, c := range cases {
 		if got := find(c.id); !strings.Contains(got, c.want) {

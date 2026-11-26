@@ -16,7 +16,8 @@ const groupsQuery = `query Groups($fullPath: ID!, $after: String) {
   }
 }`
 
-// Cadences of the group and of its ancestors (a subgroup usually uses its parent's).
+// Cadences of the group and of its ancestors (a subgroup usually uses its parent's). Those of
+// the descendants come with their iterations.
 const cadencesQuery = `query Cadences($fullPath: ID!, $after: String) {
   group(fullPath: $fullPath) {
     iterationCadences(first: 100, after: $after, includeAncestorGroups: true) {
@@ -26,24 +27,14 @@ const cadencesQuery = `query Cadences($fullPath: ID!, $after: String) {
   }
 }`
 
-// Iterations of every cadence containing $today (both bounds of timeframe are inclusive).
-// Used to pick the default cadence; the date comes from our clock, not GitLab's `state:
-// current`, which a daily worker updates.
-const currentIterationsQuery = `query CurrentIterations($fullPath: ID!, $today: Date!, $after: String) {
+// Iterations of every cadence of the group, its ancestors and its descendants (ADR-38): a
+// team's cadence often lives in its subgroup, which iterationCadences cannot reach (it has no
+// includeDescendants). title is null on automatic cadences.
+const iterationsQuery = `query Iterations($fullPath: ID!, $after: String) {
   group(fullPath: $fullPath) {
-    iterations(first: 100, after: $after, includeAncestors: true, timeframe: {start: $today, end: $today}) {
+    iterations(first: 100, after: $after, includeAncestors: true, includeDescendants: true, sort: CADENCE_AND_DUE_DATE_ASC) {
       pageInfo { hasNextPage endCursor }
-      nodes { id iterationCadence { id } }
-    }
-  }
-}`
-
-// Iterations of one cadence. title is null on automatic cadences.
-const iterationsQuery = `query Iterations($fullPath: ID!, $cadenceId: IterationsCadenceID!, $after: String) {
-  group(fullPath: $fullPath) {
-    iterations(first: 100, after: $after, includeAncestors: true, iterationCadenceIds: [$cadenceId], sort: CADENCE_AND_DUE_DATE_ASC) {
-      pageInfo { hasNextPage endCursor }
-      nodes { id title sequence startDate dueDate webUrl iterationCadence { id title } }
+      nodes { id title sequence startDate dueDate webUrl iterationCadence { id title active } }
     }
   }
 }`

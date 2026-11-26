@@ -27,7 +27,7 @@ L'outil ne suit **pas l'avancement**. Il n'affiche ni pourcentage, ni poids, ni 
 | Epics | Milestones |
 | Issues, selon le réglage de chaque couloir : toutes, uniquement celles qui bloquent un epic, ou aucune | |
 | Liens « bloque », « lié à », « epic parent → issue » | Indicateurs d'avancement (progression, poids, burndown) |
-| Itérations d'une cadence GitLab | Modification des données GitLab (lecture seule, v1) |
+| Itérations des cadences GitLab (groupe racine, ancêtres, sous-groupes) | Modification des données GitLab (lecture seule, v1) |
 | Couloirs configurables par groupes, types et labels | |
 
 ---
@@ -36,7 +36,8 @@ L'outil ne suit **pas l'avancement**. Il n'affiche ni pourcentage, ni poids, ni 
 
 | Terme | Définition |
 |---|---|
-| **Itération** | Itération GitLab d'une cadence (par exemple « Itération 15, 18 nov. – 1 déc. »). Chaque itération est une **colonne** du board. |
+| **Itération** | Itération GitLab d'une cadence (par exemple « Itération 15, 18 nov. – 1 déc. »). Chaque itération d'une **cadence active** est une **colonne** du board ; des itérations de cadences différentes aux mêmes dates partagent une colonne (ADR-38). |
+| **Cadence active** | Cadence dont les itérations font les colonnes. L'utilisateur les coche dans le sélecteur d'itérations (§4.3) ; par défaut, celle de `GITLAB_CADENCE`, sinon toutes celles qui contiennent aujourd'hui (ADR-38). |
 | **Fenêtre** | Plage d'itérations consécutives affichées (de *N* à *M*). |
 | **Couloir** | Ligne horizontale du board, définie par un **filtre** : groupes, types d'artefact et labels (ADR-34). |
 | **Epic** | Epic GitLab de niveau groupe, positionné de son itération de début à son itération de fin. |
@@ -88,12 +89,18 @@ Chaque type est reconnaissable par sa **forme**, sa **couleur** et son **pictogr
 
 ### 4.3 Fenêtre temporelle
 
+- **Cadences** (ADR-38) : en tête du sélecteur, une case par cadence du groupe (racine, ancêtres et sous-groupes), affichée s'il y en a au moins deux. Les cadences cochées sont les **cadences actives** : leurs itérations font les colonnes.
+  - Des itérations de cadences actives qui ont **les mêmes dates** de début et de fin ne font qu'**une** colonne, au titre de la première cadence dans l'ordre alphabétique. Des cadences décalées donnent des colonnes distinctes, triées par date de début : elles peuvent se chevaucher.
+  - La dernière cadence cochée ne peut pas être décochée. Le sélecteur reste ouvert quand on coche ou décoche.
+  - Par défaut : la cadence de `GITLAB_CADENCE` ; sinon toutes celles qui ont une itération en cours ; sinon la première que GitLab marque active ; sinon la première.
+  - Sans aucune colonne, le sélecteur n'offre que les cadences, sous le libellé « Aucune itération ».
+  - Le choix est mémorisé dans le navigateur (ADR-36).
 - Deux listes permettent de choisir la **première** et la **dernière** itération. La première ne peut pas dépasser la dernière.
 - Les boutons ‹ et › décalent la fenêtre d'une itération, en gardant sa largeur.
 - Trois réglages rapides :
   - **En cours ± 2** : de l'itération en cours − 2 à l'itération en cours + 2 ;
   - **6 prochaines** : de l'itération en cours à l'itération en cours + 5 ;
-  - **Toutes** : toutes les itérations de la cadence.
+  - **Toutes** : toutes les colonnes des cadences actives.
   Le réglage actif est mis en évidence.
 - La fenêtre par défaut va de l'itération en cours − 1 à l'itération en cours + 3.
 - Règles d'affichage :
@@ -219,7 +226,7 @@ Ensuite :
 - elle doit correspondre à la recherche, ou appartenir à la chaîne de dépendances d'un élément qui y correspond (§4.7) ;
 - elle doit passer l'option « Masquer les issues fermées ».
 
-Une issue sans itération de la cadence, quel que soit le mode, va dans la colonne « Non planifié » du couloir (ADR-10, ADR-35).
+Une issue planifiée dans une cadence **non active** va dans la colonne qui contient la date de début de son itération, ou la suivante si cette date tombe dans un trou ; si son itération finit avant la première colonne ou commence après la dernière, elle est non planifiée (ADR-38). Une issue sans itération, ou non planifiée ainsi, quel que soit le mode, va dans la colonne « Non planifié » du couloir (ADR-10, ADR-35).
 
 Le panneau de gauche rappelle combien d'issues synchronisées bloquent un epic (par exemple « 9 sur 16 »).
 
@@ -229,7 +236,8 @@ GitLab ne relie pas un epic à des itérations. Il lui donne des dates de début
 - **itération de début** : celle qui contient la date de début de l'epic ;
 - **itération de fin** : celle qui contient sa date de fin ;
 - date tombant entre deux itérations : on prend l'itération **suivante** pour le début, la **précédente** pour la fin ;
-- epic sans date : on calcule ses dates à partir des itérations de ses issues enfants (min / max). S'il n'en a aucune, il va dans une zone « Non planifié » (ADR-10 ; cas limites : ADR-19).
+- epic sans date : on calcule ses dates à partir des colonnes de ses issues enfants (min / max), où que tombe leur itération (§5.1). S'il n'en a aucune, il va dans une zone « Non planifié » (ADR-10 ; cas limites : ADR-19).
+- les itérations sont les **colonnes** des cadences actives ; quand des cadences décalées se chevauchent, le début est la première colonne, par date de début, qui finit après la date de début de l'epic (ADR-38).
 
 ### 5.3 Appartenance d'un élément à un groupe
 
@@ -250,7 +258,7 @@ GitLab renvoie les liens dans les deux sens (`blocks` et `is_blocked_by`). On le
 | Besoin | Source suggérée |
 |---|---|
 | Groupes disponibles | REST `GET /groups/:id/subgroups` et `GET /groups/:id/descendant_groups` |
-| Cadence et itérations | GraphQL `group { iterationCadences { … } iterations { … } }` ou REST `GET /groups/:id/iterations` |
+| Cadences et itérations | GraphQL `group { iterationCadences(includeAncestorGroups) { … } iterations(includeAncestors, includeDescendants) { … iterationCadence { … } } }` : toutes les cadences, celles des sous-groupes comprises (ADR-38) |
 | Epics (dates, labels, état) | GraphQL work items de type *Epic* (ou REST `GET /groups/:id/epics`, déprécié) |
 | Liens entre epics | Widget *linked items* des work items (ou REST `GET /groups/:id/epics/:iid/related_epics`) |
 | Issues (itération, labels, état, personne assignée, epic parent) | GraphQL `group { issues(includeSubgroups: true) { … } }` |
@@ -260,13 +268,14 @@ GitLab renvoie les liens dans les deux sens (`blocks` et `is_blocked_by`). On le
 ### Modèle interne (après normalisation)
 
 ```text
-Iteration { id, title, startDate, dueDate, cadenceId, isCurrent }
+Cadence   { id, title, active }   (toutes les cadences ; active : ses itérations font les colonnes)
+Iteration { id, title, startDate, dueDate, isCurrent, iterationIds[], cadenceIds[] }   (une colonne : une itération, ou plusieurs de cadences actives aux mêmes dates)
 Group     { id, fullPath, name }
 Epic      { id, iid, ref:"&18", groupPath, title, labels[], state, startIteration, endIteration, webUrl }
 Issue     { id, iid, ref:"#110", groupPath, projectPath, title, labels[], state, iterationId, parentEpicId, assignee, blocksEpics[], webUrl }   (toutes les issues ; blocksEpics vide si elle ne bloque aucun epic)
 Link      { sourceRef, targetRef, type: "blocks" | "relates" | "parent" }
 Lane      { id, name, color, groups[] (GID des groupes), includeSubgroups, showEpics, issueMode: "all"|"blocking"|"none", labels[], labelMode: "any"|"all", active }   (ordre = ordre du tableau)
-Prefs     { navigateur : lanes, window{from,to}, sidebarCollapsed, appearance ; session : linkTypes{blocks,relates,parent}, hideClosed, showUnplanned, criticalPath, collapsedLanes[], search, selection }
+Prefs     { navigateur : cadences[] (cadences actives demandées), lanes, window{from,to}, sidebarCollapsed, appearance ; session : linkTypes{blocks,relates,parent}, hideClosed, showUnplanned, criticalPath, collapsedLanes[], search, selection }
 ```
 
 ### Synchronisation
@@ -283,7 +292,7 @@ Prefs     { navigateur : lanes, window{from,to}, sidebarCollapsed, appearance ; 
 | Donnée | Portée actuelle (ADR-36) | Portée cible proposée |
 |---|---|---|
 | Couloirs | Navigateur (`localStorage`) | Par utilisateur, côté serveur, avec des **vues partageables** |
-| Fenêtre d'itérations | Navigateur (`localStorage`) | Par vue |
+| Fenêtre d'itérations, cadences actives | Navigateur (`localStorage`) | Par vue |
 | Panneau replié ou déplié, apparence | Navigateur (`localStorage`) | Par utilisateur |
 | Types de lien, masquer les fermées, colonne « Non planifié », chemin critique, couloirs repliés, recherche, sélection | Session (onglet) | Par vue |
 
@@ -313,7 +322,7 @@ Rien n'est partagé : il n'y a pas de lien de vue. Deux onglets du même navigat
 
 1. **Epics sans date** : faut-il une zone « Non planifié » par couloir, ou les exclure ? *Tranché par l'ADR-10 : colonne « Non planifié » en fin de board.*
 2. **Issues sans itération** qui bloquent un epic : faut-il une colonne « Sans itération » ? *Tranché par l'ADR-10 et l'ADR-35 : toute issue sans itération va dans « Non planifié ».*
-3. **Plusieurs cadences** : choisir une seule cadence par board, ou les aligner sur le calendrier ? *Une seule cadence (ADR-6).*
+3. **Plusieurs cadences** : choisir une seule cadence par board, ou les aligner sur le calendrier ? *Une seule cadence (ADR-6), puis toutes les cadences, avec des cadences actives choisies par l'utilisateur et des colonnes fusionnées par dates (ADR-38).*
 4. **Liens epic ↔ epic** : faut-il les distinguer visuellement des liens issue → epic, avec un filtre séparé ?
 5. **Chemin critique** : faut-il calculer et mettre en évidence la plus longue chaîne de blocages ? *Oui (ADR-10).*
 6. **Alertes** : faut-il signaler un epic bloqué par un élément planifié **après** lui (conflit de dates) ? *Oui (ADR-10).*

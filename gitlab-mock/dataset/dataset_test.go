@@ -104,6 +104,10 @@ func TestStorableInGitLab(t *testing.T) {
 		if is.Iteration < -1 || is.Iteration >= len(d.Iterations) {
 			t.Errorf("issue %s: iteration %d", is.Key, is.Iteration)
 		}
+		// A team issue lives in the team's group and in one of its iterations.
+		if is.Team && (group != d.Team.Group || is.Iteration < d.Team.First || is.Iteration > d.Team.Last) {
+			t.Errorf("issue %s: not plannable in the team cadence", is.Key)
+		}
 		if _, ok := d.Person(is.Assignee); is.Assignee != "" && !ok {
 			t.Errorf("issue %s: unknown assignee %s", is.Key, is.Assignee)
 		}
@@ -131,6 +135,28 @@ func TestStorableInGitLab(t *testing.T) {
 		if it.StartDate > it.DueDate || (i > 0 && it.StartDate <= d.Iterations[i-1].DueDate) {
 			t.Errorf("iteration %s overlaps or is out of order", it.Title)
 		}
+	}
+	// The team cadence (ADR-38): a known group, iterations within the root cadence's, a title
+	// sorting after it, and its own iterations with the same dates.
+	team := d.TeamIterations()
+	if !groups[d.Team.Group] || d.Team.First < 0 || d.Team.First > d.Team.Last || d.Team.Last >= len(d.Iterations) ||
+		strings.ToLower(d.Team.Title) <= strings.ToLower(d.Cadence) || len(team) != d.Team.Last-d.Team.First+1 {
+		t.Errorf("team cadence %+v", d.Team)
+	}
+	for i, it := range team {
+		main := d.Iterations[d.Team.First+i]
+		if it.StartDate != main.StartDate || it.DueDate != main.DueDate || it.Sequence != i+1 || it.Title == main.Title {
+			t.Errorf("team iteration %+v, root %+v", it, main)
+		}
+	}
+	teamIssues := 0
+	for _, is := range d.Issues {
+		if is.Team {
+			teamIssues++
+		}
+	}
+	if teamIssues != 3 {
+		t.Errorf("%d team issues, want 3", teamIssues)
 	}
 	if len(d.Epics) != 13 || len(d.Issues) != 19 || len(d.Links) != 26 {
 		t.Fatalf("got %d epics, %d issues, %d links", len(d.Epics), len(d.Issues), len(d.Links))

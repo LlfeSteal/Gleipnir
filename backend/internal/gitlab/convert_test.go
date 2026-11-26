@@ -9,7 +9,7 @@ import (
 	"gleipnir/internal/board"
 )
 
-func TestChooseCadence(t *testing.T) {
+func TestConfiguredCadence(t *testing.T) {
 	cadences := []cadenceNode{
 		{ID: "gid://gitlab/Iterations::Cadence/1", Title: "Old", Active: false},
 		{ID: "gid://gitlab/Iterations::Cadence/2", Title: "Team A ", Active: true},
@@ -19,34 +19,29 @@ func TestChooseCadence(t *testing.T) {
 		name       string
 		cadences   []cadenceNode
 		configured string
-		current    []string
 		wantID     string
 		wantErr    error
 	}{
-		{"by title, case-insensitive, trimmed", cadences, "team a", nil, "gid://gitlab/Iterations::Cadence/2", nil},
-		{"by full id", cadences, "gid://gitlab/Iterations::Cadence/3", nil, "gid://gitlab/Iterations::Cadence/3", nil},
-		{"by numeric id", cadences, "1", nil, "gid://gitlab/Iterations::Cadence/1", nil},
-		{"configured wins over current", cadences, "Old", []string{"gid://gitlab/Iterations::Cadence/3"}, "gid://gitlab/Iterations::Cadence/1", nil},
-		{"not found", cadences, "Team C", nil, "", ErrCadenceNotFound},
-		{"default: running today, in cadence order", cadences, "",
-			[]string{"gid://gitlab/Iterations::Cadence/3", "gid://gitlab/Iterations::Cadence/1"}, "gid://gitlab/Iterations::Cadence/1", nil},
-		{"default: current cadence elsewhere ignored", cadences, "", []string{"gid://gitlab/Iterations::Cadence/99"}, "gid://gitlab/Iterations::Cadence/2", nil},
-		{"default: first active", cadences, "", nil, "gid://gitlab/Iterations::Cadence/2", nil},
-		{"default: first when none active", cadences[:1], "", nil, "gid://gitlab/Iterations::Cadence/1", nil},
-		{"none", nil, "", nil, "", ErrNoCadence},
-		{"none, configured", nil, "Team A", nil, "", ErrNoCadence},
+		{"by title, case-insensitive, trimmed", cadences, "team a", "gid://gitlab/Iterations::Cadence/2", nil},
+		{"by full id", cadences, "gid://gitlab/Iterations::Cadence/3", "gid://gitlab/Iterations::Cadence/3", nil},
+		{"by numeric id", cadences, "1", "gid://gitlab/Iterations::Cadence/1", nil},
+		{"not found", cadences, "Team C", "", ErrCadenceNotFound},
+		// The default active cadences are Build's business (ADR-38).
+		{"unset", cadences, "", "", nil},
+		{"none", nil, "", "", ErrNoCadence},
+		{"none, configured", nil, "Team A", "", ErrNoCadence},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := chooseCadence(tt.cadences, tt.configured, tt.current)
+			got, err := configuredCadence(tt.cadences, tt.configured)
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
 					t.Fatalf("err = %v, want %v", err, tt.wantErr)
 				}
 				return
 			}
-			if err != nil || got.ID != tt.wantID {
-				t.Errorf("chooseCadence = %v, %v; want %s", got.ID, err, tt.wantID)
+			if err != nil || got != tt.wantID {
+				t.Errorf("configuredCadence = %q, %v; want %s", got, err, tt.wantID)
 			}
 		})
 	}

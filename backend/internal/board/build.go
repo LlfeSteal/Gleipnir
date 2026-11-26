@@ -10,24 +10,40 @@ import (
 
 const dateLayout = "2006-01-02"
 
-// Build applies the business rules (spec §5) to raw data. now picks the current iteration,
-// compared as a calendar date in now's location. The output never depends on map iteration
-// order, and every JSON array is non-nil so the frontend always gets [].
-func Build(raw *Raw, now time.Time) *Board {
+// Build applies the business rules (spec §5) to raw data. cadences are the active cadences,
+// whose iterations make the columns: unknown IDs are ignored, and without a known one the
+// default applies (ADR-38). now picks the current iteration, compared as a calendar date in
+// now's location. The output never depends on map iteration order, and every JSON array is
+// non-nil so the frontend always gets [].
+func Build(raw *Raw, now time.Time, cadences ...string) *Board {
 	if raw == nil {
 		raw = &Raw{}
 	}
-	its, current := buildIterations(raw.Iterations, now)
-	iterIdx := make(map[string]int, len(its))
+	known := validIterations(raw.Iterations)
+	cads, active := buildCadences(raw, known, cadences, now)
+	its, current := buildIterations(known, cads, active, now)
+	iterIdx := make(map[string]int, len(known))
 	for i, it := range its {
-		iterIdx[it.ID] = i
-	}
-	iterationOf := func(it *RawItem) (int, bool) {
-		if it.IterationID == "" {
-			return 0, false
+		for _, id := range it.IterationIDs {
+			iterIdx[id] = i
 		}
-		i, ok := iterIdx[it.IterationID]
-		return i, ok
+	}
+	byID := make(map[string]RawIteration, len(known))
+	for _, r := range known {
+		byID[r.ID] = r
+	}
+	// The column of an issue's iteration: its own, or for an iteration of an inactive cadence,
+	// the column holding its start date, else the next one; none when the iteration lies
+	// entirely before or after the columns, like an epic (ADR-38).
+	iterationOf := func(it *RawItem) (int, bool) {
+		if i, ok := iterIdx[it.IterationID]; ok {
+			return i, true
+		}
+		if r, ok := byID[it.IterationID]; ok {
+			s, _, _, ok := placeEpic(its, r.StartDate, r.DueDate, span{})
+			return s, ok
+		}
+		return 0, false
 	}
 
 	items, kinds := dedupItems(raw.Items)
@@ -137,7 +153,7 @@ func Build(raw *Raw, now time.Time) *Board {
 		SyncedAt:     now,
 		GitLabURL:    raw.GitLabURL,
 		RootGroup:    raw.RootGroup,
-		Cadence:      raw.Cadence,
+		Cadences:     cads,
 		Iterations:   its,
 		Current:      current,
 		Groups:       buildGroups(raw.RootGroup, raw.Groups),
@@ -149,12 +165,11 @@ func Build(raw *Raw, now time.Time) *Board {
 	}
 }
 
-// buildIterations sorts the cadence's iterations by start date and finds the one holding
-// now's calendar date (in now's location). It returns -1 when now falls outside them all.
-// Duplicates (an iteration repeated across pages) and iterations without valid dates are
-// dropped: the epic placement binary-searches the dates, so one bad row would skew it.
-func buildIterations(raw []RawIteration, now time.Time) ([]Iteration, int) {
-	sorted := make([]RawIteration, 0, len(raw))
+// validIterations normalizes the iterations' dates and drops duplicates (an iteration
+// repeated across pages) and iterations without valid dates: the epic placement searches the
+// dates, so one bad row would skew it. Input order is kept.
+func validIterations(raw []RawIteration) []RawIteration {
+	valid := make([]RawIteration, 0, len(raw))
 	seen := make(map[string]bool, len(raw))
 	for _, r := range raw {
 		r.StartDate, r.DueDate = normDate(r.StartDate), normDate(r.DueDate)
@@ -162,39 +177,142 @@ func buildIterations(raw []RawIteration, now time.Time) ([]Iteration, int) {
 			continue
 		}
 		seen[r.ID] = true
-		sorted = append(sorted, r)
+		valid = append(valid, r)
+	}
+	return valid
+}
+
+// buildCadences sorts the cadences by title then ID, and flags the active ones: the known IDs
+// of selected, else the default (ADR-38): the configured cadence, else every cadence with an
+// iteration holding today, else the first one GitLab flags active, else the first one.
+func buildCadences(raw *Raw, its []RawIteration, selected []string, now time.Time) ([]Cadence, map[string]bool) {
+	cads := []Cadence{}
+	gitlabActive := map[string]bool{}
+	for _, c := range raw.Cadences {
+		if c.ID == "" || containsCadence(cads, c.ID) {
+			continue
+		}
+		cads = append(cads, Cadence{ID: c.ID, Title: strings.TrimSpace(c.Title)})
+		gitlabActive[c.ID] = c.Active
+	}
+	sort.Slice(cads, func(i, j int) bool {
+		if !strings.EqualFold(cads[i].Title, cads[j].Title) {
+			return lessFold(cads[i].Title, cads[j].Title)
+		}
+		return cads[i].ID < cads[j].ID
+	})
+
+	active := map[string]bool{}
+	for _, id := range selected {
+		if containsCadence(cads, id) {
+			active[id] = true
+		}
+	}
+	if len(active) == 0 && containsCadence(cads, raw.ConfiguredCadence) {
+		active[raw.ConfiguredCadence] = true
+	}
+	if len(active) == 0 {
+		today := now.Format(dateLayout)
+		for _, r := range its {
+			if r.StartDate <= today && today <= r.DueDate && containsCadence(cads, r.CadenceID) {
+				active[r.CadenceID] = true
+			}
+		}
+	}
+	if len(active) == 0 {
+		for _, c := range cads {
+			if gitlabActive[c.ID] {
+				active[c.ID] = true
+				break
+			}
+		}
+	}
+	if len(active) == 0 && len(cads) > 0 {
+		active[cads[0].ID] = true
+	}
+	for i := range cads {
+		cads[i].Active = active[cads[i].ID]
+	}
+	return cads, active
+}
+
+func containsCadence(cads []Cadence, id string) bool {
+	for _, c := range cads {
+		if c.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// buildIterations makes the columns: the iterations of the active cadences, sorted by start
+// date, those with the same start and due dates merged into one (ADR-38). It finds the first
+// column holding now's calendar date (in now's location), -1 when none does.
+func buildIterations(valid []RawIteration, cads []Cadence, active map[string]bool, now time.Time) ([]Iteration, int) {
+	rank := make(map[string]int, len(cads)) // cadence order: by title
+	for i, c := range cads {
+		rank[c.ID] = i
+	}
+	sorted := make([]RawIteration, 0, len(valid))
+	for _, r := range valid {
+		if active[r.CadenceID] {
+			sorted = append(sorted, r)
+		}
 	}
 	sort.SliceStable(sorted, func(i, j int) bool {
 		a, b := sorted[i], sorted[j]
-		if a.StartDate != b.StartDate {
+		switch {
+		case a.StartDate != b.StartDate:
 			return a.StartDate < b.StartDate
-		}
-		if a.Sequence != b.Sequence {
+		case a.DueDate != b.DueDate:
+			return a.DueDate < b.DueDate
+		case rank[a.CadenceID] != rank[b.CadenceID]:
+			return rank[a.CadenceID] < rank[b.CadenceID]
+		case a.Sequence != b.Sequence:
 			return a.Sequence < b.Sequence
 		}
 		return a.ID < b.ID
 	})
 	today := now.Format(dateLayout)
-	its := make([]Iteration, 0, len(sorted))
+	its := []Iteration{}
 	current := -1
-	for i, r := range sorted {
+	for _, r := range sorted {
+		if n := len(its); n > 0 && its[n-1].StartDate == r.StartDate && its[n-1].DueDate == r.DueDate {
+			last := &its[n-1]
+			last.IterationIDs = append(last.IterationIDs, r.ID)
+			if !containsString(last.CadenceIDs, r.CadenceID) {
+				last.CadenceIDs = append(last.CadenceIDs, r.CadenceID)
+			}
+			continue
+		}
 		it := Iteration{
-			ID:        r.ID,
-			Title:     r.Title,
-			StartDate: r.StartDate,
-			DueDate:   r.DueDate,
-			WebURL:    r.WebURL,
+			ID:           r.ID,
+			Title:        r.Title,
+			StartDate:    r.StartDate,
+			DueDate:      r.DueDate,
+			WebURL:       r.WebURL,
+			IterationIDs: []string{r.ID},
+			CadenceIDs:   []string{r.CadenceID},
 		}
 		if strings.TrimSpace(it.Title) == "" {
 			it.Title = fmt.Sprintf("Itération %d", r.Sequence)
 		}
 		if current < 0 && it.StartDate <= today && today <= it.DueDate {
-			current = i
+			current = len(its)
 			it.Current = true
 		}
 		its = append(its, it)
 	}
 	return its, current
+}
+
+func containsString(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }
 
 // buildGroups puts the root group first, then its descendants sorted by path, ignoring case.
@@ -311,7 +429,7 @@ func (s span) add(i int) span {
 //   - the end is the iteration holding the due date; when that date falls in a gap, the
 //     PRECEDING iteration, and the last one when after the last;
 //   - inverted dates (start after due) are swapped first;
-//   - an epic lying entirely outside the cadence (due before the first iteration starts, or
+//   - an epic lying entirely outside the columns (due before the first iteration starts, or
 //     start after the last one ends) is unplanned;
 //   - an epic lying entirely inside a gap (start mapped after end) gets the following
 //     iteration as both start and end;
@@ -366,10 +484,15 @@ func placeEpic(its []Iteration, startDate, dueDate string, children span) (start
 }
 
 // startIteration returns the first iteration that ends on or after date: the one holding
-// it, or the following one. false when date is after the last iteration.
+// it, or the following one. false when date is after the last iteration. A linear scan: with
+// shifted cadences, columns overlap and their due dates are not sorted (ADR-38).
 func startIteration(its []Iteration, date string) (int, bool) {
-	i := sort.Search(len(its), func(i int) bool { return its[i].DueDate >= date })
-	return i, i < len(its)
+	for i, it := range its {
+		if it.DueDate >= date {
+			return i, true
+		}
+	}
+	return len(its), false
 }
 
 // endIteration returns the last iteration that starts on or before date: the one holding

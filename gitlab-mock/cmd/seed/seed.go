@@ -22,7 +22,7 @@ import (
 type seeder struct {
 	c     *client
 	apply bool // false: dry-run, reads only
-	auto  bool // automatic cadence: GitLab generates the iterations
+	auto  bool // automatic cadences: GitLab generates the iterations
 	root  string
 	ds    *dataset.Dataset
 	out   io.Writer
@@ -35,8 +35,7 @@ type seeder struct {
 	types    map[string]string // work item type name → GID
 	labelIDs map[string]string // title → GID
 	userIDs  map[string]string // Person.Key → GID
-	cadence  string            // GID
-	iters    []iteration       // per dataset index; ID "" when missing
+	cadences []*cadence        // the root group's, then the team's (ADR-38)
 	items    map[string]string // dataset key → work item GID
 	existing map[string]*workItem
 	linked   map[string]map[string]bool // work item GID → linked GIDs
@@ -44,6 +43,16 @@ type seeder struct {
 
 type iteration struct {
 	ID, StartDate, DueDate string
+}
+
+// cadence is a cadence of the dataset, as the seeder writes it.
+type cadence struct {
+	title string
+	group string // full path of the group holding it
+	want  []dataset.Iteration
+	id    string      // GID; dryRunID when it is still to be created
+	auto  bool        // automatic: GitLab generates its iterations
+	iters []iteration // per index of want; ID "" when missing
 }
 
 // workItem is a work item already in GitLab, as the seeder compares it.
@@ -74,7 +83,7 @@ func (s *seeder) run(ctx context.Context) error {
 	s.items, s.existing, s.linked = map[string]string{}, map[string]*workItem{}, map[string]map[string]bool{}
 	for _, step := range []func(context.Context) error{
 		s.checkTarget, s.seedGroups, s.seedProjects, s.seedLabels, s.seedUsers,
-		s.seedCadence, s.seedIterations, s.readWorkItems, s.seedEpics, s.seedIssues, s.seedLinks,
+		s.seedCadences, s.readWorkItems, s.seedEpics, s.seedIssues, s.seedLinks,
 	} {
 		if err := step(ctx); err != nil {
 			return err
@@ -294,7 +303,25 @@ func (s *seeder) seedUsers(ctx context.Context) error {
 	return nil
 }
 
-func (s *seeder) seedCadence(ctx context.Context) error {
+// seedCadences creates the root group's cadence and the team's, in its subgroup (ADR-38), then
+// their iterations.
+func (s *seeder) seedCadences(ctx context.Context) error {
+	s.cadences = []*cadence{
+		{title: s.ds.Cadence, group: s.root, want: s.ds.Iterations, auto: s.auto},
+		{title: s.ds.Team.Title, group: dataset.Under(s.root, s.ds.Team.Group), want: s.ds.TeamIterations(), auto: s.auto},
+	}
+	for _, c := range s.cadences {
+		if err := s.seedCadence(ctx, c); err != nil {
+			return err
+		}
+		if err := s.seedIterations(ctx, c); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *seeder) seedCadence(ctx context.Context, cad *cadence) error {
 	var data struct {
 		Group *struct {
 			IterationCadences struct {
@@ -305,30 +332,30 @@ func (s *seeder) seedCadence(ctx context.Context) error {
 			} `json:"iterationCadences"`
 		} `json:"group"`
 	}
-	if err := s.c.graphql(ctx, cadencesQuery, map[string]any{"fullPath": s.root, "title": s.ds.Cadence}, &data); err != nil {
+	if err := s.c.graphql(ctx, cadencesQuery, map[string]any{"fullPath": cad.group, "title": cad.title}, &data); err != nil {
 		return err
 	}
 	if data.Group != nil {
 		for _, c := range data.Group.IterationCadences.Nodes {
-			if strings.TrimSpace(c.Title) == s.ds.Cadence {
-				if c.Automatic != s.auto {
+			if strings.TrimSpace(c.Title) == cad.title {
+				if c.Automatic != cad.auto {
 					fmt.Fprintf(s.out, "note: cadence %q exists with automatic=%v: kept as is\n", c.Title, c.Automatic)
 				}
-				s.cadence, s.auto = c.ID, c.Automatic
+				cad.id, cad.auto = c.ID, c.Automatic
 				return nil
 			}
 		}
 	}
-	s.cadence = dryRunID
+	cad.id = dryRunID
 	kind := "manual"
-	input := map[string]any{"groupPath": s.root, "title": s.ds.Cadence, "active": true, "automatic": s.auto}
-	if s.auto {
+	input := map[string]any{"groupPath": cad.group, "title": cad.title, "active": true, "automatic": cad.auto}
+	if cad.auto {
 		kind = "automatic"
-		input["startDate"] = s.ds.Iterations[0].StartDate
+		input["startDate"] = cad.want[0].StartDate
 		input["durationInWeeks"] = 2
-		input["iterationsInAdvance"] = len(s.ds.Iterations)
+		input["iterationsInAdvance"] = len(cad.want)
 	}
-	if !s.change(true, "create %s cadence %q", kind, s.ds.Cadence) {
+	if !s.change(true, "create %s cadence %q in %s", kind, cad.title, cad.group) {
 		return nil
 	}
 	var created struct {
@@ -343,17 +370,17 @@ func (s *seeder) seedCadence(ctx context.Context) error {
 	if err := payloadErrors("creating the cadence", created.IterationCadenceCreate.Errors); err != nil {
 		return err
 	}
-	s.cadence = created.IterationCadenceCreate.IterationCadence.ID
+	cad.id = created.IterationCadenceCreate.IterationCadence.ID
 	return nil
 }
 
-// seedIterations creates the dataset's iterations in a manual cadence and moves the existing
-// ones to today's dates, in an order where they never overlap. With an automatic cadence,
-// GitLab owns the iterations: the seeder only maps them, in date order.
-func (s *seeder) seedIterations(ctx context.Context) error {
+// seedIterations creates a cadence's iterations when it is manual and moves the existing ones
+// to today's dates, in an order where they never overlap. With an automatic cadence, GitLab
+// owns the iterations: the seeder only maps them, in date order.
+func (s *seeder) seedIterations(ctx context.Context, cad *cadence) error {
 	var have []struct{ ID, Title, StartDate, DueDate string }
-	if s.cadence != dryRunID {
-		err := s.paginate(ctx, iterationsQuery, map[string]any{"cadenceId": s.cadence}, func(raw map[string]any) pageInfo {
+	if cad.id != dryRunID {
+		err := s.paginate(ctx, iterationsQuery, map[string]any{"fullPath": cad.group, "cadenceId": cad.id}, func(raw map[string]any) pageInfo {
 			var conn struct {
 				PageInfo pageInfo `json:"pageInfo"`
 				Nodes    []struct{ ID, Title, StartDate, DueDate string }
@@ -366,17 +393,17 @@ func (s *seeder) seedIterations(ctx context.Context) error {
 			return err
 		}
 	}
-	s.iters = make([]iteration, len(s.ds.Iterations))
+	cad.iters = make([]iteration, len(cad.want))
 
-	if s.auto {
+	if cad.auto {
 		sort.SliceStable(have, func(i, j int) bool { return have[i].StartDate < have[j].StartDate })
-		for i := range s.iters {
+		for i := range cad.iters {
 			if i < len(have) {
-				s.iters[i] = iteration{have[i].ID, day(have[i].StartDate), day(have[i].DueDate)}
+				cad.iters[i] = iteration{have[i].ID, day(have[i].StartDate), day(have[i].DueDate)}
 			}
 		}
-		if len(have) < len(s.iters) {
-			fmt.Fprintf(s.out, "note: the automatic cadence has %d of %d iterations yet: GitLab creates them in the background, rerun later\n", len(have), len(s.iters))
+		if len(have) < len(cad.iters) {
+			fmt.Fprintf(s.out, "note: the automatic cadence %q has %d of %d iterations yet: GitLab creates them in the background, rerun later\n", cad.title, len(have), len(cad.iters))
 		}
 		return nil
 	}
@@ -390,13 +417,13 @@ func (s *seeder) seedIterations(ctx context.Context) error {
 		id, before string
 	}
 	var forward, backward []move
-	for i, want := range s.ds.Iterations {
+	for i, want := range cad.want {
 		h, ok := byTitle[want.Title]
 		if !ok {
 			continue
 		}
 		got := have[h]
-		s.iters[i] = iteration{got.ID, want.StartDate, want.DueDate}
+		cad.iters[i] = iteration{got.ID, want.StartDate, want.DueDate}
 		switch start := day(got.StartDate); {
 		case want.StartDate > start:
 			forward = append(forward, move{i, got.ID, start})
@@ -407,32 +434,32 @@ func (s *seeder) seedIterations(ctx context.Context) error {
 	// Moving later, the last one first; moving earlier, the first one first.
 	sort.Slice(forward, func(a, b int) bool { return forward[a].index > forward[b].index })
 	for _, m := range append(forward, backward...) {
-		want := s.ds.Iterations[m.index]
+		want := cad.want[m.index]
 		if !s.change(false, "move iteration %q to %s – %s", want.Title, want.StartDate, want.DueDate) {
 			continue
 		}
-		input := map[string]any{"groupPath": s.root, "id": m.id, "startDate": want.StartDate, "dueDate": want.DueDate}
+		input := map[string]any{"groupPath": cad.group, "id": m.id, "startDate": want.StartDate, "dueDate": want.DueDate}
 		if err := s.mutate(ctx, iterationUpdateMutation, "updateIteration", input, nil); err != nil {
 			return fmt.Errorf("moving iteration %s: %w", want.Title, err)
 		}
 	}
-	for i, want := range s.ds.Iterations {
-		if s.iters[i].ID != "" {
+	for i, want := range cad.want {
+		if cad.iters[i].ID != "" {
 			continue
 		}
-		s.iters[i] = iteration{dryRunID, want.StartDate, want.DueDate}
+		cad.iters[i] = iteration{dryRunID, want.StartDate, want.DueDate}
 		if !s.change(true, "create iteration %q, %s – %s", want.Title, want.StartDate, want.DueDate) {
 			continue
 		}
 		input := map[string]any{
-			"groupPath": s.root, "iterationsCadenceId": s.cadence,
+			"groupPath": cad.group, "iterationsCadenceId": cad.id,
 			"title": want.Title, "startDate": want.StartDate, "dueDate": want.DueDate,
 		}
 		var id string
 		if err := s.mutate(ctx, iterationCreateMutation, "iterationCreate", input, &id); err != nil {
 			return fmt.Errorf("creating iteration %s: %w", want.Title, err)
 		}
-		s.iters[i].ID = id
+		cad.iters[i].ID = id
 	}
 	return nil
 }
@@ -499,8 +526,8 @@ func (s *seeder) seedEpics(ctx context.Context) error {
 	for _, e := range s.ds.Epics {
 		ns := dataset.Under(s.root, e.Group)
 		start, due := "", ""
-		if e.First >= 0 && s.iters[e.First].StartDate != "" && s.iters[e.Last].DueDate != "" {
-			start, due = s.iters[e.First].StartDate, s.iters[e.Last].DueDate
+		if its := s.cadences[0].iters; e.First >= 0 && its[e.First].StartDate != "" && its[e.Last].DueDate != "" {
+			start, due = its[e.First].StartDate, its[e.Last].DueDate
 		}
 		labels := s.labels(e.Labels)
 		dates := map[string]any{"isFixed": true, "startDate": optional(start), "dueDate": optional(due)}
@@ -544,8 +571,11 @@ func (s *seeder) seedIssues(ctx context.Context) error {
 	for _, is := range s.ds.Issues {
 		ns := s.root + "/" + is.Project
 		iter, parent, assignee := "", s.items[is.Parent], s.userIDs[is.Assignee]
-		if is.Iteration >= 0 {
-			iter = s.iters[is.Iteration].ID
+		switch {
+		case is.Team:
+			iter = s.cadences[1].iters[is.Iteration-s.ds.Team.First].ID
+		case is.Iteration >= 0:
+			iter = s.cadences[0].iters[is.Iteration].ID
 		}
 		state := "OPEN"
 		if is.Closed {
@@ -700,7 +730,8 @@ type pageInfo struct {
 	EndCursor   string `json:"endCursor"`
 }
 
-// paginate runs a query on the root group page by page; collect reads the group's fields.
+// paginate runs a query on the root group, or on vars["fullPath"] when given, page by page;
+// collect reads the group's fields.
 func (s *seeder) paginate(ctx context.Context, query string, vars map[string]any, collect func(map[string]any) pageInfo) error {
 	variables := map[string]any{"fullPath": s.root}
 	for k, v := range vars {
@@ -716,7 +747,7 @@ func (s *seeder) paginate(ctx context.Context, query string, vars map[string]any
 			return err
 		}
 		if data.Group == nil {
-			return fmt.Errorf("%s: group %s not found", operation(query), s.root)
+			return fmt.Errorf("%s: group %s not found", operation(query), variables["fullPath"])
 		}
 		info := collect(data.Group)
 		if !info.HasNextPage || info.EndCursor == "" {

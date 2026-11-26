@@ -37,6 +37,7 @@ func DemoRaw(now time.Time) *Raw {
 		n := 12 + i
 		its = append(its, RawIteration{
 			ID:        fmt.Sprintf("gid://gitlab/Iteration/%d", 300+n),
+			CadenceID: "gid://gitlab/Iterations::Cadence/1",
 			Title:     fmt.Sprintf("Itération %d", n),
 			Sequence:  n,
 			StartDate: start.Format(dateLayout),
@@ -212,7 +213,7 @@ func DemoRaw(now time.Time) *Raw {
 			{ID: "gid://gitlab/Group/103", Path: api, Name: "API & intégrations"},
 			{ID: "gid://gitlab/Group/104", Path: data, Name: "Data"},
 		},
-		Cadence:    Cadence{ID: "gid://gitlab/Iterations::Cadence/1", Title: "Sprints produit"},
+		Cadences:   []RawCadence{{ID: "gid://gitlab/Iterations::Cadence/1", Title: "Sprints produit", Active: true}},
 		Iterations: its,
 		Items:      items,
 	}

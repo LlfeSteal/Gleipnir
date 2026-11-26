@@ -16,7 +16,7 @@ type Config struct {
 	GitLabURL string // without trailing slash
 	Token     string
 	Group     string // full path of the root group, without leading or trailing slash
-	Cadence   string // iteration cadence title or ID; "" = the one holding the current iteration
+	Cadence   string // default active cadence, by title or ID; "" = those holding the current iteration (ADR-38)
 	Port      string
 	CacheTTL  time.Duration // data is fresh for that long, then served stale while it refreshes
 

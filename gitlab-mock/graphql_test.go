@@ -3,10 +3,12 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -65,8 +67,7 @@ func post(t *testing.T, h http.Handler, query string, vars map[string]any, heade
 const (
 	qGroups     = "query Groups($fullPath: ID!, $after: String) { … }"
 	qCadences   = "query Cadences($fullPath: ID!, $after: String) { … }"
-	qCurrent    = "query CurrentIterations($fullPath: ID!, $today: Date!, $after: String) { … }"
-	qIterations = "query Iterations($fullPath: ID!, $cadenceId: IterationsCadenceID!, $after: String) { … }"
+	qIterations = "query Iterations($fullPath: ID!, $after: String) { … }"
 	qWorkItems  = "\n  query WorkItems($fullPath: ID!, $after: String) { … }"
 )
 
@@ -165,10 +166,9 @@ func TestGraphQLErrors(t *testing.T) {
 		"negative offset":     {qGroups, map[string]any{"fullPath": "plateforme/atlas", "after": "b2Zmc2V0Oi0x"}, "invalid cursor"},
 		"offset past the end": {qCadences, map[string]any{"fullPath": "plateforme/atlas", "after": encodeCursor(5)}, "invalid cursor"},
 		"cursor not a string": {qWorkItems, map[string]any{"fullPath": "plateforme/atlas", "after": 3}, "invalid cursor"},
-		"no today":            {qCurrent, map[string]any{"fullPath": "plateforme/atlas"}, "$today"},
-		"today not a date":    {qCurrent, map[string]any{"fullPath": "plateforme/atlas", "today": "demain"}, "$today"},
-		"bad iterations page": {qIterations, map[string]any{"fullPath": "plateforme/atlas", "cadenceId": cadenceID, "after": "x"}, "invalid cursor"},
-		"bad current page":    {qCurrent, map[string]any{"fullPath": "plateforme/atlas", "today": "2026-11-25", "after": "x"}, "invalid cursor"},
+		// The default cadence comes from the iterations now (ADR-38).
+		"removed operation":   {"query CurrentIterations($fullPath: ID!, $today: Date!) { … }", map[string]any{"fullPath": "plateforme/atlas"}, `unsupported query "CurrentIterations"`},
+		"bad iterations page": {qIterations, map[string]any{"fullPath": "plateforme/atlas", "after": "x"}, "invalid cursor"},
 		"bad cadences page":   {qCadences, map[string]any{"fullPath": "plateforme/atlas", "after": "x"}, "invalid cursor"},
 	}
 	for name, c := range cases {
@@ -218,51 +218,54 @@ func TestGroups(t *testing.T) {
 	}
 }
 
+// iterationCadences(includeAncestorGroups: true): a group's cadences and its ancestors',
+// never a descendant's (ADR-38).
 func TestCadences(t *testing.T) {
-	nodes := walk[cadenceNode](t, newServer(10, nil), qCadences, "iterationCadences", map[string]any{"fullPath": "plateforme/atlas/data"})
-	if len(nodes) != 1 || nodes[0] != (cadenceNode{ID: cadenceID, Title: "Sprints produit", Active: true}) {
-		t.Fatalf("got %+v", nodes)
+	root := cadenceNode{ID: cadenceID, Title: "Sprints produit", Active: true}
+	team := cadenceNode{ID: teamCadenceID, Title: "Squad data", Active: true}
+	cases := map[string][]cadenceNode{
+		"plateforme/atlas":          {root},
+		"plateforme/atlas/data":     {root, team},
+		"plateforme/atlas/identite": {root},
 	}
-}
-
-func TestCurrentIterations(t *testing.T) {
-	cases := map[string]struct {
-		today string
-		want  []string
-	}{
-		"first day":        {"2026-11-23", []string{"Itération 15"}},
-		"last day":         {"2026-12-06", []string{"Itération 15"}},
-		"next iteration":   {"2026-12-07", []string{"Itération 16"}},
-		"holiday gap":      {"2027-01-04", nil},
-		"before every one": {"2020-01-01", nil},
-	}
-	for name, c := range cases {
-		nodes := walk[iterationNode](t, newServer(10, nil), qCurrent, "iterations", map[string]any{"fullPath": "plateforme/atlas", "today": c.today})
-		var got []string
-		for _, n := range nodes {
-			got = append(got, *n.Title)
-		}
-		if strings.Join(got, ",") != strings.Join(c.want, ",") {
-			t.Errorf("%s: got %v, want %v", name, got, c.want)
+	for path, want := range cases {
+		nodes := walk[cadenceNode](t, newServer(1, nil), qCadences, "iterationCadences", map[string]any{"fullPath": path})
+		if !reflect.DeepEqual(nodes, want) {
+			t.Errorf("%s: got %+v, want %+v", path, nodes, want)
 		}
 	}
 }
 
+// iterations(includeAncestors: true, includeDescendants: true): every cadence of the group,
+// its ancestors and its descendants (ADR-38).
 func TestIterations(t *testing.T) {
 	h := newServer(4, nil)
-	nodes := walk[iterationNode](t, h, qIterations, "iterations", map[string]any{"fullPath": "plateforme/atlas", "cadenceId": cadenceID})
-	if len(nodes) != 10 || *nodes[0].Title != "Itération 12" || *nodes[9].Title != "Itération 21" {
+	nodes := walk[iterationNode](t, h, qIterations, "iterations", map[string]any{"fullPath": "plateforme/atlas"})
+	if len(nodes) != 16 || *nodes[0].Title != "Itération 12" || *nodes[9].Title != "Itération 21" {
 		t.Fatalf("got %d iterations: %+v", len(nodes), nodes)
 	}
-	if nodes[3].StartDate != "2026-11-23" || nodes[3].DueDate != "2026-12-06" {
+	if nodes[3].StartDate != "2026-11-23" || nodes[3].DueDate != "2026-12-06" || nodes[3].IterationCadence.ID != cadenceID {
 		t.Fatalf("Itération 15 must hold now: %+v", nodes[3])
 	}
 	// One week off between Itération 17 and 18.
 	if nodes[5].DueDate != "2027-01-03" || nodes[6].StartDate != "2027-01-11" {
 		t.Fatalf("holiday gap: %+v / %+v", nodes[5], nodes[6])
 	}
-	if other := walk[iterationNode](t, h, qIterations, "iterations", map[string]any{"fullPath": "plateforme/atlas", "cadenceId": "gid://gitlab/Iterations::Cadence/2"}); len(other) != 0 {
-		t.Fatalf("another cadence has no iteration, got %d", len(other))
+	// The team's cadence: the dates of Itération 13 – 18, its own titles.
+	team := nodes[10:]
+	for i, n := range team {
+		main := nodes[1+i]
+		if n.IterationCadence.ID != teamCadenceID || n.StartDate != main.StartDate || n.DueDate != main.DueDate ||
+			*n.Title != fmt.Sprintf("Squad data %d", 13+i) || n.Sequence != i+1 {
+			t.Errorf("team iteration %d: %+v", i, n)
+		}
+	}
+	// From the team's group, the root's iterations come as an ancestor's; from a sibling, only them.
+	if got := walk[iterationNode](t, h, qIterations, "iterations", map[string]any{"fullPath": "plateforme/atlas/data"}); len(got) != 16 {
+		t.Errorf("data: %d iterations, want 16", len(got))
+	}
+	if got := walk[iterationNode](t, h, qIterations, "iterations", map[string]any{"fullPath": "plateforme/atlas/identite"}); len(got) != 10 {
+		t.Errorf("identite: %d iterations, want 10", len(got))
 	}
 }
 

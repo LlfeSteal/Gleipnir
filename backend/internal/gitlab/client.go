@@ -47,14 +47,13 @@ type Client struct {
 	group    string
 	cadence  string
 	http     *http.Client
-	now      func() time.Time // picks the default cadence; injectable for tests
 	maxBody  int
 	maxPages int
 	maxWalks int // concurrent subtree walks of FetchItems
 }
 
-// New returns a client for the group rootGroup of the instance baseURL. cadence picks the
-// iteration cadence by title or ID ("" = the one holding the current iteration).
+// New returns a client for the group rootGroup of the instance baseURL. cadence names the
+// default active cadence by title or ID ("" = the ones holding the current iteration, ADR-38).
 func New(baseURL, token, rootGroup, cadence string) *Client {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &Client{
@@ -65,15 +64,14 @@ func New(baseURL, token, rootGroup, cadence string) *Client {
 		cadence:  strings.TrimSpace(cadence),
 		// A work items page of a mid-size group takes 3–8 s on gitlab.com.
 		http:     &http.Client{Timeout: 60 * time.Second},
-		now:      time.Now,
 		maxBody:  defaultMaxBody,
 		maxPages: defaultMaxPages,
 		maxWalks: defaultMaxWalks,
 	}
 }
 
-// Fetch walks GitLab and returns the raw board data. Groups, the cadence (then its
-// iterations) and the work items are fetched concurrently; the first error cancels the rest.
+// Fetch walks GitLab and returns the raw board data. Groups, the cadences and iterations, and
+// the work items are fetched concurrently; the first error cancels the rest.
 func (c *Client) Fetch(ctx context.Context) (*board.Raw, error) {
 	raw := &board.Raw{GitLabURL: c.baseURL}
 	err := runAll(ctx,
@@ -82,7 +80,7 @@ func (c *Client) Fetch(ctx context.Context) (*board.Raw, error) {
 			return err
 		},
 		func(ctx context.Context) (err error) {
-			raw.Cadence, raw.Iterations, err = c.fetchCadence(ctx)
+			raw.Cadences, raw.ConfiguredCadence, raw.Iterations, err = c.fetchIterations(ctx)
 			return err
 		},
 		func(ctx context.Context) (err error) {
@@ -109,55 +107,53 @@ func (c *Client) fetchGroups(ctx context.Context) (board.Group, []board.Group, e
 	return root, groups, err
 }
 
-// fetchCadence lists the cadences (and, when none is configured, the iterations running
-// today), picks one, then fetches its iterations.
-func (c *Client) fetchCadence(ctx context.Context) (board.Cadence, []board.RawIteration, error) {
-	var cadences []cadenceNode
-	var current []string // cadence IDs having an iteration that contains today
-	fetchCadences := func(ctx context.Context) error {
-		return c.paginate(ctx, "Cadences", cadencesQuery, c.group, nil, func(g *groupData) pageInfo {
-			cadences = append(cadences, g.IterationCadences.Nodes...)
-			return g.IterationCadences.PageInfo
-		})
-	}
-	fetchCurrent := func(ctx context.Context) error {
-		if c.cadence != "" {
-			return nil
-		}
-		vars := map[string]any{"today": c.now().Format("2006-01-02")}
-		return c.paginate(ctx, "CurrentIterations", currentIterationsQuery, c.group, vars, func(g *groupData) pageInfo {
-			for _, it := range g.Iterations.Nodes {
-				if it.IterationCadence != nil {
-					current = append(current, it.IterationCadence.ID)
-				}
-			}
-			return g.Iterations.PageInfo
-		})
-	}
-	if err := runAll(ctx, fetchCadences, fetchCurrent); err != nil {
-		return board.Cadence{}, nil, err
-	}
-
-	chosen, err := chooseCadence(cadences, c.cadence, current)
+// fetchIterations lists the cadences and the iterations of all of them (ADR-38), and resolves
+// the configured cadence ("" when none is). The cadences of the descendant groups are only
+// known through their iterations.
+func (c *Client) fetchIterations(ctx context.Context) ([]board.RawCadence, string, []board.RawIteration, error) {
+	var nodes []cadenceNode
+	var iterations []iterationNode
+	err := runAll(ctx,
+		func(ctx context.Context) error {
+			return c.paginate(ctx, "Cadences", cadencesQuery, c.group, nil, func(g *groupData) pageInfo {
+				nodes = append(nodes, g.IterationCadences.Nodes...)
+				return g.IterationCadences.PageInfo
+			})
+		},
+		func(ctx context.Context) error {
+			return c.paginate(ctx, "Iterations", iterationsQuery, c.group, nil, func(g *groupData) pageInfo {
+				iterations = append(iterations, g.Iterations.Nodes...)
+				return g.Iterations.PageInfo
+			})
+		},
+	)
 	if err != nil {
-		return board.Cadence{}, nil, err
+		return nil, "", nil, err
 	}
-
-	var iterations []board.RawIteration
-	vars := map[string]any{"cadenceId": chosen.ID}
-	err = c.paginate(ctx, "Iterations", iterationsQuery, c.group, vars, func(g *groupData) pageInfo {
-		for _, n := range g.Iterations.Nodes {
-			// Defensive: the filter already keeps the cadence's iterations only.
-			if n.IterationCadence == nil || n.IterationCadence.ID == chosen.ID {
-				iterations = append(iterations, convertIteration(n))
-			}
+	known := make(map[string]bool, len(nodes))
+	for _, n := range nodes {
+		known[n.ID] = true
+	}
+	var raw []board.RawIteration
+	for _, n := range iterations {
+		if n.IterationCadence == nil || n.IterationCadence.ID == "" {
+			continue // defensive: an iteration always has a cadence
 		}
-		return g.Iterations.PageInfo
-	})
-	if err != nil {
-		return board.Cadence{}, nil, err
+		if !known[n.IterationCadence.ID] {
+			known[n.IterationCadence.ID] = true
+			nodes = append(nodes, *n.IterationCadence)
+		}
+		raw = append(raw, convertIteration(n))
 	}
-	return board.Cadence{ID: chosen.ID, Title: strings.TrimSpace(chosen.Title)}, iterations, nil
+	configured, err := configuredCadence(nodes, c.cadence)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	cadences := make([]board.RawCadence, 0, len(nodes))
+	for _, n := range nodes {
+		cadences = append(cadences, board.RawCadence{ID: n.ID, Title: strings.TrimSpace(n.Title), Active: n.Active})
+	}
+	return cadences, configured, raw, nil
 }
 
 // FetchItems reads the epics and issues of the subtrees of groups (each group with its

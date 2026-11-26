@@ -12,7 +12,7 @@ Ce fichier consigne les choix qui structurent Gleipnir, sous forme de courts ADR
 | 3 | Cache mémoire « stale-while-revalidate » (remplacé par ADR-24) | 2026-11-23 |
 | 4 | Le backend normalise, le frontend met en page (amendé par ADR-35) | 2026-11-23 |
 | 5 | Couloirs stockés dans le navigateur (remplacé par ADR-31 et ADR-32, repris par ADR-34 et ADR-36) | 2026-11-23 |
-| 6 | Une seule cadence par board | 2026-11-23 |
+| 6 | Une seule cadence par board (remplacé par ADR-38) | 2026-11-23 |
 | 7 | Frontend sans dépendance d'exécution | 2026-11-23 |
 | 8 | Déploiement en deux images | 2026-11-23 |
 | 9 | Mode démo (remplacé par ADR-25) | 2026-11-23 |
@@ -44,6 +44,7 @@ Ce fichier consigne les choix qui structurent Gleipnir, sous forme de courts ADR
 | 35 | Mode d'affichage des issues par couloir | 2026-11-26 |
 | 36 | Vue mémorisée dans le navigateur | 2026-11-26 |
 | 37 | Dépendances hors couloirs | 2026-11-26 |
+| 38 | Toutes les cadences, cadences actives choisies par l'utilisateur | 2026-11-26 |
 
 ---
 
@@ -158,7 +159,7 @@ Les erreurs sont typées : `ErrUnauthorized`, `ErrGroupNotFound`, `ErrPremiumReq
 
 ## ADR-6 — Une seule cadence par board
 
-*2026-11-23 · Accepté*
+*2026-11-23 · Remplacé par l'ADR-38*
 
 **Contexte.** Un groupe peut avoir plusieurs cadences d'itérations, qui ne s'alignent pas forcément (§9.3). Une colonne du board doit être une itération.
 
@@ -437,16 +438,16 @@ Les erreurs sont typées : `ErrUnauthorized`, `ErrGroupNotFound`, `ErrPremiumReq
 
 **Décision.**
 
-- **Ordre des itérations** : par date de début, puis `sequence`, puis ID. Un titre vide devient « Itération {sequence} ». Une itération en double (même ID, d'une page à l'autre) ou sans dates valides (manquantes, illisibles, fin avant le début) est ignorée : elle fausserait la recherche dichotomique du rattachement.
+- **Ordre des itérations** : par date de début, puis date de fin, puis cadence (par titre), puis `sequence`, puis ID ; celles qui ont les mêmes dates ne font qu'une colonne (ADR-38). Un titre vide devient « Itération {sequence} ». Une itération en double (même ID, d'une page à l'autre) ou sans dates valides (manquantes, illisibles, fin avant le début) est ignorée : elle fausserait la recherche dichotomique du rattachement.
 - **Itération en cours** : la première dont l'intervalle `[début, fin]`, bornes incluses, contient la date du jour (dans le fuseau `TZ`). Si aucune ne la contient, `current = -1`. Le frontend affiche alors par défaut les cinq premières itérations.
-- **Début d'un epic** : la première itération qui finit au plus tôt le jour du début. C'est celle qui contient la date, ou la suivante quand la date tombe entre deux itérations ou avant la première.
+- **Début d'un epic** : la première itération qui finit au plus tôt le jour du début. C'est celle qui contient la date, ou la suivante quand la date tombe entre deux itérations ou avant la première. Avec des cadences décalées, les colonnes se chevauchent et leurs dates de fin ne sont plus triées : la recherche parcourt les colonnes dans l'ordre (ADR-38).
 - **Fin d'un epic** : la dernière itération qui commence au plus tard le jour de la fin. C'est celle qui contient la date, la précédente dans un intervalle, ou la dernière quand la date est après la dernière itération.
 - **Dates inversées** (début après la fin) : elles sont d'abord échangées.
 - **Epic entièrement dans un intervalle** entre deux itérations : il est rattaché à l'itération **suivante** (début = fin).
-- **Epic entièrement hors de la cadence**, qui finit avant la première itération ou commence après la dernière : il est **non planifié**. On ne le borne pas aux extrémités, pour ne pas suggérer une date fausse.
+- **Epic entièrement hors des colonnes**, qui finit avant la première itération ou commence après la dernière : il est **non planifié**. On ne le borne pas aux extrémités, pour ne pas suggérer une date fausse.
 - **Une seule date** : le côté manquant vient des issues enfants (min pour le début, max pour la fin), sans jamais dépasser le côté connu. Sans enfant, l'epic tient sur une itération. `datesFromChildren` reste faux.
 - **Dates propres et enfants planifiés** : les dates de l'epic priment toujours. Les enfants ne servent que s'il n'a pas de date, ou n'en a qu'une.
-- **Sans date** : le min et le max des itérations de **toutes** les issues enfants de la cadence, affichées ou ignorées, ouvertes ou fermées. Sans enfant planifié, l'epic est non planifié.
+- **Sans date** : le min et le max des colonnes de **toutes** les issues enfants planifiées, affichées ou ignorées, ouvertes ou fermées, quelle que soit la cadence de leur itération (ADR-38). Sans enfant planifié, l'epic est non planifié.
 - **Issue bloquante** : seulement si elle est la **source** d'un lien `blocks` vers un epic. Une issue bloquée par un epic n'est pas bloquante pour cette raison. Depuis l'ADR-35, toutes les issues sont envoyées ; ce critère sert au mode « Uniquement celles qui bloquent un epic » et au chemin critique.
 - **Liens** :
   - deux liens `blocks` A→B et B→A sont gardés tous les deux, comme un cycle ;
@@ -543,7 +544,7 @@ Une synchro en cours reste partagée par toutes les requêtes. Sans données en 
 - **Synchro complète périodique** (`cache.Store.Run`) : au démarrage, puis `CACHE_TTL` après la fin de chaque synchro, pour qu'elles ne se chevauchent pas. Le board en cache reste servi pendant la synchro (`X-Cache: HIT`). Une requête ne lance une synchro complète que s'il n'y a encore aucune donnée.
 - **Rafraîchissement ciblé** : `GET /api/board?refresh=1&groups=a,b`.
   - Le frontend envoie les groupes des couloirs actifs (tous les groupes de chaque couloir, ADR-34), sans ceux dont un ancêtre est déjà listé (`refreshScope`).
-  - Le backend relit **seulement** les work items du sous-arbre de chaque groupe (`group(fullPath)` + `includeDescendants`), jusqu'à 4 en parallèle. Il ne relit ni les groupes, ni la cadence, ni les itérations.
+  - Le backend relit **seulement** les work items du sous-arbre de chaque groupe (`group(fullPath)` + `includeDescendants`), jusqu'à 4 en parallèle. Il ne relit ni les groupes, ni les cadences, ni les itérations.
   - Le sous-arbre est toujours lu en entier, même pour un couloir sans sous-groupes : les issues vivent dans les projets, sous le groupe.
   - Les groupes inconnus sont ignorés. Sans groupe connu : HTTP 400 `invalid_scope`. Il n'y a plus de synchro complète depuis l'interface.
 - **Fusion** (`board.MergeScope`, règles métier testées table par table) :
@@ -582,8 +583,8 @@ Une synchro en cours reste partagée par toutes les requêtes. Sans données en 
   - Une ancienne configuration de démo **échoue fermée** : sans `GITLAB_GROUP`, le backend refuse de démarrer, avec un message qui renvoie vers l'overlay. Si la variable traîne à côté d'une vraie configuration, elle donne seulement un avertissement.
 - **Un faux GitLab** (`gitlab-mock/`) imite l'API GraphQL de GitLab pour les **seules** requêtes de Gleipnir et sert le jeu de démo.
   - Module Go séparé, bibliothèque standard uniquement, qui n'importe rien de `backend/` : il ne partage avec le backend que le contrat HTTP.
-  - Il aiguille sur le nom de l'opération (`Groups`, `Cadences`, `CurrentIterations`, `Iterations`, `WorkItems`) et répond `unsupported query` à toute autre. Un `fullPath` inconnu donne `group: null`, comme GitLab.
-  - Il pagine (10 nœuds par page par défaut), filtre `today`, `cadenceId` et le sous-arbre de `includeDescendants`.
+  - Il aiguille sur le nom de l'opération (`Groups`, `Cadences`, `Iterations`, `WorkItems`) et répond `unsupported query` à toute autre. Un `fullPath` inconnu donne `group: null`, comme GitLab. `CurrentIterations` a disparu avec l'ADR-38.
+  - Il pagine (10 nœuds par page par défaut) et filtre par groupe : les cadences du groupe et de ses ancêtres, les itérations de ses ancêtres et de ses descendants, les work items de son sous-arbre (`includeDescendants`).
   - Il ignore le jeton et ne journalise aucun en-tête.
   - Les `webUrl` utilisent `gitlab.example.com`, domaine réservé (RFC 2606).
 - **Démo Docker** : un overlay `docker-compose.demo.yml`, absent du compose de base.
@@ -642,7 +643,8 @@ Une synchro en cours reste partagée par toutes les requêtes. Sans données en 
   - **Idempotent** : il retrouve par chemin (groupes, projets) ou par titre (labels, cadence, itérations, work items) ce qu'une exécution précédente a créé. Il ne crée que ce qui manque et corrige ce qui a dérivé : nom, couleur, état, itération, parent, assigné, labels manquants, liens manquants.
   - **Recalage** : les itérations et les dates d'epic suivent aujourd'hui, pour que « Itération 15 » reste en cours. Les itérations sont déplacées dans l'ordre qui évite tout chevauchement.
   - **Aucune suppression**, jamais.
-  - **Cadence manuelle** par défaut (titres et trou de vacances). `-cadence=auto` crée une cadence automatique si l'instance refuse les manuelles : les epics sont alors datés d'après les itérations générées.
+  - **Deux cadences** (ADR-38) : « Sprints produit » dans le groupe racine, et « Squad data » dans le sous-groupe `data`, aux dates de l'Itération 13 à 18, où sont planifiées les issues de l'équipe data.
+  - **Cadences manuelles** par défaut (titres et trou de vacances). `-cadence=auto` crée une cadence automatique si l'instance refuse les manuelles : les epics sont alors datés d'après les itérations générées.
   - **Utilisateurs** : créés seulement si le jeton est admin, puis ajoutés en Reporter. Sinon, les éléments restent sans assigné, avec un avertissement.
 - **Sécurité** :
   - le jeton d'écriture (`api`) vient de `SEED_TOKEN`, **jamais d'un flag**, et n'est jamais affiché ; il est distinct du jeton `read_api` de Gleipnir ;
@@ -866,6 +868,7 @@ Une synchro en cours reste partagée par toutes les requêtes. Sans données en 
 - **`localStorage`**, lu avec validation et `try/catch` :
   - `gleipnir.lanes` : les couloirs (ADR-34) ;
   - `gleipnir.window` : la fenêtre, `{from, to}`, par GID d'itération. Une itération inconnue redonne la fenêtre par défaut ;
+  - `gleipnir.cadences` : les cadences actives demandées, par GID (ADR-38) ;
   - `gleipnir.sidebar` : le panneau latéral replié ;
   - `gleipnir.appearance` : l'apparence.
 - **Session seulement**, dans l'état React : types de lien, « Masquer les issues fermées », colonne « Non planifié », chemin critique, couloirs repliés, recherche et sélection.
@@ -899,3 +902,42 @@ Une synchro en cours reste partagée par toutes les requêtes. Sans données en 
 
 - Une dépendance n'est jamais perdue de vue : elle est dessinée, ou comptée dans l'une des deux pastilles.
 - Le calcul se fait dans le frontend (`src/board/view.ts`), à partir des couloirs actifs, et se teste en Vitest.
+
+## ADR-38 — Toutes les cadences, cadences actives choisies par l'utilisateur
+
+*2026-11-26 · Accepté · Remplace l'ADR-6 · Spec §2, §4.3, §5.1, §5.2, §6*
+
+**Contexte.** L'ADR-6 n'affichait qu'une cadence. Dans un GitLab où chaque équipe, souvent chaque sous-groupe, a sa propre cadence, les issues des autres équipes passaient toutes en « Non planifié » : la planification disparaissait du board. Une cadence de sous-groupe n'était même pas lue : `iterationCadences` ne descend pas dans les sous-groupes.
+
+**Décision.**
+
+- **Lecture** : le backend lit **toutes** les itérations, de toutes les cadences.
+  - Requête : `iterations(includeAncestors: true, includeDescendants: true)`, sans filtre de cadence, avec `iterationCadence { id title active }`.
+  - Les cadences sont celles de `iterationCadences(includeAncestorGroups: true)` (groupe et ancêtres), plus celles que portent les itérations (sous-groupes).
+  - `CurrentIterations` est supprimée : la cadence en cours se déduit des itérations, avec l'horloge du backend.
+- **Cadences actives** : leurs itérations font les colonnes.
+  - Le frontend les demande par `GET /api/board?cadences=gid1,gid2`, avec ou sans `refresh=1`. Les GID inconnus sont ignorés.
+  - Sans cadence connue, le **défaut** s'applique, dans cet ordre : la cadence de `GITLAB_CADENCE` ; toutes celles qui ont une itération contenant aujourd'hui ; la première que GitLab marque active ; la première par titre.
+  - Le board renvoie toutes les cadences (`cadences[]`, triées par titre), avec `active` : le frontend affiche la réponse, jamais sa demande.
+- **Colonnes** : les itérations des cadences actives, par date de début, puis date de fin.
+  - Celles qui ont **les mêmes dates** de début et de fin font **une** colonne. La colonne prend l'ID, le titre et le lien de la première, par titre de cadence, et liste ses itérations (`iterationIds`) et leurs cadences (`cadenceIds`).
+  - Des cadences décalées donnent des colonnes distinctes, qui peuvent se chevaucher. Le début d'un epic est alors la première colonne, dans l'ordre, qui finit après sa date de début. La recherche linéaire remplace la dichotomie, dont les dates de fin ne sont plus triées.
+- **Issue d'une cadence non active** : elle est placée comme un epic aux dates de son itération, puis réduite à sa colonne de début. C'est la colonne qui contient la date de début de l'itération, ou la suivante dans un trou.
+  - Elle est non planifiée si l'itération finit avant la première colonne ou commence après la dernière.
+  - Une issue n'est donc plus non planifiée parce que sa cadence n'est pas la bonne. Elle compte aussi pour les dates d'un epic sans date.
+- **Interface** : une section « Cadences » en tête du sélecteur d'itérations, une case par cadence, s'il y en a au moins deux.
+  - La dernière cochée ne peut pas être décochée.
+  - Sans colonne, le sélecteur n'offre que les cadences (« Aucune itération »).
+  - Le choix est mémorisé dans `gleipnir.cadences` (ADR-36). La fenêtre mémorisée retrouve ses itérations dans les colonnes fusionnées, sinon la fenêtre par défaut s'applique.
+  - Le sous-titre de la barre d'outils liste les cadences actives.
+- **Cache** : le board des cadences par défaut est encodé à chaque synchro.
+  - Un autre choix de cadences est encodé à la demande, hors verrou, une fois par synchro (16 choix au plus, tous oubliés au-delà).
+  - Le conflit, le chemin critique et le rattachement restent calculés par le backend, sur les colonnes du choix.
+
+**Conséquences.**
+
+- Une issue planifiée ne disparaît plus parce qu'elle vit dans la cadence d'une autre équipe.
+- Avec des cadences décalées, les colonnes se chevauchent : un epic peut couvrir des colonnes qui se recouvrent, et « strictement plus tard » se compte en colonnes. Décocher une cadence redonne des colonnes simples.
+- La lecture des itérations grossit : 1 513 itérations de 21 cadences, en 16 pages et une dizaine de secondes, sur `gitlab-org/security-products`, contre une seule cadence avant.
+- `GITLAB_CADENCE` ne choisit plus « la » cadence : seulement la cadence active par défaut.
+- Le jeu de démo a une deuxième cadence, « Squad data », dans le sous-groupe `data`, aux mêmes dates que l'Itération 13 à 18. Le faux GitLab et le seeder la servent et l'écrivent.

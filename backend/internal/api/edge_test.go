@@ -23,8 +23,8 @@ func (sampleSource) Fetch(context.Context) (*board.Raw, error) {
 	today := time.Now().Format("2006-01-02")
 	return &board.Raw{
 		RootGroup:  board.Group{Path: "org", Name: "Org"},
-		Cadence:    board.Cadence{ID: "gid://gitlab/Iterations::Cadence/1", Title: "Sprints"},
-		Iterations: []board.RawIteration{{ID: "gid://gitlab/Iteration/1", Title: "Now", StartDate: today, DueDate: today}},
+		Cadences:   []board.RawCadence{{ID: "gid://gitlab/Iterations::Cadence/1", Title: "Sprints"}},
+		Iterations: []board.RawIteration{{ID: "gid://gitlab/Iteration/1", CadenceID: "gid://gitlab/Iterations::Cadence/1", Title: "Now", StartDate: today, DueDate: today}},
 		Items: []board.RawItem{{
 			ID: "gid://gitlab/WorkItem/1", IID: "1", Kind: board.KindEpic, Title: "Epic", State: board.StateOpen,
 			NamespacePath: "org", StartDate: today, DueDate: today,
