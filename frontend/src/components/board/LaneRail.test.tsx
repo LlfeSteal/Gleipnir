@@ -40,11 +40,11 @@ describe('LaneRail', () => {
     expect(h).not.toHaveTextContent('sous-groupes');
     expect(h).toHaveTextContent('aucune issue');
     expect(within(h).getByText('API').closest<HTMLElement>('.lane-label')!.style.getPropertyValue('--label-color')).toBe('#14a08a');
-    expect(h).toHaveTextContent('· tous');
+    expect(h).toHaveTextContent('Labels · tous');
     expect(within(h).queryByTitle(/issues?$/)).toBeNull();
     renderRail([{ ...api, id: 'b', name: 'B', showEpics: false, issueMode: 'all', labels: ['API'] }]);
     expect(header('B')).toHaveTextContent('toutes les issues');
-    expect(header('B')).toHaveTextContent('· au moins un');
+    expect(header('B')).toHaveTextContent('Labels · au moins un');
     expect(within(header('B')).queryByTitle(/epics?$/)).toBeNull();
   });
 

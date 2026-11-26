@@ -5,13 +5,17 @@ import userEvent from '@testing-library/user-event';
 import { LaneLabels } from './LaneLabels';
 
 const colors = new Map([
+  ['backend', '#6699cc'],
   ['API', '#14a08a'],
   ['bug', '#d9534f'],
   ['UX', '#5843ad'],
   ['data', '#428bca'],
   ['mobile', '#f0ad4e'],
+  ['frontend', '#cc6699'],
+  ['sécurité', '#990000'],
 ]);
-const five = ['API', 'bug', 'UX', 'data', 'mobile'];
+const eight = [...colors.keys()];
+const five = eight.slice(0, 5);
 
 function renderLabels(labels: string[], mode: 'any' | 'all' = 'any') {
   const { container } = render(<LaneLabels labels={labels} mode={mode} colors={colors} />);
@@ -20,38 +24,40 @@ function renderLabels(labels: string[], mode: 'any' | 'all' = 'any') {
 
 const more = () => screen.getByRole('button', { name: /^et \d+ autres?…$/ });
 const card = () => screen.queryByRole('tooltip');
+const rows = (line: HTMLElement) => Array.from(line.querySelectorAll<HTMLElement>('.lane-label-row'));
 
 describe('LaneLabels (spec §4.1)', () => {
-  it('shows one or two labels in full, with their color and the mode, without « et N autres… »', () => {
+  it('shows « Labels · mode », then one or two labels, one per line, by name and color, without « et N autres… »', () => {
     const { line } = renderLabels(['API', 'bug'], 'all');
+    expect(line).toHaveTextContent(/^Labels · tous/);
+    expect(rows(line).map((r) => r.textContent)).toEqual(['API', 'bug']);
     expect(within(line).getByText('API').closest<HTMLElement>('.lane-label')!.style.getPropertyValue('--label-color')).toBe('#14a08a');
-    expect(within(line).getByText('bug')).toBeInTheDocument();
-    expect(line).toHaveTextContent('· tous');
     expect(screen.queryByRole('button')).toBeNull();
+    render(<LaneLabels labels={['UX']} mode="any" colors={colors} />);
+    expect(screen.getByText('UX').closest('.lane-labels')).toHaveTextContent('Labels · au moins un');
   });
 
-  it('shows two labels then « et N autres… », singular for one', () => {
-    const { line } = renderLabels(five);
-    expect(line.querySelectorAll('.lane-label')).toHaveLength(2);
-    expect(within(line).queryByText('UX')).toBeNull();
-    expect(more()).toHaveTextContent('et 3 autres…');
-    expect(line).toHaveTextContent('· au moins un');
+  it('names the first two labels, and ends the second line with « et N autres… » counting the hidden ones only', () => {
+    const { line } = renderLabels(eight);
+    expect(rows(line).map((r) => r.textContent)).toEqual(['backend', 'APIet 6 autres…']);
+    expect(within(rows(line)[1]).getByRole('button')).toHaveTextContent('et 6 autres…');
     render(<LaneLabels labels={['API', 'bug', 'UX']} mode="any" colors={colors} />);
     expect(screen.getByRole('button', { name: 'et 1 autre…' })).toBeInTheDocument();
   });
 
-  it('lists every label with its color and the mode on hover, and hides it when the pointer leaves', async () => {
-    const { user } = renderLabels(five, 'all');
+  it('lists the hidden labels only, with their color, on hover, and hides them when the pointer leaves', async () => {
+    const { user } = renderLabels(eight);
     expect(card()).toBeNull();
     await user.hover(more());
     const tooltip = card()!;
     expect(more()).toHaveAttribute('aria-describedby', tooltip.id);
     expect(tooltip.parentElement).toBe(document.body);
-    expect(tooltip).toHaveTextContent('Labels du couloir');
+    expect(tooltip).toHaveTextContent('Autres labels');
     const items = within(tooltip).getAllByRole('listitem');
-    expect(items.map((li) => li.textContent)).toEqual(five);
+    expect(items.map((li) => li.textContent)).toEqual(eight.slice(2));
+    expect(within(tooltip).queryByText('backend')).toBeNull();
+    expect(within(tooltip).queryByText('API')).toBeNull();
     expect(within(tooltip).getByText('mobile').closest<HTMLElement>('.lane-hovercard-label')!.style.getPropertyValue('--label-color')).toBe('#f0ad4e');
-    expect(tooltip).toHaveTextContent('Tous ces labels');
     await user.unhover(more());
     expect(card()).toBeNull();
     expect(more()).not.toHaveAttribute('aria-describedby');
@@ -60,7 +66,7 @@ describe('LaneLabels (spec §4.1)', () => {
   it('opens on focus and on a tap; blur and Escape close it, Escape without reaching the page', async () => {
     const { user } = renderLabels(five);
     await user.tab();
-    expect(card()).toHaveTextContent('Au moins un de ces labels');
+    expect(card()).toHaveTextContent('Autres labels');
     let reached = false;
     const onKey = () => (reached = true);
     document.addEventListener('keydown', onKey);

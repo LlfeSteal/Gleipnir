@@ -7,6 +7,9 @@ import { BOARD } from '../strings/board';
 import { matchesLabels } from './items';
 import { ISSUE_MODES, LANE_COLORS, type GroupNode, type ItemKind, type Lane, type LaneColor } from './types';
 
+/** Labels a lane header lists by name before « et N autres… » (§4.1), like an issue card's two. */
+export const MAX_LANE_LABELS = 2;
+
 const treeCache = new WeakMap<BoardData, GroupNode[]>();
 const pathCache = new WeakMap<BoardData, Map<string, string>>();
 

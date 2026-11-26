@@ -83,11 +83,12 @@
   display: flex; align-items: center; gap: 10px; padding-left: 28px; min-height: 18px;
   font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap;
 }
-.lane-labels { display: flex; align-items: center; gap: 8px; min-width: 0; }
-/* Two labels at most (LaneLabels), each cut short: the line never overflows the rail. */
-.lane-label { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 45%; }
+.lane-labels { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+/* A heading with the mode, then one label per line, two at most (LaneLabels): a long name is cut
+   short, « et N autres… » never shrinks. view.ts (laneHeaderHeight) counts these 16 px lines. */
+.lane-label-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.lane-label { display: inline-flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0; }
 .lane-label-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lane-label-mode { flex: none; }
 .lane-label-more {
   flex: none; padding: 0; border: 0; background: none; font: inherit; color: var(--text-secondary);
   text-decoration: underline dotted; text-underline-offset: 2px; cursor: default;
@@ -102,7 +103,6 @@
 .lane-hovercard-title { margin: 0 0 6px; font-weight: 600; }
 .lane-hovercard-list { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .lane-hovercard-label { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.lane-hovercard-mode { margin: 6px 0 0; color: var(--text-secondary); }
 .lane-count { display: inline-flex; align-items: center; gap: 5px; }
 .lane-outside { font-size: 11px; }
 .label-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--label-color, var(--undated)); }

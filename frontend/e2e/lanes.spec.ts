@@ -251,7 +251,7 @@ test('a lane\'s labels filter its epics and issues: "priorité::haute", then wit
 
   await expect.poll(() => boardLanes(page)).toEqual(['Urgent']);
   await expect(page.getByRole('region', { name: 'Urgent' })).toContainText('priorité::haute');
-  await expect(page.getByRole('region', { name: 'Urgent' })).toContainText('· au moins un');
+  await expect(page.getByRole('region', { name: 'Urgent' })).toContainText('Labels · au moins un');
   await expect(boardItems(page)).toHaveCount(2);
   await expect(boardItem(page, '#104')).toBeVisible();
   await expect(boardItem(page, '#113')).toBeVisible();
@@ -261,31 +261,41 @@ test('a lane\'s labels filter its epics and issues: "priorité::haute", then wit
   await again.getByRole('listbox', { name: 'Labels', exact: true }).getByRole('option', { name: 'bug', exact: true }).click();
   await again.getByRole('radiogroup', { name: 'Correspondance des labels' }).getByRole('radio', { name: 'Tous' }).click();
   await applyLaneSettings(again);
-  await expect(page.getByRole('region', { name: 'Urgent' })).toContainText('· tous');
+  await expect(page.getByRole('region', { name: 'Urgent' })).toContainText('Labels · tous');
   await expect(boardItems(page)).toHaveCount(2);
 });
 
-test('many labels: the header shows two, then « et 3 autres… », whose card lists them all (spec §4.1)', async ({ page }) => {
-  const picked = ['priorité::haute', 'sécurité', 'frontend', 'backend', 'mobile'];
+test('many labels: two named, one per line, then « et 6 autres… », whose card lists the hidden ones only (spec §4.1)', async ({ page }) => {
+  const picked = ['priorité::haute', 'sécurité', 'frontend', 'backend', 'mobile', 'API', 'bug', 'data'];
   const sheet = await editLane(page, 'API et intégrations');
   const labels = sheet.getByRole('listbox', { name: 'Labels', exact: true });
   for (const title of picked) await labels.getByRole('option', { name: title, exact: true }).click();
   await applyLaneSettings(sheet);
 
   const header = page.getByRole('region', { name: 'API et intégrations' });
-  const more = header.getByRole('button', { name: 'et 3 autres…' });
+  await expect(header).toContainText('Labels · au moins un');
+  const more = header.getByRole('button', { name: 'et 6 autres…' });
   await expect(more).toBeVisible();
-  await expect(header).toContainText('· au moins un');
-  // The label line stays inside the rail: no overlap, no clipped chip.
-  const line = header.locator('.lane-labels');
-  expect(await line.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  // Two labels shown by name (each chip is titled with its label), the six others hidden.
+  const shown: string[] = [];
+  for (const title of picked) if ((await header.getByTitle(title, { exact: true }).count()) > 0) shown.push(title);
+  expect(shown).toHaveLength(2);
+  for (const title of shown) await expect(header.getByTitle(title, { exact: true })).toHaveText(title);
+
+  // Geometry: no line overflows the rail, and the counts stay inside the header.
+  const fits = await header.evaluate((el) => {
+    const lines = Array.from(el.querySelectorAll<HTMLElement>('.lane-labels, .lane-label-row'));
+    const counts = el.querySelector('.lane-counts')!.getBoundingClientRect();
+    return lines.every((l) => l.scrollWidth <= l.clientWidth) && counts.bottom <= el.getBoundingClientRect().bottom;
+  });
+  expect(fits).toBe(true);
 
   await more.hover();
   const card = page.getByRole('tooltip');
   await expect(card).toBeVisible();
-  await expect(card).toContainText('Labels du couloir');
-  for (const title of picked) await expect(card.getByRole('listitem').filter({ hasText: title })).toHaveCount(1);
-  await expect(card).toContainText('Au moins un de ces labels');
+  await expect(card).toContainText('Autres labels');
+  await expect(card.getByRole('listitem')).toHaveCount(6);
+  for (const title of picked) await expect(card.getByRole('listitem').filter({ hasText: title })).toHaveCount(shown.includes(title) ? 0 : 1);
   await page.keyboard.press('Escape');
   await expect(card).toBeHidden();
 

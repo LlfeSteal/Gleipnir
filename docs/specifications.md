@@ -61,7 +61,7 @@ L'outil ne suit **pas l'avancement**. Il n'affiche ni pourcentage, ni poids, ni 
   - le nom et la couleur du couloir ;
   - les groupes ciblés et l'option sous-groupes ;
   - le mode d'affichage des issues ;
-  - les labels filtrés et le mode (« au moins un » ou « tous ») : deux labels au plus, puis « et N autres… ». Survoler, focaliser ou toucher cette mention ouvre une infobulle qui liste tous les labels du couloir avec leur couleur ;
+  - les labels filtrés : une ligne « Labels · au moins un » (ou « · tous »), puis un label par ligne avec sa couleur, deux au plus. Au-delà, la deuxième ligne finit par « et N autres… », qui ne compte que les labels cachés ; le survoler, le focaliser ou le toucher ouvre une infobulle qui les liste avec leur couleur. Le couloir est assez haut pour que son en-tête ne soit jamais coupé ;
   - le nombre d'epics et d'issues visibles, et le nombre d'éléments hors fenêtre ;
   - un bouton **replier / déplier** et un bouton **modifier**.
 - Un couloir sans élément dans la fenêtre affiche un message vide.

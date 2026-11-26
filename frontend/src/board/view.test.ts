@@ -3,7 +3,7 @@ import type { BoardData } from '../api/types';
 import { generateBoard, G, idOf, mockupBoard } from './fixtures';
 import { defaultLanes } from './lanes';
 import { DEFAULT_OPTIONS, type BoardView, type DisplayOptions, type Lane, type ViewInput } from './types';
-import { COMPACT_LAYOUT, computeBoardView, connectedIds, curve, isCompactView, LAYOUT, layoutFor } from './view';
+import { COMPACT_LAYOUT, computeBoardView, connectedIds, curve, isCompactView, LAYOUT, laneHeaderHeight, layoutFor } from './view';
 
 function view(patch: Partial<Omit<ViewInput, 'options'>> & { options?: Partial<DisplayOptions> } = {}): BoardView {
   const data = patch.data ?? mockupBoard();
@@ -264,6 +264,27 @@ describe('lanes and items', () => {
     expect(v.lanes[0].empty).toBe(true);
     expect(v.lanes[0].height).toBe(LAYOUT.laneMinHeight);
     expect(v.lanes[1].empty).toBe(false);
+  });
+
+  it('makes a lane tall enough for its header: a « Labels » line and up to two label lines (§4.1)', () => {
+    const data = mockupBoard();
+    const heightWith = (labels: string[], compact = false) =>
+      computeBoardView(
+        { data, lanes: [lane(data, [G.partenaires], { labels })], window: { from: 2, to: 6 }, options: DEFAULT_OPTIONS, query: '', collapsed: new Set() },
+        layoutFor(compact),
+      ).lanes[0].height;
+    // No label: the header fits the minimum height, as before.
+    expect(laneHeaderHeight({ labels: [] }, LAYOUT)).toBeLessThanOrEqual(LAYOUT.laneMinHeight);
+    expect(heightWith([])).toBe(LAYOUT.laneMinHeight);
+    // One label: heading + one line; two or more: heading + two lines, never more.
+    expect(heightWith(['API'])).toBe(Math.max(LAYOUT.laneMinHeight, LAYOUT.laneHeaderBase + 2 * LAYOUT.laneMetaLine));
+    const two = LAYOUT.laneHeaderBase + 3 * LAYOUT.laneMetaLine;
+    expect(two).toBeGreaterThan(LAYOUT.laneMinHeight);
+    expect(heightWith(['API', 'bug'])).toBe(two);
+    expect(heightWith(['API', 'bug', 'UX', 'data', 'mobile'])).toBe(two);
+    // The compact rail hides the labels: they add nothing.
+    expect(heightWith(['API', 'bug', 'UX'], true)).toBe(COMPACT_LAYOUT.laneMinHeight);
+    expect(laneHeaderHeight({ labels: ['API', 'bug', 'UX'] }, COMPACT_LAYOUT)).toBe(0);
   });
 
   it('takes the items of the lane groups, with their subgroups when asked (spec §5.3)', () => {

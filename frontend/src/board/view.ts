@@ -5,7 +5,7 @@
 
 import type { Epic, Issue, LinkType } from '../api/types';
 import { isEpicUnplanned, isIssueUnplanned } from './items';
-import { laneMatcher } from './lanes';
+import { laneMatcher, MAX_LANE_LABELS } from './lanes';
 import { searchItems } from './search';
 import type {
   BoardStats,
@@ -38,6 +38,10 @@ export interface BoardLayout {
   lanePaddingTop: number;
   lanePaddingBottom: number;
   laneMinHeight: number;
+  /** Height of the lane header without labels, and of one more meta line (16 px line + 4 px
+   * gap): keep in step with .lane-header in board.css. 0 in the compact rail, which hides them. */
+  laneHeaderBase: number;
+  laneMetaLine: number;
   collapsedLaneHeight: number;
   arrowLength: number;
   arrowHalfWidth: number;
@@ -61,6 +65,9 @@ export const LAYOUT: Readonly<BoardLayout> = {
   lanePaddingTop: 12,
   lanePaddingBottom: 12,
   laneMinHeight: 120,
+  // 8 + 8 padding, 24 top row, two 20 px meta lines (groups, issue mode), 4 + 18 counts.
+  laneHeaderBase: 102,
+  laneMetaLine: 20,
   collapsedLaneHeight: 64,
   arrowLength: 6,
   arrowHalfWidth: 3.5,
@@ -76,8 +83,17 @@ export const COMPACT_LAYOUT: Readonly<BoardLayout> = {
   columnWidth: 172,
   narrowColumnWidth: 172,
   laneMinHeight: 96,
+  laneHeaderBase: 0,
+  laneMetaLine: 0,
   collapsedLaneHeight: 80,
 };
+
+/** The height a lane's header needs (§4.1): its labels add a « Labels · … » line and one line
+ * per shown label, so that the header, which clips its overflow, never cuts its counts. */
+export function laneHeaderHeight(lane: Pick<Lane, 'labels'>, L: Readonly<BoardLayout>): number {
+  const labelLines = lane.labels.length ? 1 + Math.min(lane.labels.length, MAX_LANE_LABELS) : 0;
+  return L.laneHeaderBase + labelLines * L.laneMetaLine;
+}
 
 export const layoutFor = (compact: boolean): Readonly<BoardLayout> => (compact ? COMPACT_LAYOUT : LAYOUT);
 
@@ -302,7 +318,7 @@ export function computeBoardView(input: ViewInput, layout: Readonly<BoardLayout>
       }
     }
 
-    block.height = Math.max(L.laneMinHeight, bottom + L.lanePaddingBottom - top);
+    block.height = Math.max(L.laneMinHeight, laneHeaderHeight(c.lane, L), bottom + L.lanePaddingBottom - top);
     y += block.height;
   }
   const height = y;
